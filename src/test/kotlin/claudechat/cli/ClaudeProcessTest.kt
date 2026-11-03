@@ -1,6 +1,7 @@
 package claudechat.cli
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -70,5 +71,17 @@ class ClaudeProcessTest {
         } finally {
             p.stop()
         }
+    }
+
+    @Test fun writerThreadEndsWhenProcessExitsOnItsOwn() {
+        val exited = CountDownLatch(1)
+        val p = ClaudeProcess(listOf("/bin/sh", "-c", "exit 0"), tmp, emptyMap())
+        p.start(onLine = {}, onExit = { _, _ -> exited.countDown() })
+        assertTrue(exited.await(5, TimeUnit.SECONDS))
+        val writer = checkNotNull(p.stdinThread)
+        writer.join(2000)
+        assertFalse("stdin writer still alive after process exit", writer.isAlive)
+        p.send("after exit")
+        p.stop()
     }
 }

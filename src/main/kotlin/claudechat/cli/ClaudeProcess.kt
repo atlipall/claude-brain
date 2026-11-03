@@ -20,6 +20,9 @@ class ClaudeProcess(
     @Volatile private var outbox: LinkedBlockingQueue<Any>? = null
     private val stopped = AtomicBoolean(false)
 
+    /** The stdin writer thread; set by start(). Exposed internally so tests can confirm it ends. */
+    @Volatile internal var stdinThread: Thread? = null
+
     override fun start(onLine: (String) -> Unit, onExit: (exitCode: Int, stderrTail: String) -> Unit) {
         val builder = ProcessBuilder(command).directory(workDir)
         builder.environment().putAll(env)
@@ -28,7 +31,7 @@ class ClaudeProcess(
 
         val queue = LinkedBlockingQueue<Any>()
         val stdin = p.outputStream.bufferedWriter(Charsets.UTF_8)
-        thread(isDaemon = true, name = "claude-stdin") { writeLoop(stdin, queue) }
+        stdinThread = thread(isDaemon = true, name = "claude-stdin") { writeLoop(stdin, queue) }
         outbox = queue
 
         val tail = ArrayDeque<String>()
@@ -48,6 +51,9 @@ class ClaudeProcess(
             }
             val code = p.waitFor()
             stderrThread.join(1000)
+            // The process is gone: refuse further sends and wake the writer so it ends.
+            stopped.set(true)
+            outbox?.offer(CLOSE)
             onExit(code, synchronized(tail) { tail.joinToString("\n") })
         }
     }
