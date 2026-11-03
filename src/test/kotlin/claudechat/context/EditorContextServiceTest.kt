@@ -1,6 +1,10 @@
 package claudechat.context
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.psi.PsiFile
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
@@ -15,6 +19,16 @@ class EditorContextServiceTest : BasePlatformTestCase() {
     private val root get() = ProjectRootManager.getInstance(project).contentRoots.first().path
     private lateinit var savedDir: String
     private lateinit var savedSchedule: (Runnable) -> Unit
+    private lateinit var savedFinder: (PsiFile, Document, Int) -> Pair<Symbol?, Symbol?>
+
+    /** The context as a chat would get it with a symbol: waits for the background lookup (absolute path). */
+    private fun capture(): EditorContext? {
+        var result: EditorContext? = null
+        var done = false
+        service.resolve(null) { result = it; done = true }
+        PlatformTestUtil.waitWithEventsDispatching("The symbol lookup did not finish", { done }, 10)
+        return result
+    }
 
     // Lines 1-11; JS lists functions, classes, methods, top-level variables and object properties in its Structure View.
     private val js = listOf(
@@ -36,6 +50,8 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         manager.openFiles.forEach(manager::closeFile) // the light project and its services are shared between tests
         savedDir = service.projectDir
         savedSchedule = service.schedule
+        savedFinder = service.finder
+        service.forgetCache()
         service.projectDir = root
         service.schedule = { it.run() }
     }
@@ -45,6 +61,8 @@ class EditorContextServiceTest : BasePlatformTestCase() {
             manager.openFiles.forEach(manager::closeFile)
             service.projectDir = savedDir
             service.schedule = savedSchedule
+            service.finder = savedFinder
+            service.forgetCache()
         } finally {
             super.tearDown()
         }
@@ -52,7 +70,7 @@ class EditorContextServiceTest : BasePlatformTestCase() {
 
     fun testCaretInANestedFunction() {
         myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
-        val context = service.capture()!!
+        val context = capture()!!
         assertEquals(myFixture.file.virtualFile.path, context.path)
         assertEquals(4, context.line)
         assertEquals(12, context.column)
@@ -63,42 +81,42 @@ class EditorContextServiceTest : BasePlatformTestCase() {
 
     fun testCaretInAClassMethod() {
         myFixture.configureByText("calc.js", js.replace("return 1;", "return <caret>1;"))
-        assertEquals(Symbol("m", "method", Lines(9, 9)), service.capture()!!.symbol)
+        assertEquals(Symbol("m", "method", Lines(9, 9)), capture()!!.symbol)
     }
 
     fun testCaretInAPropertyOutsideAnyFunction() {
         myFixture.configureByText("calc.js", js.replace("a: 1", "a: <caret>1"))
-        val context = service.capture()!!
+        val context = capture()!!
         assertEquals(Symbol("a", "property", Lines(11, 11)), context.symbol)
         assertNull(context.container)
     }
 
     fun testCaretOutsideEveryElement() {
         myFixture.configureByText("calc.js", "// notes<caret>\n\nfunction f() {}\n")
-        assertNull(service.capture()!!.symbol)
+        assertNull(capture()!!.symbol)
     }
 
     fun testTypeScriptMethod() {
         myFixture.configureByText("c.ts", "export class C {\n  total(n: number): number {\n    return <caret>n;\n  }\n}\n")
-        assertEquals(Symbol("total", "method", Lines(2, 4)), service.capture()!!.symbol)
+        assertEquals(Symbol("total", "method", Lines(2, 4)), capture()!!.symbol)
     }
 
     fun testSelectionLines() {
         myFixture.configureByText("calc.js", js.replace("  const x", "<selection>  const x").replace("return x;", "return x;<caret></selection>"))
-        assertEquals(Lines(2, 4), service.capture()!!.selection)
+        assertEquals(Lines(2, 4), capture()!!.selection)
     }
 
     fun testSelectionEndingAtALineStartStopsOnThePreviousLine() {
         myFixture.configureByText("calc.js", js.replace("  const x = 1;\n", "<selection>  const x = 1;\n<caret></selection>"))
-        assertEquals(Lines(2, 2), service.capture()!!.selection)
+        assertEquals(Lines(2, 2), capture()!!.selection)
     }
 
     fun testPlainTextHasALocationButNoSymbol() {
         myFixture.configureByText("notes.txt", "one\ntw<caret>o\n")
-        assertEquals(EditorContext(myFixture.file.virtualFile.path, 2, 3), service.capture())
+        assertEquals(EditorContext(myFixture.file.virtualFile.path, 2, 3), capture())
     }
 
-    fun testNoEditorNoContext() = assertNull(service.capture())
+    fun testNoEditorNoContext() = assertNull(capture())
 
     fun testTheLastFocusedEditorWins() {
         myFixture.configureByText("a.txt", "a")
@@ -106,9 +124,9 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         manager.openFile(myFixture.addFileToProject("b.txt", "b").virtualFile, false)
         val b = (manager.getSelectedEditor(myFixture.findFileInTempDir("b.txt")) as TextEditor).editor
         service.editorFocused(b)
-        assertTrue(service.capture()!!.path.endsWith("/b.txt"))
+        assertTrue(capture()!!.path.endsWith("/b.txt"))
         service.editorFocused(a)
-        assertTrue(service.capture()!!.path.endsWith("/a.txt"))
+        assertTrue(capture()!!.path.endsWith("/a.txt"))
     }
 
     fun testEditorsWithoutALocalFileAreIgnored() {
@@ -117,7 +135,7 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         val scratch = factory.createEditor(factory.createDocument("scratch"), project)
         try {
             service.editorFocused(scratch)
-            assertTrue(service.capture()!!.path.endsWith("/a.txt"))
+            assertTrue(capture()!!.path.endsWith("/a.txt"))
         } finally {
             factory.releaseEditor(scratch)
         }
@@ -178,11 +196,11 @@ class EditorContextServiceTest : BasePlatformTestCase() {
     fun testDumbModeMeansNoSymbolButStillALocation() {
         myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
         DumbModeTestUtils.runInDumbModeSynchronously(project) {
-            val context = service.capture()!!
+            val context = capture()!!
             assertEquals(4, context.line)
             assertNull(context.symbol)
         }
-        assertNotNull(service.capture()!!.symbol)
+        assertNotNull(capture()!!.symbol)
     }
 
     fun testAThrowingListenerDoesNotStopTheOthers() {
@@ -192,5 +210,34 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         service.addListener(testRootDisposable) { second++ }
         myFixture.editor.caretModel.moveToOffset(5)
         assertTrue(second > 0)
+    }
+
+    fun testSymbolsAreFoundOffTheEdtAndTheChipOnlyReadsTheCache() {
+        myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
+        val onEdt = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+        service.finder = { file, document, offset ->
+            onEdt += ApplicationManager.getApplication().isDispatchThread
+            SymbolFinder.find(file, document, offset)
+        }
+        val chips = mutableListOf<EditorContext?>()
+        service.addListener(testRootDisposable) { chips += service.contextFor(root) }
+        myFixture.editor.caretModel.moveToOffset(myFixture.editor.caretModel.offset + 1) // a debounce round (run inline here)
+        assertTrue(onEdt.isEmpty() || onEdt.none { it }) // nothing ran on the EDT while the round returned
+        assertNull(chips.first()!!.symbol) // the chip got the location at once, without waiting for the lookup
+        PlatformTestUtil.waitWithEventsDispatching("The symbol never arrived", { chips.last()?.symbol != null }, 10)
+        assertEquals("inner", chips.last()!!.symbol!!.name)
+        assertTrue(onEdt.isNotEmpty())
+        assertFalse(onEdt.any { it })
+        val calls = onEdt.size
+        service.contextFor(root) // a refresh on a warm cache runs nothing
+        assertEquals(calls, onEdt.size)
+    }
+
+    fun testAFailingLookupCompletesWithTheLocationOnly() {
+        myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
+        service.finder = { _, _, _ -> throw IllegalStateException("boom") }
+        val context = capture()!!
+        assertEquals(4, context.line)
+        assertNull(context.symbol)
     }
 }

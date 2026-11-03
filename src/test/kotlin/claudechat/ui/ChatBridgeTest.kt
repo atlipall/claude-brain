@@ -15,6 +15,7 @@ import claudechat.settings.ClaudeChatSettings
 import claudechat.testutil.FakeConnection
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -173,6 +174,8 @@ class ChatBridgeTest : BasePlatformTestCase() {
     fun testReadyPostsTheEditorContextChip() {
         myFixture.configureByText("calc.js", "function total(a) {\n  return a<caret> + 1;\n}\n")
         bridge.handle("""{"type":"ready"}""")
+        // the symbol arrives from the background lookup after the first, location-only chip
+        PlatformTestUtil.waitWithEventsDispatching("No chip with the symbol", { posted.last().str("text") == "calc.js › total · L2" }, 10)
         val msg = posted.last()
         assertEquals("context", msg.str("type"))
         assertEquals("calc.js › total · L2", msg.str("text"))
@@ -199,6 +202,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         bridge.handle("""{"type":"contextOff","off":false}""")
         assertEquals(false, posted.last().bool("off"))
         bridge.handle("""{"type":"send","text":"hello"}""")
+        PlatformTestUtil.waitWithEventsDispatching("Not sent", { connections[0].userMessages().isNotEmpty() }, 10)
         assertTrue(connections[0].userMessages().single().contains("[IDE] The user is looking at a.txt, caret at line 1:1."))
     }
 

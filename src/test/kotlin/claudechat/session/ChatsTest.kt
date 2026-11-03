@@ -3,6 +3,13 @@ package claudechat.session
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.context.EditorContextService
+import claudechat.context.Symbol
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.Document
+import com.intellij.psi.PsiFile
+import com.intellij.testFramework.PlatformTestUtil
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import claudechat.settings.ClaudeChatSettings
 import claudechat.testutil.FakeConnection
 import claudechat.testutil.Fx
@@ -36,6 +43,12 @@ class ChatsTest : BasePlatformTestCase() {
     private val manager get() = FileEditorManager.getInstance(project)
     private var savedAttach = true
     private lateinit var savedProjectDir: String
+    private lateinit var savedFinder: (PsiFile, Document, Int) -> Pair<Symbol?, Symbol?>
+    private var savedTimeout = 0L
+
+    /** Lets the background symbol lookup finish and the send complete on the EDT. */
+    private fun awaitMessages(connection: FakeConnection, count: Int) =
+        PlatformTestUtil.waitWithEventsDispatching("Expected $count messages, got ${connection.userMessages()}", { connection.userMessages().size >= count }, 10)
 
     override fun setUp() {
         super.setUp()
@@ -45,6 +58,9 @@ class ChatsTest : BasePlatformTestCase() {
         settings.attachEditorContext = true
         savedProjectDir = contextService.projectDir
         contextService.projectDir = root
+        savedFinder = contextService.finder
+        savedTimeout = contextService.lookupTimeoutMs
+        contextService.forgetCache()
         home = Files.createTempDirectory("claude-home").toFile()
         chats.connector = { launch -> launches += launch; FakeConnection().also { connections += it } }
         chats.store = SessionStore(home)
@@ -58,6 +74,9 @@ class ChatsTest : BasePlatformTestCase() {
             manager.openFiles.forEach(manager::closeFile)
             settings.attachEditorContext = savedAttach
             contextService.projectDir = savedProjectDir
+            contextService.finder = savedFinder
+            contextService.lookupTimeoutMs = savedTimeout
+            contextService.forgetCache()
         } finally {
             super.tearDown()
         }
@@ -192,6 +211,7 @@ class ChatsTest : BasePlatformTestCase() {
         myFixture.configureByText("a.txt", "x")
         myFixture.type("y")
         chat.send("hello")
+        awaitMessages(connections.single(), 1)
         val content = connections.single().userMessages().single()
         assertTrue(content, content.startsWith("[IDE] Since your last turn the user edited these files: a.txt."))
         assertTrue(content.endsWith("\n\nhello"))
@@ -204,6 +224,8 @@ class ChatsTest : BasePlatformTestCase() {
         myFixture.type("y")
         main.send("first")
         wt.send("second")
+        awaitMessages(connections[0], 1)
+        awaitMessages(connections[1], 1)
         assertEquals(listOf("first"), connections[0].userMessages())
         assertTrue(connections[1].userMessages().single().startsWith("[IDE] Since your last turn the user edited these files: b.txt."))
     }
@@ -222,6 +244,7 @@ class ChatsTest : BasePlatformTestCase() {
         myFixture.configureByText("calc.js", "function total(a) {\n  return a<caret> + 1;\n}\n")
         val chat = chats.open(ChatSpec.inProject(root))
         chat.send("what does this do?")
+        awaitMessages(connections.single(), 1)
         assertEquals(
             listOf("[IDE] The user is looking at calc.js, caret at line 2:11, inside function `total` (lines 1–3).\n\nwhat does this do?"),
             connections.single().userMessages())
@@ -232,6 +255,7 @@ class ChatsTest : BasePlatformTestCase() {
         myFixture.configureByText("a.txt", "x")
         myFixture.type("y")
         chat.send("hello")
+        awaitMessages(connections.single(), 1)
         assertEquals(
             listOf("[IDE] Since your last turn the user edited these files: a.txt.\nRe-read them before relying on earlier contents.\n\n" +
                 "[IDE] The user is looking at a.txt, caret at line 1:2.\n\nhello"),
@@ -246,6 +270,7 @@ class ChatsTest : BasePlatformTestCase() {
         assertFalse(chat.contextOff)
         connections.single().emit(Fx.result())
         chat.send("two")
+        awaitMessages(connections.single(), 2)
         assertEquals(listOf("one", "[IDE] The user is looking at a.txt, caret at line 1:1.\n\ntwo"), connections.single().userMessages())
     }
 
@@ -255,6 +280,7 @@ class ChatsTest : BasePlatformTestCase() {
         chat.skipContext(true)
         chat.skipContext(false)
         chat.send("one")
+        awaitMessages(connections.single(), 1)
         assertEquals(listOf("[IDE] The user is looking at a.txt, caret at line 1:1.\n\none"), connections.single().userMessages())
     }
 
@@ -273,6 +299,8 @@ class ChatsTest : BasePlatformTestCase() {
         val wt2 = chats.open(ChatSpec("wt2", "$root/.claude/worktrees/wt2"))
         wt1.send("a")
         wt2.send("b")
+        awaitMessages(connections[0], 1)
+        awaitMessages(connections[1], 1)
         assertEquals(listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\na"), connections[0].userMessages())
         // wt2's folder does not exist yet; git creates it from HEAD, so the main-relative path will hold there
         assertEquals(listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\nb"), connections[1].userMessages())
@@ -297,5 +325,105 @@ class ChatsTest : BasePlatformTestCase() {
         } finally {
             chat.dispose()
         }
+    }
+
+    private val calc = "function total(a) {\n  return a<caret> + 1;\n}\n"
+    private val inTotal = "[IDE] The user is looking at calc.js, caret at line 2:11, inside function `total` (lines 1–3).\n\n"
+    private val locationOnly = "[IDE] The user is looking at calc.js, caret at line 2:11.\n\n"
+
+    fun testNoSymbolLookupRunsOnTheEdtOnSendOrRefresh() {
+        myFixture.configureByText("calc.js", calc)
+        val onEdt = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+        contextService.finder = { file, document, offset ->
+            onEdt += ApplicationManager.getApplication().isDispatchThread
+            claudechat.context.SymbolFinder.find(file, document, offset)
+        }
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.attach(RecordingView()) // the chip refreshes
+        chat.refreshContext()
+        chat.send("hi")
+        awaitMessages(connections.single(), 1)
+        assertEquals(listOf(inTotal + "hi"), connections.single().userMessages())
+        assertTrue(onEdt.isNotEmpty())
+        assertFalse(onEdt.any { it })
+    }
+
+    fun testSendWithAWarmCacheIsSynchronous() {
+        myFixture.configureByText("calc.js", calc)
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("one")
+        awaitMessages(connections.single(), 1)
+        connections.single().emit(Fx.result())
+        contextService.finder = { _, _, _ -> throw IllegalStateException("the cache should have been used") }
+        chat.send("two")
+        assertEquals(listOf(inTotal + "one", inTotal + "two"), connections.single().userMessages())
+    }
+
+    fun testSendWithAStaleCacheWaitsForTheSymbol() {
+        myFixture.configureByText("calc.js", calc)
+        val release = CountDownLatch(1)
+        contextService.finder = { file, document, offset ->
+            release.await(10, TimeUnit.SECONDS)
+            claudechat.context.SymbolFinder.find(file, document, offset)
+        }
+        val chat = chats.open(ChatSpec.inProject(root))
+        val view = RecordingView().also(chat::attach)
+        chat.send("wait for it")
+        assertTrue(connections.single().userMessages().isEmpty())
+        assertTrue(view.items.none { it is ChatItem.UserText }) // the bubble appears with the send
+        release.countDown()
+        awaitMessages(connections.single(), 1)
+        assertEquals(listOf(inTotal + "wait for it"), connections.single().userMessages())
+    }
+
+    fun testALookupThatFailsSendsTheLocationOnly() {
+        myFixture.configureByText("calc.js", calc)
+        contextService.finder = { _, _, _ -> throw IllegalStateException("boom") }
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("hi")
+        awaitMessages(connections.single(), 1)
+        assertEquals(listOf(locationOnly + "hi"), connections.single().userMessages())
+    }
+
+    fun testALookupThatTimesOutSendsTheLocationOnly() {
+        myFixture.configureByText("calc.js", calc)
+        val release = CountDownLatch(1)
+        contextService.finder = { file, document, offset ->
+            release.await(10, TimeUnit.SECONDS)
+            claudechat.context.SymbolFinder.find(file, document, offset)
+        }
+        contextService.lookupTimeoutMs = 100
+        val chat = chats.open(ChatSpec.inProject(root))
+        try {
+            chat.send("slow")
+            awaitMessages(connections.single(), 1)
+            assertEquals(listOf(locationOnly + "slow"), connections.single().userMessages())
+        } finally {
+            release.countDown()
+        }
+    }
+
+    fun testQuickSendsKeepTheirOrder() {
+        myFixture.configureByText("calc.js", calc)
+        val release = CountDownLatch(1)
+        contextService.finder = { file, document, offset ->
+            release.await(10, TimeUnit.SECONDS)
+            claudechat.context.SymbolFinder.find(file, document, offset)
+        }
+        val chat = chats.open(ChatSpec.inProject(root))
+        val view = RecordingView().also(chat::attach)
+        chat.send("first")
+        chat.skipContext(true)
+        chat.send("second") // needs no context, but must still queue behind the first
+        chat.send("third")
+        assertTrue(view.items.none { it is ChatItem.UserText })
+        release.countDown()
+        fun texts() = view.items.filterIsInstance<ChatItem.UserText>().map { it.text }
+        PlatformTestUtil.waitWithEventsDispatching("Not all sent: ${texts()}", { texts().size >= 3 }, 10)
+        assertEquals(listOf("first", "second", "third"), texts()) // one claude turn at a time: the rest queue in the session
+        assertEquals(listOf(inTotal + "first"), connections.single().userMessages())
+        connections.single().emit(Fx.result())
+        awaitMessages(connections.single(), 2)
+        assertEquals("second", connections.single().userMessages()[1])
     }
 }

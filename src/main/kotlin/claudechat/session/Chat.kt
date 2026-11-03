@@ -31,8 +31,16 @@ class Chat(
     connector: (SessionLaunch) -> CliConnection,
     initialMode: PermissionMode?,
     private val editNote: (Chat) -> String?,
-    /** Where the user is looking, as this chat names the file; null for none (or when the setting is off). EDT. */
+    /**
+     * Where the user is looking, as this chat names the file; null for none (or when the setting is off). EDT, cheap:
+     * the chip reads it on every refresh, so it must not search for symbols.
+     */
     private val editorContext: (Chat) -> EditorContext? = { null },
+    /**
+     * The same with the symbol, which may need a background lookup: calls `done` on the EDT, at once or later, exactly
+     * once. Null means [editorContext] is already complete.
+     */
+    private val resolveContext: ((Chat, (EditorContext?) -> Unit) -> Unit)? = null,
     log: (String) -> Unit = {},
 ) {
     val label: String = spec.label
@@ -147,9 +155,18 @@ class Chat(
         view?.context(next.first, next.second)
     }
 
+    private class Outgoing(val text: String, val edits: String?, val withContext: Boolean)
+
+    /** Messages waiting for their context, oldest first; only the head resolves, so order is kept. EDT only. */
+    private val outbox = ArrayDeque<Outgoing>()
+    private var resolving = false
+    private var disposed = false
+
     /**
      * EDT only (the edit note saves documents, the context reads the editor). Ignored while the session is dead.
      * Claude gets the edit note, then the editor-context note, then [text]; the chat shows only [text].
+     * The edit note and the skip-once flag are taken now. When the symbol at the caret is not cached the message goes
+     * out (and its bubble appears) once the background lookup returns, behind any earlier message still waiting.
      */
     fun send(text: String) {
         if (session.state == SessionState.DEAD) return
@@ -158,13 +175,70 @@ class Chat(
             onTitleChanged?.invoke()
         }
         val edits = editNote(this) // saves documents first
-        val context = if (contextOff) null else captureContext(ContextNotes::note)
+        outbox += Outgoing(text, edits, !contextOff)
         contextOff = false
-        session.send(text, listOfNotNull(edits, context).joinToString("\n\n").ifEmpty { null })
+        pump()
         refreshContext() // the chip is live again
     }
 
-    fun dispose() = session.dispose()
+    private fun pump() {
+        while (!resolving) {
+            val next = outbox.firstOrNull() ?: return
+            val resolve = resolveContext
+            if (!next.withContext || resolve == null) {
+                outbox.removeFirst()
+                deliver(next, if (next.withContext) captureContext(ContextNotes::note) else null)
+                continue
+            }
+            resolving = true
+            var inline = true
+            var ready = false
+            var note: String? = null
+            val done = { context: EditorContext? ->
+                val formatted = format(context)
+                if (inline) {
+                    note = formatted
+                    ready = true
+                } else {
+                    resolving = false
+                    outbox.removeFirst()
+                    deliver(next, formatted)
+                    pump()
+                }
+            }
+            try {
+                resolve(this, done)
+            } catch (e: Exception) {
+                if (e is ProcessCanceledException || e is ControlFlowException) throw e
+                logger<Chat>().warn("Editor context capture failed; going on without it", e)
+                if (!ready) { ready = true; note = null }
+            }
+            inline = false
+            if (ready) {
+                resolving = false
+                outbox.removeFirst()
+                deliver(next, note)
+            }
+        }
+    }
+
+    private fun format(context: EditorContext?): String? = try {
+        context?.let(ContextNotes::note)
+    } catch (e: Exception) {
+        if (e is ProcessCanceledException || e is ControlFlowException) throw e
+        null
+    }
+
+    private fun deliver(message: Outgoing, context: String?) {
+        if (disposed || session.state == SessionState.DEAD) return
+        session.send(message.text, listOfNotNull(message.edits, context).joinToString("\n\n").ifEmpty { null })
+    }
+
+    fun dispose() {
+        disposed = true
+        outbox.clear()
+        session.dispose()
+    }
 
     private companion object {
         val HIDDEN = "" to false

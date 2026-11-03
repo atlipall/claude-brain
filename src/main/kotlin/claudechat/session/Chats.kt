@@ -61,6 +61,9 @@ class Chats(private val project: Project) : Disposable {
             initialMode = defaultMode(),
             editNote = { c -> tracker.consumeNote(c.id, c.cwd) },
             editorContext = { c -> if (ClaudeChatSettings.getInstance().state.attachEditorContext) context.contextFor(c.cwd) else null },
+            resolveContext = { c, done ->
+                if (ClaudeChatSettings.getInstance().state.attachEditorContext) context.resolve(c.cwd, done) else done(null)
+            },
             log = { LOG.info(it) },
         )
         tracker.register(chat.id)

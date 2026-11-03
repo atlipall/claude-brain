@@ -19,7 +19,7 @@ import com.intellij.usageView.UsageViewTypeLocation
 
 /**
  * Finds the structural elements around an offset through the file's Structure View model, which every language with a
- * Structure View provides (JavaScript and TypeScript in WebStorm). Call in a read action, with the document committed.
+ * Structure View provides (JavaScript and TypeScript in WebStorm). Call in a read action off the EDT (the JS plugin reads indexes), with the document committed.
  */
 object SymbolFinder {
     private const val MAX_DEPTH = 32
