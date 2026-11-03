@@ -51,5 +51,15 @@ class ClaudeChatConfigurable : BoundConfigurable("Tether") {
                 .bindSelected({ state.attachEditorContext }, { state.attachEditorContext = it })
                 .comment("Tells Claude the file, caret line, selection and enclosing function of the editor you last used. Never the code itself.")
         }
+        row {
+            checkBox("Let Claude use IDE tools")
+                .bindSelected({ state.ideTools }, { state.ideTools = it })
+                .comment("Diagnostics (the errors and warnings the editor shows) and Find Usages from the IDE's index. Read-only, so never asks. Applies to new or restarted chats.")
+        }
+        row {
+            checkBox("Check Claude's edits for errors")
+                .bindSelected({ state.checkEdits }, { state.checkEdits = it })
+                .comment("After each edit the IDE checks the file and tells Claude about any errors, so it fixes them in the same turn. Applies to new or restarted chats.")
+        }
     }
 }

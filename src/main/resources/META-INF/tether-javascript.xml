@@ -1,0 +1,5 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="local.claudechat">
+        <problemSource implementation="claudechat.ide.tools.js.TypeScriptServiceProblems"/>
+    </extensions>
+</idea-plugin>

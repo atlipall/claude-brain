@@ -40,9 +40,6 @@ class AddToChatAction : AnAction(), DumbAware {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
-        val rootRelative = ProjectFileIndex.getInstance(project).getContentRootForFile(file)
-            ?.let { VfsUtilCore.getRelativePath(file, it) }
-
         val selection = editor.selectionModel
         val lines = if (selection.hasSelection()) {
             val doc = editor.document
@@ -53,14 +50,8 @@ class AddToChatAction : AnAction(), DumbAware {
             null
         }
 
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ChatToolWindowFactory.ID) ?: return
-        toolWindow.activate {
-            val tabs = ChatTabs(project, toolWindow)
-            val chat = tabs.selectedChat()
-                ?: if (JBCefApp.isSupported()) tabs.open(Chats.getInstance(project).mainSpec()) else return@activate
-            // Claude resolves paths against its own folder, which for a worktree chat is not the content root.
-            val path = Mention.relativeTo(file.path, chat.cwd) ?: rootRelative ?: file.path
-            chat.insert(Mention.format(path, lines?.first, lines?.second))
+        TetherTarget.withChat(project) { chat ->
+            chat.insert(Mention.format(TetherTarget.pathFor(project, chat, file), lines?.first, lines?.second))
         }
     }
 }

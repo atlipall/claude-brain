@@ -17,3 +17,6 @@ fun JsonObject.long(key: String): Long? = (this[key] as? JsonPrimitive)?.longOrN
 fun JsonObject.double(key: String): Double? = (this[key] as? JsonPrimitive)?.doubleOrNull
 fun JsonObject.obj(key: String): JsonObject? = this[key] as? JsonObject
 fun JsonObject.arr(key: String): JsonArray? = this[key] as? JsonArray
+/** The string items of array [key] (other items skipped); empty when it is missing. */
+fun JsonObject.strings(key: String): List<String> =
+    arr(key).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content }

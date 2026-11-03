@@ -23,6 +23,8 @@ dependencies {
     intellijPlatform {
         local("/Applications/WebStorm.app")
         bundledPlugin("com.intellij.modules.jcef")
+        bundledPlugin("JavaScript")
+        bundledPlugin("intellij.testRunner.plugin")
         testFramework(TestFrameworkType.Platform)
     }
     testImplementation("junit:junit:4.13.2")

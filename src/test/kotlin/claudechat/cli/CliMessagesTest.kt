@@ -13,6 +13,28 @@ class CliMessagesTest {
         """{"type":"control_request","request_id":"i1","request":{"subtype":"initialize","hooks":null}}""",
         CliMessages.initialize("i1"))
 
+    @Test fun initializeWithServersAndHooks() = assertEquals(
+        """{"type":"control_request","request_id":"i1","request":{"subtype":"initialize","hooks":{"PostToolUse":[""" +
+            """{"matcher":"Edit|Write","hookCallbackIds":["after-edit"],"timeout":60}]},"sdkMcpServers":["tether"]}}""",
+        CliMessages.initialize("i1", listOf("tether"), mapOf("PostToolUse" to listOf(HookRegistration("Edit|Write", "after-edit", 60)))))
+
+    @Test fun mcpResponse() = assertEquals(
+        """{"type":"control_response","response":{"subtype":"success","request_id":"r1","response":{"mcp_response":{"jsonrpc":"2.0","result":{},"id":0}}}}""",
+        CliMessages.mcpResponse("r1", McpServer.ACK))
+
+    @Test fun hookResponseWithContext() = assertEquals(
+        """{"type":"control_response","response":{"subtype":"success","request_id":"r1","response":{"hookSpecificOutput":""" +
+            """{"hookEventName":"PostToolUse","additionalContext":"2 errors"}}}}""",
+        CliMessages.hookResponse("r1", "PostToolUse", "2 errors"))
+
+    @Test fun hookResponseWithoutContextIsEmpty() = assertEquals(
+        """{"type":"control_response","response":{"subtype":"success","request_id":"r1","response":{}}}""",
+        CliMessages.hookResponse("r1", "PostToolUse", null))
+
+    @Test fun controlError() = assertEquals(
+        """{"type":"control_response","response":{"subtype":"error","request_id":"r1","error":"nope"}}""",
+        CliMessages.controlError("r1", "nope"))
+
     @Test fun userText() = assertEquals(
         """{"type":"user","message":{"role":"user","content":"hi \"there\""}}""",
         CliMessages.userText("hi \"there\""))

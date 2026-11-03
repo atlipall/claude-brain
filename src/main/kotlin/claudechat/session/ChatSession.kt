@@ -5,8 +5,11 @@ import claudechat.cli.CliEvent
 import claudechat.cli.CliMessages
 import claudechat.cli.CliParser
 import claudechat.cli.ContextUsage
+import claudechat.cli.HookRegistration
+import claudechat.cli.McpServer
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
+import claudechat.cli.obj
 import claudechat.cli.str
 import claudechat.cli.ImageBlock
 import claudechat.image.Image
@@ -64,6 +67,15 @@ data class FileDiff(val filePath: String, val originalContent: String)
 /** Longest base64 string accepted for a tool-result image (about 5 MB of bytes); longer ones show as "[image]". */
 private const val MAX_TOOL_IMAGE_BASE64 = 7_000_000
 
+/** Name of the in-process MCP server that serves [IdeHost.tools]; Claude sees its tools as `mcp__tether__<name>`. */
+internal const val IDE_SERVER = "tether"
+private const val IDE_TOOL_PREFIX = "mcp__${IDE_SERVER}__"
+
+/** Callback id of the PostToolUse hook that runs [IdeHost.afterEdit]. */
+private const val AFTER_EDIT = "after-edit"
+private const val POST_TOOL_USE = "PostToolUse"
+private val EDIT_TOOLS = HookRegistration("Edit|Write|MultiEdit|NotebookEdit", AFTER_EDIT, timeoutSeconds = 60)
+
 /** Prefix of get_context_usage request ids, so their replies are recognised even after a newer request replaced them. */
 private const val CONTEXT_PREFIX = "context"
 
@@ -90,6 +102,10 @@ class ChatSession(
     initialMode: PermissionMode? = null,
     private val worktree: String? = null,
     private val log: (String) -> Unit = {},
+    /** Tools and edit checks the IDE lends Claude; null lends none. */
+    private val ide: IdeHost? = null,
+    /** Runs IDE work (tool calls, edit checks) off the CLI reader thread. */
+    private val background: (Runnable) -> Unit = { it.run() },
 ) {
     private val lock = Any()
 
@@ -135,6 +151,10 @@ class ChatSession(
     private var reported: Activity? = null
     /** Background tasks the CLI reports running; they outlive the turn that started them. */
     private var backgroundTasks = 0
+    /** Serves [IdeHost.tools] to the current process; null when it was started without them. */
+    private var mcpServer: McpServer? = null
+    /** Full names (`mcp__tether__<name>`) of the current process's read-only IDE tools, allowed without asking. */
+    private var readOnlyTools: Set<String> = emptySet()
 
     fun start() {
         synchronized(lock) {
@@ -154,7 +174,11 @@ class ChatSession(
                 )
                 val initId = nextId("init")
                 initRequestId = initId
-                conn.send(CliMessages.initialize(initId))
+                val tools = ide?.tools.orEmpty()
+                mcpServer = if (tools.isEmpty()) null else McpServer(IDE_SERVER, tools)
+                readOnlyTools = tools.filter { it.readOnly }.mapTo(HashSet()) { IDE_TOOL_PREFIX + it.name }
+                val hooks = if (ide?.checksEdits == true) mapOf(POST_TOOL_USE to listOf(EDIT_TOOLS)) else emptyMap()
+                conn.send(CliMessages.initialize(initId, listOfNotNull(mcpServer?.let { IDE_SERVER }), hooks))
             } catch (e: Exception) {
                 generation++
                 created?.let { runCatching { it.stop() } }
@@ -429,6 +453,8 @@ class ChatSession(
                 )
             }
             is CliEvent.PermissionRequest -> onPermissionRequest(event)
+            is CliEvent.McpMessage -> onMcpMessage(event)
+            is CliEvent.HookCallback -> onHookCallback(event)
             is CliEvent.ToolResult -> onToolResult(event, copies.orEmpty())
             is CliEvent.UserText -> Unit
             is CliEvent.Result -> onResult(event)
@@ -447,7 +473,7 @@ class ChatSession(
             emit(ChatItem.Notice(nextId("notice"), "Claude asked a question that could not be shown.", isError = true))
             return
         }
-        if (!isQuestion && event.toolName in sessionAllowedTools) {
+        if (!isQuestion && (event.toolName in sessionAllowedTools || event.toolName in readOnlyTools)) {
             connection?.send(CliMessages.allow(event.requestId, event.input))
             return
         }
@@ -462,6 +488,40 @@ class ChatSession(
         ))
         setState(SessionState.AWAITING_PERMISSION)
         reportActivity()
+    }
+
+    /** Answers Claude's MCP traffic to [IDE_SERVER]; tool calls run in [background] and answer the process that asked. */
+    private fun onMcpMessage(event: CliEvent.McpMessage) {
+        val conn = connection ?: return
+        val server = mcpServer?.takeIf { event.server == IDE_SERVER }
+        when {
+            server == null -> conn.send(CliMessages.controlError(event.requestId, "No MCP server named ${event.server}"))
+            !server.isRequest(event.message) -> conn.send(CliMessages.mcpResponse(event.requestId, McpServer.ACK))
+            else -> background { conn.send(CliMessages.mcpResponse(event.requestId, server.reply(event.message))) }
+        }
+    }
+
+    /** Runs [IdeHost.afterEdit] for the file an edit tool wrote; the CLI waits for every callback, so one is always sent. */
+    private fun onHookCallback(event: CliEvent.HookCallback) {
+        val conn = connection ?: return
+        val host = ide
+        val toolInput = event.input.obj("tool_input")
+        val path = toolInput?.let { it.str("file_path") ?: it.str("notebook_path") }
+        if (event.callbackId != AFTER_EDIT || host == null || path == null) {
+            conn.send(CliMessages.hookResponse(event.requestId, POST_TOOL_USE, null))
+            return
+        }
+        background {
+            var note: String? = null
+            try {
+                note = host.afterEdit(path)
+            } catch (e: Exception) {
+                if (e is InterruptedException) Thread.currentThread().interrupt()
+                log("After-edit check failed for $path: $e")
+            } finally {
+                conn.send(CliMessages.hookResponse(event.requestId, POST_TOOL_USE, note))
+            }
+        }
     }
 
     private fun onToolResult(event: CliEvent.ToolResult, copies: List<String>) {
@@ -536,6 +596,8 @@ class ChatSession(
 
     private fun handleExit(code: Int, stderrTail: String) {
         connection = null
+        mcpServer = null
+        readOnlyTools = emptySet()
         initRequestId = null
         contextRequestId = null
         pendingPermissions.clear()

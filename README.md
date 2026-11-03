@@ -31,6 +31,27 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   on your next message, so Claude re-reads them instead of working from stale contents.
 - **Claude knows where you are looking.** Every message carries your current file, caret line,
   selection and enclosing function, so "what does this function do?" just works.
+- **Claude can ask the IDE.** Claude gets two read-only tools, called without a prompt:
+  `mcp__tether__diagnostics` returns the errors and warnings the IDE reports for files (the editor's own analysis
+  plus the TypeScript service), and `mcp__tether__find_usages` returns where a symbol is declared and every
+  reference to it, from the IDE's index (only in the chat's own checkout). They are served in-process over the
+  CLI's stdin/stdout, with no separate MCP server.
+- **Claude can use the IDE's fixes and refactorings.** `mcp__tether__fixes` lists the quick fixes the IDE offers
+  for the problems on a line (what Alt+Enter shows, including the TypeScript service's, e.g. missing imports), and
+  `mcp__tether__apply_fix` applies one. `mcp__tether__rename_symbol` and `mcp__tether__move_file` run the IDE's
+  rename and move refactorings, updating every reference and import in the chat's checkout. These change files, so
+  they ask for permission like Claude's own edits; they run without dialogs (conflicts are reported to Claude), save
+  what they changed, report the errors left, and can be undone in the IDE.
+- **Claude's edits are checked.** After each `Edit`/`Write`, the IDE checks the file and tells Claude about any
+  errors in the same turn, so it fixes them without being asked. Clean files add nothing.
+- **Fix with Tether / Send to Tether.** Alt+Enter on any highlighted error or warning offers **Fix with Tether**,
+  which asks the selected chat to fix the problems on that line. In the test runner, **Send Failures to Tether**
+  (right-click) puts the selected failed tests' messages and stack traces into the message box; in a run console,
+  **Send to Tether** puts the selected output (or all of it) there.
+- **Revert to before a message.** Each message sent in this IDE session gets a **Revert to here** link (on hover):
+  after asking, it reverts the chat's checkout to how it was before that message went out, using the IDE's Local
+  History, and tells Claude with your next message. The revert can itself be undone from Local History. Only files
+  Local History tracks are reverted (excluded folders, such as worktrees by default, are not).
 - **Images.** Paste, drop or 📎-pick images to send with a message (PNG/JPEG/GIF/WebP, up to 10,
   5 MB each, large ones downscaled). Images Claude reads, and local project images referenced in its
   replies, are shown inline. Remote images are never loaded.
@@ -82,6 +103,8 @@ Settings → Tools → **Tether**:
 | Extra CLI arguments (e.g. `--model sonnet`) | none |
 | IDE follows the selected chat's checkout | on |
 | Attach editor context to messages | on |
+| Let Claude use IDE tools | on (new or restarted chats) |
+| Check Claude's edits for errors | on (new or restarted chats) |
 
 ## Development
 

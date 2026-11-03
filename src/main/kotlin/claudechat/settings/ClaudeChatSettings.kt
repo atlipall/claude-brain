@@ -20,6 +20,10 @@ class ClaudeChatSettings : SimplePersistentStateComponent<ClaudeChatSettings.Sta
         var followCheckout by property(true)
         /** Messages tell Claude which file, line, selection and function the editor shows (location only). */
         var attachEditorContext by property(true)
+        /** Claude can call the IDE's diagnostics and find-usages tools (applies to chats started or restarted after). */
+        var ideTools by property(true)
+        /** After each of Claude's edits, the IDE checks the file and tells Claude about errors in it. */
+        var checkEdits by property(true)
     }
 
     companion object {

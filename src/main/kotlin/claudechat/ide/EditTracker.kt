@@ -22,6 +22,8 @@ class EditTracker(private val project: Project) : Disposable {
     /** Absolute path -> sequence number of its latest save. */
     private val saved = LinkedHashMap<String, Long>()
     private var seq = 0L
+    /** True while [saveForClaude] saves: those saves are not the user's edits. EDT only. */
+    private var quiet = false
     /** Chat key -> sequence number it has been told up to. */
     private val cursors = HashMap<Any, Long>()
 
@@ -29,9 +31,32 @@ class EditTracker(private val project: Project) : Disposable {
         ApplicationManager.getApplication().messageBus.connect(this)
             .subscribe(FileDocumentManagerListener.TOPIC, object : FileDocumentManagerListener {
                 override fun beforeDocumentSaving(document: Document) {
+                    if (quiet) return
                     FileDocumentManager.getInstance().getFile(document)?.let(::record)
                 }
             })
+    }
+
+    /**
+     * Runs [change] (a quick fix or refactoring Claude asked for) and saves the documents it modified, returning their
+     * files. Documents that had no unsaved edits are saved without recording them, so no chat hears of Claude's own
+     * change as the user's edit. One the user was already editing is saved as usual: it carries their unsaved text
+     * too, which chats should hear about. EDT.
+     */
+    fun saveChangedBy(change: () -> Unit): List<VirtualFile> {
+        val files = FileDocumentManager.getInstance()
+        val before = files.unsavedDocuments.associateWith { it.modificationStamp }
+        change()
+        val touched = files.unsavedDocuments.filter { before[it] != it.modificationStamp }
+        val (users, claudes) = touched.partition { it in before }
+        quiet = true
+        try {
+            claudes.forEach(files::saveDocument)
+        } finally {
+            quiet = false
+        }
+        users.forEach(files::saveDocument)
+        return touched.mapNotNull(files::getFile)
     }
 
     fun record(file: VirtualFile) {

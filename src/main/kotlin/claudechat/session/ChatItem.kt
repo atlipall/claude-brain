@@ -27,8 +27,11 @@ data class AgentInfo(
 sealed interface ChatItem {
     val id: String
 
-    /** [images]: thumbnails of the attached images as `data:` URLs ("" for one that has no thumbnail). */
-    data class UserText(override val id: String, val text: String, val images: List<String> = emptyList()) : ChatItem
+    /**
+     * [images]: thumbnails of the attached images as `data:` URLs ("" for one that has no thumbnail). [revertable]:
+     * the IDE marked the files' state when this message went out, so they can be reverted to it.
+     */
+    data class UserText(override val id: String, val text: String, val images: List<String> = emptyList(), val revertable: Boolean = false) : ChatItem
     data class AssistantText(override val id: String, val text: String, val streaming: Boolean, val parentId: String? = null) : ChatItem
     data class ToolCall(
         override val id: String,
@@ -58,6 +61,7 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
             put("kind", "user")
             put("text", item.text)
             if (item.images.isNotEmpty()) put("images", JsonArray(item.images.map(::JsonPrimitive)))
+            if (item.revertable) put("revertable", true)
         }
         is ChatItem.AssistantText -> {
             put("kind", "assistant")
