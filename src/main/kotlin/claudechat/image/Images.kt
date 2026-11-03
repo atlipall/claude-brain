@@ -120,18 +120,41 @@ object Images {
     }
 
     private fun decode(bytes: ByteArray): BufferedImage? {
-        // The JPEG reader accepts a cut-off file with only a warning; it must contain the end-of-image marker.
-        if (ImageType.sniff(bytes) == ImageType.JPEG && !endsWithJpegEoi(bytes)) return null
+        // The JPEG reader accepts a cut-off file with only a warning; it must reach its end-of-image marker.
+        if (ImageType.sniff(bytes) == ImageType.JPEG && !isCompleteJpeg(bytes)) return null
         return try {
             ImageIO.read(MemoryCacheImageInputStream(ByteArrayInputStream(bytes))) // ImageIO closes the stream
         } catch (e: Exception) { null }
     }
 
-    /** A JPEG is complete when an end-of-image marker (FFD9) follows its first start-of-scan marker (FFDA; scan data only holds byte-stuffed FF00 and RST markers); data after it is fine. */
-    private fun endsWithJpegEoi(b: ByteArray): Boolean {
-        fun marker(i: Int, code: Int) = (b[i].toInt() and 0xFF) == 0xFF && (b[i + 1].toInt() and 0xFF) == code
-        val firstSos = (0 until b.size - 1).firstOrNull { marker(it, 0xDA) } ?: return false
-        return (firstSos + 2 until b.size - 1).any { marker(it, 0xD9) }
+    /**
+     * Whether a JPEG reaches its end-of-image marker, found by walking its segments (so an EXIF thumbnail's own
+     * markers don't count, and neither does a trailer after the end). Entropy-coded data holds only byte-stuffed FF00
+     * and restart markers. Running out of bytes anywhere means the file is cut off.
+     */
+    internal fun isCompleteJpeg(b: ByteArray): Boolean {
+        fun u(i: Int) = b[i].toInt() and 0xFF
+        if (b.size < 4 || u(0) != 0xFF || u(1) != 0xD8) return false
+        var i = 2
+        while (true) {
+            if (i >= b.size || u(i) != 0xFF) return false
+            while (i < b.size && u(i) == 0xFF) i++ // fill bytes
+            if (i >= b.size) return false
+            val m = u(i)
+            if (m == 0xD9) return true
+            if (m in 0xD0..0xD7 || m == 0x01) { i++; continue }
+            if (i + 2 >= b.size) return false
+            val length = (u(i + 1) shl 8) or u(i + 2)
+            if (length < 2 || i + 1 + length > b.size) return false
+            i += 1 + length
+            if (m != 0xDA) continue
+            while (true) { // entropy-coded data up to the next real marker
+                while (i < b.size && u(i) != 0xFF) i++
+                if (i + 1 >= b.size) return false
+                val next = u(i + 1)
+                if (next == 0x00 || next in 0xD0..0xD7) i += 2 else break
+            }
+        }
     }
 
     private fun fit(source: BufferedImage, type: ImageType, maxEdge: Int, maxBytes: Int): Image? {

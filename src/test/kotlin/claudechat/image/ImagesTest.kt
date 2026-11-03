@@ -4,6 +4,7 @@ import claudechat.testutil.TestImages
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -74,10 +75,37 @@ class ImagesTest {
         assertTrue(Images.prepare(whole.copyOf(whole.size / 2)) is Prepared.Rejected)
     }
 
-    @Test fun trailerContainingAStartOfScanMarkerDoesNotCauseARefusal() {
-        val whole = TestImages.noiseIn(64, 64, "jpeg")
-        val trailer = byteArrayOf(0x00, 0xFF.toByte(), 0xDA.toByte(), 0x12, 0x34)
-        assertTrue(Images.prepare(whole + trailer) is Prepared.Ok)
+    private fun progressiveJpeg(): ByteArray {
+        val img = java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        val random = java.util.Random(3)
+        for (y in 0 until 64) for (x in 0 until 64) img.setRGB(x, y, random.nextInt(0x1000000))
+        val writer = javax.imageio.ImageIO.getImageWritersByFormatName("jpeg").next()
+        val out = java.io.ByteArrayOutputStream()
+        javax.imageio.stream.MemoryCacheImageOutputStream(out).use { stream ->
+            writer.output = stream
+            val param = writer.defaultWriteParam.apply { progressiveMode = javax.imageio.ImageWriteParam.MODE_DEFAULT }
+            writer.write(null, javax.imageio.IIOImage(img, null, null), param)
+        }
+        writer.dispose()
+        return out.toByteArray()
+    }
+
+    @Test fun jpegCompletenessIsDecidedByWalkingItsSegments() {
+        val baseline = TestImages.noiseIn(64, 64, "jpeg")
+        assertTrue(Images.isCompleteJpeg(baseline))
+        assertTrue(Images.isCompleteJpeg(progressiveJpeg()))
+        assertTrue(Images.isCompleteJpeg(baseline + byteArrayOf(0x00, 0xFF.toByte(), 0xDA.toByte(), 0x12, 0x34)))
+        assertTrue(Images.isCompleteJpeg(baseline + "\n".toByteArray()))
+        assertFalse(Images.isCompleteJpeg(baseline.copyOf(baseline.size / 2)))
+        assertFalse(Images.isCompleteJpeg(baseline.copyOf(baseline.size - 2)))
+        assertFalse(Images.isCompleteJpeg(progressiveJpeg().let { it.copyOf(it.size / 2) }))
+        // an EXIF APP1 segment holding a complete thumbnail must not make a cut-off main image look complete
+        val thumb = TestImages.solid(8, 8, "jpeg")
+        val payload = "Exif\u0000\u0000".toByteArray() + thumb
+        val app1 = byteArrayOf(0xFF.toByte(), 0xE1.toByte(), ((payload.size + 2) shr 8).toByte(), (payload.size + 2).toByte()) + payload
+        val withExif = baseline.copyOf(2) + app1 + baseline.copyOfRange(2, baseline.size)
+        assertTrue(Images.isCompleteJpeg(withExif))
+        assertFalse(Images.isCompleteJpeg(withExif.copyOf(withExif.size - 30)))
     }
 
     @Test fun aLongEdgeOver2000IsScaledDownKeepingTheFormat() {
