@@ -134,7 +134,7 @@ class EditorContextService(private val project: Project) : Disposable {
         FileDocumentManager.getInstance().getFile(editor.document)?.takeIf { it.isValid && it.isInLocalFileSystem }
 
     private fun changed(editor: Editor?) {
-        if (editor != null && editor.project !== project) return
+        if (editor != null && !accepts(editor)) return // consoles, diffs and previews never change the context
         if (listeners.isEmpty()) return
         schedule(Runnable { if (!project.isDisposed) listeners.forEach(::notify) })
     }

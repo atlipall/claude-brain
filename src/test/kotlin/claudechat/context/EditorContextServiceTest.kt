@@ -1,6 +1,7 @@
 package claudechat.context
 
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.roots.ProjectRootManager
@@ -131,6 +132,21 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         val afterCaret = fired
         myFixture.editor.selectionModel.setSelection(0, 3)
         assertTrue(fired > afterCaret)
+    }
+
+    fun testEventsFromNonContextEditorsScheduleNothing() {
+        myFixture.configureByText("a.txt", "one\ntwo\n")
+        var fired = 0
+        service.addListener(testRootDisposable) { fired++ }
+        val factory = EditorFactory.getInstance()
+        val console = factory.createViewer(myFixture.editor.document, project, EditorKind.CONSOLE)
+        try {
+            console.caretModel.moveToOffset(5)
+            console.selectionModel.setSelection(0, 3)
+            assertEquals(0, fired)
+        } finally {
+            factory.releaseEditor(console)
+        }
     }
 
     fun testListenerIsRemovedWithItsParent() {
