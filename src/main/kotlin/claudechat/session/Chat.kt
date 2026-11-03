@@ -35,6 +35,15 @@ interface SessionView {
     fun queue(messages: List<QueuedMessage>) {}
 }
 
+/** Marks the files' state before each message of a chat, and reverts to such a mark. */
+interface Checkpoints {
+    /** Marks the files before [item] goes out; true when it can be reverted to. Pooled thread, outside every lock. */
+    fun mark(chat: Chat, item: ChatItem.UserText): Boolean
+
+    /** Reverts [chat]'s files to how they were before message [itemId] (asking first). EDT. */
+    fun revert(chat: Chat, itemId: String)
+}
+
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
 class Chat(
     val id: Int,
@@ -58,8 +67,10 @@ class Chat(
     val startedAt: Long? = null,
     /** Tools and edit checks the IDE lends this chat's Claude; null for none. */
     ide: IdeHost? = null,
-    /** Runs IDE work for the session off the CLI reader thread. */
-    background: (Runnable) -> Unit = { it.run() },
+    /** Runs IDE work off the CLI reader thread and outside the session lock. */
+    private val background: (Runnable) -> Unit = { it.run() },
+    /** Marks the files' state as each message goes out, so they can be reverted to it; null for none. */
+    private val checkpoints: Checkpoints? = null,
 ) {
     val label: String = spec.label
 
@@ -147,6 +158,9 @@ class Chat(
         override fun onItem(item: ChatItem) {
             synchronized(lock) { items[item.id] = item }
             view?.item(item)
+            // Every UserText the session reports is a message going out now (history comes through the constructor).
+            // The mark is IDE work (Local History): off this thread, which holds the session lock.
+            if (item is ChatItem.UserText) checkpoints?.let { c -> background { if (c.mark(this@Chat, item)) showRevertable(item.id) } }
         }
 
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
@@ -313,6 +327,19 @@ class Chat(
     /** Puts queued message [id] back into the message box instead of sending it. */
     fun editQueued(id: String) {
         session.unqueue(id)?.text?.takeIf { it.isNotBlank() }?.let(::insert)
+    }
+
+    /** Reverts the files to how they were before message [itemId], if it is [ChatItem.UserText.revertable]. EDT. */
+    fun revertTo(itemId: String) {
+        val item = synchronized(lock) { items[itemId] } as? ChatItem.UserText ?: return
+        if (item.revertable) checkpoints?.revert(this, itemId)
+    }
+
+    private fun showRevertable(itemId: String) {
+        val shown = synchronized(lock) {
+            (items[itemId] as? ChatItem.UserText)?.copy(revertable = true)?.also { items[itemId] = it }
+        } ?: return
+        view?.item(shown)
     }
 
     /** Stops the turn, and drops messages still waiting for their editor context. EDT only. */

@@ -174,6 +174,10 @@
 
   function renderUser(el, item) {
     el.className = 'msg user';
+    if (item.revertable) {
+      el.append(h('button', { class: 'link revert', 'data-action': 'revertTo', 'data-id': item.id,
+        title: 'Revert the files to how they were before this message (asks first)' }, 'Revert to here'));
+    }
     const images = Array.isArray(item.images) ? item.images : [];
     if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
     if (item.text) el.append(document.createTextNode(item.text)); // plain text only
@@ -859,7 +863,7 @@
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
     else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
-    else if (action === 'queueSendNow' || action === 'queueEdit' || action === 'queueRemove') send({ type: action, id: b.dataset.id });
+    else if (action === 'queueSendNow' || action === 'queueEdit' || action === 'queueRemove' || action === 'revertTo') send({ type: action, id: b.dataset.id });
     else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });
     else if (action === 'deny') {
       const reason = b.parentElement.querySelector('.deny-reason').value.trim();

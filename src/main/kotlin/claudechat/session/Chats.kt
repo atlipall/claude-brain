@@ -10,6 +10,7 @@ import claudechat.git.DiffBases
 import claudechat.git.GitWorktrees
 import claudechat.context.EditorContextService
 import claudechat.ide.EditTracker
+import claudechat.ide.TurnCheckpoints
 import claudechat.ide.tools.ChatIdeHost
 import claudechat.settings.ClaudeChatSettings
 import com.intellij.openapi.Disposable
@@ -44,6 +45,7 @@ class Chats(private val project: Project) : Disposable {
     // Cached: services must not be looked up while the project is being disposed (close runs then).
     private val tracker = EditTracker.getInstance(project) // also starts recording saves before the first message
     private val context = EditorContextService.getInstance(project) // also starts tracking the focused editor
+    private val checkpoints = TurnCheckpoints.getInstance(project)
 
     fun all(): List<Chat> = chats.toList()
 
@@ -60,7 +62,7 @@ class Chats(private val project: Project) : Disposable {
             history = history,
             connector = connector,
             initialMode = defaultMode(),
-            editNote = { c -> tracker.consumeNote(c.id, c.cwd) },
+            editNote = { c -> listOfNotNull(checkpoints.consumeNote(c.id), tracker.consumeNote(c.id, c.cwd)).joinToString("\n\n").ifEmpty { null } },
             editorContext = { c -> if (ClaudeChatSettings.getInstance().state.attachEditorContext) context.contextFor(c.cwd) else null },
             resolveContext = { c, done ->
                 if (ClaudeChatSettings.getInstance().state.attachEditorContext) context.resolve(c.cwd, done) else done(null)
@@ -68,6 +70,7 @@ class Chats(private val project: Project) : Disposable {
             log = { LOG.info(it) },
             startedAt = if (spec.resumeId == null) System.currentTimeMillis() else store.startedAt(spec.cwd, spec.resumeId),
             ide = ide,
+            checkpoints = checkpoints,
             background = { AppExecutorUtil.getAppExecutorService().execute(it) },
         )
         tracker.register(chat.id)
@@ -85,6 +88,7 @@ class Chats(private val project: Project) : Disposable {
         if (chats.remove(chat)) {
             chat.dispose()
             tracker.forget(chat.id)
+            checkpoints.forget(chat.id)
         }
     }
 
