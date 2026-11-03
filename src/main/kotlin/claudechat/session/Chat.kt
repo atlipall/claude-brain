@@ -3,6 +3,8 @@ package claudechat.session
 import claudechat.cli.CliConnection
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
+import claudechat.context.ContextNotes
+import claudechat.context.EditorContext
 
 /** Receives one chat's updates. Methods may be called from any thread. */
 interface SessionView {
@@ -23,6 +25,8 @@ class Chat(
     connector: (SessionLaunch) -> CliConnection,
     initialMode: PermissionMode?,
     private val editNote: (Chat) -> String?,
+    /** Where the user is looking, as this chat names the file; null for none (or when the setting is off). EDT. */
+    private val editorContext: (Chat) -> EditorContext? = { null },
     log: (String) -> Unit = {},
 ) {
     val label: String = spec.label
@@ -103,14 +107,29 @@ class Chat(
         view?.checkout(text)
     }
 
-    /** EDT only (the edit note saves documents). Ignored while the session is dead. */
+    /** True after the user turned editor context off for the next message only. EDT only. */
+    var contextOff = false
+        private set
+
+    /** Leaves the editor context out of the next message ([off]) or puts it back. EDT only. */
+    fun skipContext(off: Boolean) {
+        contextOff = off
+    }
+
+    /**
+     * EDT only (the edit note saves documents, the context reads the editor). Ignored while the session is dead.
+     * Claude gets the edit note, then the editor-context note, then [text]; the chat shows only [text].
+     */
     fun send(text: String) {
         if (session.state == SessionState.DEAD) return
         if (firstMessage == null) {
             firstMessage = text
             onTitleChanged?.invoke()
         }
-        session.send(text, editNote(this))
+        val edits = editNote(this) // saves documents first
+        val context = if (contextOff) null else editorContext(this)?.let(ContextNotes::note)
+        contextOff = false
+        session.send(text, listOfNotNull(edits, context).joinToString("\n\n").ifEmpty { null })
     }
 
     fun dispose() = session.dispose()

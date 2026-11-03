@@ -44,5 +44,10 @@ class ClaudeChatConfigurable : BoundConfigurable("Claude Chat") {
                 .bindSelected({ state.followCheckout }, { state.followCheckout = it })
                 .comment("Selecting a worktree chat scopes the Project view and Find in Files to that worktree and swaps open editors to its files.")
         }
+        row {
+            checkBox("Attach editor context to messages")
+                .bindSelected({ state.attachEditorContext }, { state.attachEditorContext = it })
+                .comment("Tells Claude the file, caret line, selection and enclosing function of the editor you last used. Never the code itself.")
+        }
     }
 }

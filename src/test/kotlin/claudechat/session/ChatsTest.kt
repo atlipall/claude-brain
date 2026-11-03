@@ -2,9 +2,12 @@ package claudechat.session
 
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
+import claudechat.context.EditorContextService
+import claudechat.settings.ClaudeChatSettings
 import claudechat.testutil.FakeConnection
 import claudechat.testutil.Fx
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.io.File
@@ -28,9 +31,20 @@ class ChatsTest : BasePlatformTestCase() {
         override fun insert(text: String) { inserted += text }
     }
 
+    private val settings get() = ClaudeChatSettings.getInstance().state
+    private val contextService get() = EditorContextService.getInstance(project)
+    private val manager get() = FileEditorManager.getInstance(project)
+    private var savedAttach = true
+    private lateinit var savedProjectDir: String
+
     override fun setUp() {
         super.setUp()
         chats.closeAll() // the light project and its services are shared between tests
+        manager.openFiles.forEach(manager::closeFile) // a leftover editor would add editor context to every message
+        savedAttach = settings.attachEditorContext
+        settings.attachEditorContext = true
+        savedProjectDir = contextService.projectDir
+        contextService.projectDir = root
         home = Files.createTempDirectory("claude-home").toFile()
         chats.connector = { launch -> launches += launch; FakeConnection().also { connections += it } }
         chats.store = SessionStore(home)
@@ -38,7 +52,15 @@ class ChatsTest : BasePlatformTestCase() {
     }
 
     override fun tearDown() {
-        try { chats.closeAll(); home.deleteRecursively() } finally { super.tearDown() }
+        try {
+            chats.closeAll()
+            home.deleteRecursively()
+            manager.openFiles.forEach(manager::closeFile)
+            settings.attachEditorContext = savedAttach
+            contextService.projectDir = savedProjectDir
+        } finally {
+            super.tearDown()
+        }
     }
 
     fun testOpenLaunchesInTheSpecFolder() {
@@ -187,11 +209,71 @@ class ChatsTest : BasePlatformTestCase() {
     }
 
     fun testChatOpenedLaterIsNotToldAboutEarlierSaves() {
+        settings.attachEditorContext = false // this is about the edit note only
         myFixture.configureByText("early.txt", "x")
         myFixture.type("y")
         FileDocumentManager.getInstance().saveAllDocuments()
         val chat = chats.open(ChatSpec.inProject(root))
         chat.send("hi")
         assertEquals(listOf("hi"), connections.single().userMessages())
+    }
+
+    fun testSendPrefixesEditorContext() {
+        myFixture.configureByText("calc.js", "function total(a) {\n  return a<caret> + 1;\n}\n")
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("what does this do?")
+        assertEquals(
+            listOf("[IDE] The user is looking at calc.js, caret at line 2:11, inside function `total` (lines 1–3).\n\nwhat does this do?"),
+            connections.single().userMessages())
+    }
+
+    fun testEditNoteComesBeforeEditorContext() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        myFixture.configureByText("a.txt", "x")
+        myFixture.type("y")
+        chat.send("hello")
+        assertEquals(
+            listOf("[IDE] Since your last turn the user edited these files: a.txt.\nRe-read them before relying on earlier contents.\n\n" +
+                "[IDE] The user is looking at a.txt, caret at line 1:2.\n\nhello"),
+            connections.single().userMessages())
+    }
+
+    fun testSkippedContextIsLeftOutOnceThenComesBack() {
+        myFixture.configureByText("a.txt", "x")
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.skipContext(true)
+        chat.send("one")
+        assertFalse(chat.contextOff)
+        connections.single().emit(Fx.result())
+        chat.send("two")
+        assertEquals(listOf("one", "[IDE] The user is looking at a.txt, caret at line 1:1.\n\ntwo"), connections.single().userMessages())
+    }
+
+    fun testSkipCanBeUndone() {
+        myFixture.configureByText("a.txt", "x")
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.skipContext(true)
+        chat.skipContext(false)
+        chat.send("one")
+        assertEquals(listOf("[IDE] The user is looking at a.txt, caret at line 1:1.\n\none"), connections.single().userMessages())
+    }
+
+    fun testSettingOffSendsNoContext() {
+        myFixture.configureByText("a.txt", "x")
+        settings.attachEditorContext = false
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("hello")
+        assertEquals(listOf("hello"), connections.single().userMessages())
+    }
+
+    fun testWorktreeChatNamesTheCounterpart() {
+        myFixture.addFileToProject(".claude/worktrees/wt1/src/a.txt", "x")
+        myFixture.openFileInEditor(myFixture.addFileToProject("src/a.txt", "x").virtualFile)
+        val wt1 = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        val wt2 = chats.open(ChatSpec("wt2", "$root/.claude/worktrees/wt2"))
+        wt1.send("a")
+        wt2.send("b")
+        assertEquals(listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\na"), connections[0].userMessages())
+        assertEquals(listOf("b"), connections[1].userMessages())
     }
 }

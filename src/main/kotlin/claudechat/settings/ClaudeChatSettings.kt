@@ -18,6 +18,8 @@ class ClaudeChatSettings : SimplePersistentStateComponent<ClaudeChatSettings.Sta
         var extraArgs by string("")
         /** The IDE window follows the selected chat's checkout (Project view scope, open editors, Find scope). */
         var followCheckout by property(true)
+        /** Messages tell Claude which file, line, selection and function the editor shows (location only). */
+        var attachEditorContext by property(true)
     }
 
     companion object {

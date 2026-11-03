@@ -7,6 +7,7 @@ import claudechat.cli.CliConnection
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.git.GitWorktrees
+import claudechat.context.EditorContextService
 import claudechat.ide.EditTracker
 import claudechat.settings.ClaudeChatSettings
 import com.intellij.openapi.Disposable
@@ -39,6 +40,7 @@ class Chats(private val project: Project) : Disposable {
 
     // Cached: services must not be looked up while the project is being disposed (close runs then).
     private val tracker = EditTracker.getInstance(project) // also starts recording saves before the first message
+    private val context = EditorContextService.getInstance(project) // also starts tracking the focused editor
 
     fun all(): List<Chat> = chats.toList()
 
@@ -54,6 +56,7 @@ class Chats(private val project: Project) : Disposable {
             connector = connector,
             initialMode = defaultMode(),
             editNote = { c -> tracker.consumeNote(c.id, c.cwd) },
+            editorContext = { c -> if (ClaudeChatSettings.getInstance().state.attachEditorContext) context.contextFor(c.cwd) else null },
             log = { LOG.info(it) },
         )
         tracker.register(chat.id)
