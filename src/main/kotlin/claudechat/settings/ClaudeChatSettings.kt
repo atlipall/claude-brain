@@ -1,0 +1,24 @@
+package claudechat.settings
+
+import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.SimplePersistentStateComponent
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
+import com.intellij.openapi.components.service
+
+@Service(Service.Level.APP)
+@State(name = "ClaudeChatSettings", storages = [Storage("claudeChat.xml")])
+class ClaudeChatSettings : SimplePersistentStateComponent<ClaudeChatSettings.State>(State()) {
+    class State : BaseState() {
+        /** Empty = auto-detect. */
+        var claudePath by string("")
+        /** Empty = whatever the CLI's own settings say. */
+        var defaultMode by string("")
+        var extraArgs by string("")
+    }
+
+    companion object {
+        fun getInstance(): ClaudeChatSettings = service()
+    }
+}
