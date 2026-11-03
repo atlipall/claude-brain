@@ -42,11 +42,11 @@ class GitWorktrees(
 
     /** Folders whose past sessions can be resumed: the project, every git worktree, every dir under `.claude/worktrees`. */
     fun knownFolders(worktrees: List<Worktree>?): List<String> =
-        (listOf(projectDir) + worktrees.orEmpty().map { it.path } + claudeWorktreeDirs()).distinct()
+        (listOf(projectDir) + worktrees.orEmpty().map { it.path } + claudeWorktreeDirs()).distinctBy(::canonicalPath)
 
     /** Names a new worktree must not reuse. */
     fun existingNames(worktrees: List<Worktree>?): Set<String> =
-        (worktrees.orEmpty().filterNot { it.isMain }.map { it.name } + claudeWorktreeDirs().map { it.substringAfterLast('/') }).toSet()
+        (worktrees.orEmpty().filterNot { it.isMain }.map { it.name } + claudeWorktreeDirs().map { File(it).name }).toSet()
 }
 
 /** Runs `git worktree list --porcelain` in [dir]; null if git is missing, fails, or takes longer than 5 seconds. */

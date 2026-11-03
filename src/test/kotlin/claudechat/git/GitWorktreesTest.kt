@@ -6,6 +6,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.nio.file.Files
 
 class GitWorktreesTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -73,6 +74,21 @@ class GitWorktreesTest {
         assertEquals(
             listOf(proj.path, "${proj.path}/.claude/worktrees/wt-1", "${proj.path}/.claude/worktrees/wt-2"),
             git.knownFolders(null))
+    }
+
+    @Test fun knownFoldersListsProjectOnceWhenWorktreeReportedUnderSymlinkedProject() {
+        val real = tmp.newFolder("real")
+        File(real, ".claude/worktrees/wt-1").mkdirs()
+        val link = File(tmp.root, "link")
+        Files.createSymbolicLink(link.toPath(), real.toPath())
+        val listed = listOf(
+            Worktree(real.canonicalPath, "main", true),
+            Worktree("${real.canonicalPath}/.claude/worktrees/wt-1", "worktree-wt-1", false),
+        )
+        val folders = GitWorktrees(link.path) { null }.knownFolders(listed)
+        assertEquals(2, folders.size)
+        assertEquals(link.path, folders[0])
+        assertEquals(canonicalPath("${real.canonicalPath}/.claude/worktrees/wt-1"), canonicalPath(folders[1]))
     }
 
     @Test fun knownFoldersWithoutClaudeDir() {
