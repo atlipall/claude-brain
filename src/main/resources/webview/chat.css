@@ -28,6 +28,22 @@ a:hover { text-decoration: underline; }
 .tool-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .tool-name { font-weight: 600; }
 .tool-summary { color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+.tool.compact { border-left: 0; padding: 0; }
+.tool-row { display: flex; align-items: baseline; gap: 8px; padding: 2px 4px; border-radius: 4px; color: var(--muted); }
+.tool-row[role=button] { cursor: pointer; }
+.tool-row:hover { background: var(--code-bg); }
+.tool-icon { width: 14px; text-align: center; flex: none; }
+.status-done .tool-icon { color: var(--ok, #5fb865); }
+.status-error .tool-icon, .status-denied .tool-icon { color: var(--danger); }
+.tool-row .tool-name { color: var(--fg); flex: none; }
+.tool-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.tool-side { flex: none; }
+.tool-detail { margin: 2px 0 4px 26px; border-left: 2px solid var(--border); padding: 2px 8px; }
+.tool-detail pre { margin: 2px 0 6px; }
+.tool-label { color: var(--muted); font-size: 11px; }
+.spin { display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(88,157,246,.25); border-top-color: var(--accent); border-radius: 50%; animation: tool-spin .8s linear infinite; vertical-align: -1px; }
+@keyframes tool-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 .badge { color: var(--muted); font-size: .9em; }
 pre.add { background: var(--add); }
 pre.del { background: var(--del); }

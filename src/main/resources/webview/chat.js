@@ -206,23 +206,89 @@
     send({ type: 'resolvePaths', reqId, candidates: [...new Set(candidates)] });
   }
 
-  function summary(t) {
+  const FILE_TOOLS = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
+  const firstLine = (s) => String(s || '').split('\n').find((l) => l.trim() !== '') || '';
+
+  // One-line description of a tool call as plain text (file tools are shown as a file link instead; see renderToolRow).
+  function toolDescription(t) {
     const i = t.input || {};
-    if (t.name === 'Bash') return (i.command || '').split('\n')[0];
-    return i.pattern || i.url || i.description || i.query || '';
+    const str = (v) => (typeof v === 'string' ? v : '');
+    switch (t.name) {
+      case 'Bash': return firstLine(str(i.description) || str(i.command)).trim();
+      case 'Grep': return str(i.pattern) ? str(i.pattern) + (str(i.path) ? ' in ' + str(i.path) : '') : '';
+      case 'Glob': return str(i.pattern);
+      case 'WebFetch': {
+        try { const u = new URL(str(i.url)); return u.host + (u.pathname === '/' ? '' : u.pathname); } catch (e) { return str(i.url); }
+      }
+      case 'WebSearch': return str(i.query);
+      case 'Task': case 'Agent': return str(i.description);
+      case 'TodoWrite': return 'Update todos';
+      default:
+        for (const v of Object.values(i)) if (typeof v === 'string' && v.trim() !== '') return firstLine(v).trim();
+        return '';
+    }
+  }
+
+  // [label, nodes] for the input of a tool call, or null when there is none.
+  function inputBody(t) {
+    const i = t.input || {};
+    if (t.name === 'Edit') return ['Input', [h('pre', { class: 'del' }, clip(i.old_string)), h('pre', { class: 'add' }, clip(i.new_string))]];
+    if (t.name === 'MultiEdit') return ['Input', (i.edits || []).flatMap((e) => [h('pre', { class: 'del' }, clip(e.old_string)), h('pre', { class: 'add' }, clip(e.new_string))])];
+    if (t.name === 'Write') return ['Input', [h('pre', { class: 'add' }, clip(i.content))]];
+    if (t.name === 'Bash') return ['Command', [h('pre', {}, clip(i.command))]];
+    if (Object.keys(i).length) return ['Input', [h('pre', {}, clip(JSON.stringify(i, null, 2)))]];
+    return null;
   }
 
   function inputDetails(t) {
-    const i = t.input || {};
-    const open = t.status === 'awaiting_permission';
-    let body;
-    if (t.name === 'Edit') body = [h('pre', { class: 'del' }, clip(i.old_string)), h('pre', { class: 'add' }, clip(i.new_string))];
-    else if (t.name === 'MultiEdit') body = (i.edits || []).flatMap((e) => [h('pre', { class: 'del' }, clip(e.old_string)), h('pre', { class: 'add' }, clip(e.new_string))]);
-    else if (t.name === 'Write') body = [h('pre', { class: 'add' }, clip(i.content))];
-    else if (t.name === 'Bash') body = [h('pre', {}, clip(i.command))];
-    else if (Object.keys(i).length) body = [h('pre', {}, clip(JSON.stringify(i, null, 2)))];
-    else return null;
-    return h('details', { open }, h('summary', {}, 'Input'), ...body);
+    const body = inputBody(t);
+    if (!body) return null;
+    return h('details', { open: t.status === 'awaiting_permission' }, h('summary', {}, 'Input'), ...body[1]);
+  }
+
+  // Tool rows the user has expanded, by item id, so a re-render of the same item keeps them open.
+  const expandedTools = new Set();
+  const STATUS_ICON = { done: '\u2713', error: '\u2717', denied: '\u2298' };
+
+  function setRowExpanded(row, open) {
+    row.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const side = row.querySelector('.tool-toggle');
+    if (side) side.textContent = open ? '\u25BE' : '\u25B8';
+    const detail = row.nextElementSibling;
+    if (detail && detail.classList.contains('tool-detail')) detail.hidden = !open;
+  }
+
+  function toggleRow(row) {
+    const id = row.dataset.id;
+    const open = row.getAttribute('aria-expanded') !== 'true';
+    if (open) expandedTools.add(id); else expandedTools.delete(id);
+    setRowExpanded(row, open);
+  }
+
+  function renderToolRow(el, t) {
+    const body = inputBody(t);
+    const hasDetails = !!body || !!t.resultPreview;
+    const icon = t.status === 'running' ? h('span', { class: 'spin' }) : (STATUS_ICON[t.status] || '');
+    const path = FILE_TOOLS.has(t.name) ? (t.filePath || (t.input && (t.input.file_path || t.input.notebook_path))) : null;
+    const desc = h('span', { class: 'tool-desc' });
+    if (typeof path === 'string' && path) desc.append(h('a', { class: 'file', href: '#', 'data-target': path, title: path }, shortPath(path)));
+    else { const d = toolDescription(t); desc.textContent = d; if (d) desc.title = d; }
+    const side = h('span', { class: 'tool-side' });
+    if (t.status === 'error') side.append(h('span', { class: 'tool-failed' }, ' \u00b7 failed'));
+    if (t.hasDiff) side.append(h('button', { class: 'link', 'data-action': 'diff', 'data-id': t.id }, 'View diff'));
+    if (hasDetails) side.append(h('span', { class: 'tool-toggle' }, '\u25B8'));
+    const row = h('div', { class: 'tool-row', 'data-id': t.id, role: hasDetails ? 'button' : null, tabindex: hasDetails ? '0' : null },
+      h('span', { class: 'tool-icon' }, icon), h('span', { class: 'tool-name' }, t.name), desc, side);
+    el.append(row);
+    if (hasDetails) {
+      const detail = h('div', { class: 'tool-detail', hidden: true });
+      if (body) detail.append(h('div', { class: 'tool-label' }, body[0]), ...body[1]);
+      if (t.resultPreview) detail.append(h('div', { class: 'tool-label' }, 'Result'), h('pre', {}, clip(t.resultPreview)));
+      el.append(detail);
+      setRowExpanded(row, expandedTools.has(t.id));
+    }
+    const images = Array.isArray(t.images) ? t.images : [];
+    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
   }
 
   function permissionCard(t) {
@@ -300,9 +366,11 @@
 
   function renderTool(el, t) {
     el.className = 'msg tool status-' + t.status;
+    if (!(t.question && t.question.questions) && t.status !== 'awaiting_permission') { el.classList.add('compact'); renderToolRow(el, t); return; }
+    el.classList.remove('compact');
     const head = h('div', { class: 'tool-head' }, h('span', { class: 'tool-name' }, t.name));
     if (t.filePath) head.append(h('a', { class: 'file', href: '#', 'data-target': t.filePath, title: t.filePath }, shortPath(t.filePath)));
-    else { const s = summary(t); if (s) head.append(h('span', { class: 'tool-summary' }, s)); }
+    else { const s = toolDescription(t); if (s) head.append(h('span', { class: 'tool-summary' }, s)); }
     head.append(h('span', { class: 'badge' }, TOOL_STATUS[t.status] || t.status));
     if (t.hasDiff) head.append(h('button', { class: 'link', 'data-action': 'diff', 'data-id': t.id }, 'View diff'));
     el.append(head);
@@ -572,6 +640,11 @@
       return;
     }
     const b = e.target.closest('button[data-action]');
+    if (!b) {
+      const row = e.target.closest('.tool-row');
+      if (row && trusted.has(row) && row.hasAttribute('role')) toggleRow(row);
+      return;
+    }
     if (!b || !trusted.has(b)) return;
     const action = b.dataset.action;
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
@@ -582,6 +655,12 @@
       const reason = b.parentElement.querySelector('.deny-reason').value.trim();
       send({ type: 'permission', requestId: b.dataset.req, decision: 'deny', message: reason || 'The user denied this action.' });
     }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const row = e.target.closest && e.target.closest('.tool-row');
+    if (row && e.target === row && trusted.has(row) && row.hasAttribute('role')) { e.preventDefault(); toggleRow(row); }
   });
 
   window.addEventListener('bridge-ready', () => send({ type: 'ready' }));

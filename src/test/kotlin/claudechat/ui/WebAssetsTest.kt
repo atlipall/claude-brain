@@ -145,4 +145,17 @@ class WebAssetsTest {
         assertTrue(page.contains("if (!b || !trusted.has(b)) return;"))
         assertTrue(page.contains("h('button', { 'data-action': 'skipQuestion', 'data-req': id }, 'Skip')"))
     }
+
+    @Test fun toolCallsRenderAsCompactRows() {
+        val js = WebAssets.page()
+        assertTrue(js.contains("class: 'tool-row'"))
+        assertTrue(js.contains("firstLine(str(i.description) || str(i.command))"))
+        assertTrue(js.contains("const expandedTools = new Set();"))
+        assertTrue(js.contains("if (row && trusted.has(row) && row.hasAttribute('role')) toggleRow(row);"))
+        assertTrue(js.contains("t.status !== 'awaiting_permission'"))
+        assertTrue(js.contains("@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }"))
+        val body = js.substringAfter("function renderToolRow(").substringBefore("function renderTool(")
+        assertFalse(body.contains("innerHTML"))
+        assertFalse(body.contains("marked"))
+    }
 }
