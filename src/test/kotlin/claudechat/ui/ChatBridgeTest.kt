@@ -93,6 +93,31 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(SessionState.IDLE, other.session.state)
     }
 
+    fun testActivityIsPostedAndReplayedOnReady() {
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"send","text":"hello"}""")
+        val first = posted.last { it.str("type") == "activity" }
+        assertEquals("starting", first.str("phase"))
+        connections[0].emit(Fx.toolUse("m1", "t1", "Read", """{"file_path":"/a"}"""))
+        val running = posted.last { it.str("type") == "activity" }
+        assertEquals("running", running.str("phase"))
+        assertEquals("Read", running.str("tool"))
+        connections[0].emit(Fx.result())
+        assertTrue(posted.last { it.str("type") == "activity" }["phase"] is kotlinx.serialization.json.JsonNull)
+        posted.clear()
+        connections[0].emit(Fx.thinkingStart("m2", 0)) // no turn running here, but the session reports it only while busy
+        assertTrue(posted.none { it.str("type") == "activity" })
+    }
+
+    fun testToolNameInTheStripIsCleanedAndShortened() {
+        val msg = parseJsonObject(ChatBridge.activityMessage(claudechat.session.Activity.Running("mcp__x`\n" + "a".repeat(100))))!!
+        val tool = msg.str("tool")!!
+        assertTrue(tool.length <= 40)
+        assertFalse(tool.contains('`'))
+        assertFalse(tool.contains('\n'))
+        assertEquals("tool", parseJsonObject(ChatBridge.activityMessage(claudechat.session.Activity.Running("  ")))!!.str("tool"))
+    }
+
     fun testSetModeGoesToThisChat() {
         chats.open(ChatSpec.inProject(root))
         bridge.handle("""{"type":"setMode","mode":"plan"}""")

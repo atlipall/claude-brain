@@ -40,6 +40,8 @@ class ChatsTest : BasePlatformTestCase() {
         override fun item(item: ChatItem) { items += item }
         override fun state(state: SessionState, sessionId: String?, mode: PermissionMode?) { states += state }
         override fun insert(text: String) { inserted += text }
+        val activities = mutableListOf<Activity?>()
+        override fun activity(activity: Activity?) { activities += activity }
     }
 
     private val settings get() = ClaudeChatSettings.getInstance().state
@@ -378,6 +380,45 @@ class ChatsTest : BasePlatformTestCase() {
         release.countDown()
         awaitMessages(connections.single(), 1)
         assertEquals(listOf(inTotal + "wait for it"), connections.single().userMessages())
+    }
+
+    fun testStartingShowsWhileASendWaitsForItsContext() {
+        myFixture.configureByText("calc.js", calc)
+        val release = CountDownLatch(1)
+        contextService.finder = { file, document, offset ->
+            release.await(10, TimeUnit.SECONDS)
+            claudechat.context.SymbolFinder.find(file, document, offset)
+        }
+        val chat = chats.open(ChatSpec.inProject(root))
+        val view = RecordingView().also(chat::attach)
+        chat.send("wait for it")
+        assertEquals(listOf<Activity?>(Activity.Starting), view.activities)
+        release.countDown()
+        awaitMessages(connections.single(), 1)
+        assertEquals(listOf<Activity?>(Activity.Starting), view.activities) // handed to the CLI: still Starting, not repeated
+        connections.single().emit(Fx.thinkingStart("m1", 0))
+        assertEquals(listOf(Activity.Starting, Activity.Thinking), view.activities)
+    }
+
+    fun testActivityIsReplayedOnAttach() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("go")
+        connections.single().emit(Fx.thinkingStart("m1", 0))
+        val view = RecordingView()
+        chat.attach(view)
+        assertEquals(listOf<Activity?>(Activity.Thinking), view.activities)
+    }
+
+    fun testBusyFollowsTheTurn() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        var changes = 0
+        chat.onBusyChanged = { changes++ }
+        assertFalse(chat.busy)
+        chat.send("go")
+        assertTrue(chat.busy)
+        connections.single().emit(Fx.result())
+        assertFalse(chat.busy)
+        assertEquals(2, changes)
     }
 
     fun testALookupThatFailsSendsTheLocationOnly() {

@@ -32,6 +32,11 @@ class CliParserTest {
         assertEquals(CliEvent.BlockStop("m1", 1), one(Fx.blockStop("m1", 1)))
     }
 
+    @Test fun thinkingStartIsParsedAndItsDeltasAreIgnored() {
+        assertEquals(CliEvent.ThinkingStart("m1", 0), one(Fx.thinkingStart("m1", 0)))
+        assertEquals(CliEvent.Ignored("stream_event/content_block_delta/thinking_delta"), one(Fx.thinkingDelta("m1", 0, "hmm")))
+    }
+
     @Test fun assistantTextAndToolUse() {
         assertEquals(CliEvent.AssistantText("m1", "DONE"), one(Fx.assistantText("m1", "DONE")))
         val tool = one(Fx.toolUse("m1", "t1", "Write", """{"file_path":"/p/a.txt","content":"hi"}""")) as CliEvent.ToolUse

@@ -11,6 +11,8 @@ data class ImageBlock(val mediaType: String?, val data: String)
 sealed interface CliEvent {
     data class SystemInit(val sessionId: String, val permissionMode: String?, val cwd: String?) : CliEvent
     data class TextDelta(val messageId: String, val index: Int, val text: String) : CliEvent
+    /** A thinking content block began (its text is never shown). */
+    data class ThinkingStart(val messageId: String, val index: Int) : CliEvent
     data class BlockStop(val messageId: String, val index: Int) : CliEvent
     data class AssistantText(val messageId: String, val text: String) : CliEvent
     data class ToolUse(val toolUseId: String, val name: String, val input: JsonObject) : CliEvent
@@ -69,6 +71,9 @@ object CliParser {
                 if (delta?.str("type") == "text_delta") CliEvent.TextDelta(messageId, index, delta.str("text") ?: "")
                 else CliEvent.Ignored("stream_event/content_block_delta/${delta?.str("type")}")
             }
+            "content_block_start" ->
+                if (event.obj("content_block")?.str("type") == "thinking") CliEvent.ThinkingStart(messageId, index)
+                else CliEvent.Ignored("stream_event/content_block_start")
             "content_block_stop" -> CliEvent.BlockStop(messageId, index)
             else -> CliEvent.Ignored("stream_event/$type")
         }

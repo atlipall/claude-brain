@@ -51,6 +51,8 @@ class RecordingListener : ChatListener {
     val states = mutableListOf<Triple<SessionState, String?, PermissionMode?>>()
     override fun onItem(item: ChatItem) { items += item }
     override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) { states += Triple(state, sessionId, mode) }
+    val activities = mutableListOf<claudechat.session.Activity?>()
+    override fun onActivity(activity: claudechat.session.Activity?) { activities += activity }
 
     /** Latest version of every item, in first-seen order. */
     fun current(): List<ChatItem> = items.associateBy { it.id }.values.toList()

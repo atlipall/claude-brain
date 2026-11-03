@@ -5,7 +5,11 @@
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const modeSel = document.getElementById('mode');
-  const stopBtn = document.getElementById('stop');
+  const activityEl = document.getElementById('activity');
+  const activityDots = document.getElementById('activity-dots');
+  const activityLabel = document.getElementById('activity-label');
+  const activitySecs = document.getElementById('activity-secs');
+  const activityStop = document.getElementById('activity-stop');
   const restartBtn = document.getElementById('restart');
   const statusEl = document.getElementById('status');
   const checkoutEl = document.getElementById('checkout');
@@ -22,7 +26,7 @@
   let recall = -1;   // index into history while recalling, -1 otherwise
   let draft = '';    // what the box held before recall started
 
-  const STATUS = { IDLE: 'Ready', RUNNING: 'Working…', AWAITING_PERMISSION: 'Waiting for your permission', DEAD: 'Stopped' };
+  const STATUS = { DEAD: 'Stopped' }; // the header says nothing else; the strip above the input shows the turn
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
   const PATH_RE = /^[\w@.\/~-]*[\w-]\.[A-Za-z0-9]{1,10}(?:(?::|#L)\d+(?:[:-]\d+)?)?$/;
   const MAX_PRE = 6000;
@@ -72,6 +76,7 @@
         case 'items': msg.items.forEach(upsert); break;
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
+        case 'activity': setActivity(msg); break;
         case 'resolved': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.paths); break; }
         case 'images': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.images || {}); break; }
         case 'insert': insertText(msg.text); break;
@@ -325,12 +330,51 @@
   }
 
   function setState(msg) {
-    statusEl.textContent = STATUS[msg.state] || msg.state;
-    const busy = msg.state === 'RUNNING' || msg.state === 'AWAITING_PERMISSION';
-    stopBtn.hidden = !busy;
+    statusEl.textContent = STATUS[msg.state] || '';
+    if (msg.state === 'DEAD') setActivity({ phase: null });
     restartBtn.hidden = msg.state !== 'DEAD';
     input.disabled = sendBtn.disabled = attachBtn.disabled = msg.state === 'DEAD';
     if (msg.mode) modeSel.value = msg.mode;
+  }
+
+  // The strip above the input: phase and tool name come from the IDE, shown as text only; the seconds are counted here.
+  const PHASE_LABEL = { starting: 'Starting…', thinking: 'Thinking…', writing: 'Writing…', waiting: 'Waiting for your answer' };
+  let activityKey = null;
+  let activityStart = 0;
+  let activityTimer = null;
+
+  function tickActivity() {
+    activitySecs.textContent = Math.max(0, Math.floor((Date.now() - activityStart) / 1000)) + 's';
+  }
+
+  function stopActivityTimer() {
+    if (activityTimer !== null) { clearInterval(activityTimer); activityTimer = null; }
+  }
+
+  function setActivity(msg) {
+    const phase = typeof msg.phase === 'string' && (msg.phase === 'running' || PHASE_LABEL[msg.phase]) ? msg.phase : null;
+    if (!phase) {
+      activityKey = null;
+      stopActivityTimer();
+      activityEl.hidden = true;
+      return;
+    }
+    const tool = phase === 'running' ? (typeof msg.tool === 'string' ? msg.tool.slice(0, 40) : 'tool') : '';
+    const key = phase + ':' + tool;
+    if (key === activityKey && !activityEl.hidden) return;
+    activityKey = key;
+    activityLabel.textContent = phase === 'running' ? 'Running ' + tool + '…' : PHASE_LABEL[phase];
+    const waiting = phase === 'waiting';
+    activityDots.hidden = waiting;
+    activityLabel.classList.toggle('shimmer', !waiting);
+    activitySecs.hidden = waiting;
+    activityEl.hidden = false;
+    stopActivityTimer();
+    if (!waiting) {
+      activityStart = Date.now();
+      tickActivity();
+      activityTimer = setInterval(tickActivity, 1000);
+    }
   }
 
   // Plain text only: the IDE's checkout name and folder never become markup.
@@ -481,7 +525,7 @@
   input.addEventListener('input', () => { recall = -1; });
   sendBtn.addEventListener('click', submit);
   document.getElementById('new-chat').addEventListener('click', () => send({ type: 'newChat' }));
-  stopBtn.addEventListener('click', () => send({ type: 'interrupt' }));
+  activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
   contextOffBtn.addEventListener('click', (e) => { e.stopPropagation(); send({ type: 'contextOff', off: true }); });

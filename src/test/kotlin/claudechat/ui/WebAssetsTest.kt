@@ -54,6 +54,25 @@ class WebAssetsTest {
         assertTrue(page.contains("#context[hidden] { display: none; }"))
     }
 
+    @Test fun pageShowsWhatClaudeIsDoingAboveTheInput() {
+        val page = WebAssets.page()
+        val html = page.substring(page.indexOf("<main id=\"log\">"))
+        assertTrue(html.indexOf("<div id=\"activity\" hidden>") in 0 until html.indexOf("<div id=\"context\""))
+        assertTrue(html.indexOf("<main id=\"log\"></main>") < html.indexOf("<div id=\"activity\""))
+        assertFalse(page.contains("id=\"stop\""))
+        assertFalse(page.contains("getElementById('stop')"))
+        assertTrue(page.contains("<button id=\"restart\" hidden>Restart</button>"))
+        assertTrue(page.contains("case 'activity': setActivity(msg); break;"))
+        assertTrue(page.contains("document.getElementById('activity-stop')"))
+        assertTrue(page.contains("activityStop.addEventListener('click', () => send({ type: 'interrupt' }));"))
+        assertTrue(page.contains("activityLabel.textContent ="))
+        assertTrue(page.contains("setInterval(tickActivity, 1000)"))
+        assertTrue(page.contains("prefers-reduced-motion"))
+        assertFalse(page.contains("activityLabel.innerHTML"))
+        assertFalse(page.contains("activityEl.innerHTML"))
+        assertFalse(page.contains("Waiting for your permission"))
+    }
+
     @Test fun pageSendsImagesToTheIdeInChunks() {
         val page = WebAssets.page()
         assertTrue(page.contains("<div id=\"attachments\" hidden></div>"))

@@ -30,6 +30,12 @@ object Fx {
     fun textDelta(msg: String, index: Int, text: String) =
         """{"type":"stream_event","event":{"type":"content_block_delta","index":$index,"delta":{"type":"text_delta","text":${q(text)}}},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"u3","api_message_id":"$msg"}"""
 
+    fun thinkingStart(msg: String, index: Int) =
+        """{"type":"stream_event","event":{"type":"content_block_start","index":$index,"content_block":{"type":"thinking","thinking":"","signature":""}},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"u3","api_message_id":"$msg"}"""
+
+    fun thinkingDelta(msg: String, index: Int, text: String) =
+        """{"type":"stream_event","event":{"type":"content_block_delta","index":$index,"delta":{"type":"thinking_delta","thinking":${q(text)}}},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"u3","api_message_id":"$msg"}"""
+
     fun blockStop(msg: String, index: Int) =
         """{"type":"stream_event","event":{"type":"content_block_stop","index":$index},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"u4","api_message_id":"$msg"}"""
 

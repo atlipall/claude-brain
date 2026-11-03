@@ -23,6 +23,9 @@ interface SessionView {
 
     /** The editor-context chip: empty [text] hides it; [off] shows it muted (left out of the next message). */
     fun context(text: String, off: Boolean) {}
+
+    /** What Claude is doing now (changes only); null when no turn is running. */
+    fun activity(activity: Activity?) {}
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -67,13 +70,46 @@ class Chat(
     @Volatile var checkoutText: String = ""
         private set
 
+    /** True while a turn is running or waiting for the user. */
+    @Volatile var busy = false
+        private set
+
+    /** Called on the CLI reader thread (or the EDT) when [busy] changes. */
+    @Volatile var onBusyChanged: (() -> Unit)? = null
+
+    private val activityLock = Any()
+    private var sessionActivity: Activity? = null
+    private var shownActivity: Activity? = null
+    /** True while sent messages wait for their editor context (written on the EDT, read anywhere). */
+    @Volatile private var sendPending = false
+
+    /** Tells the view the activity if it changed: the session's, or Starting while a send waits for its context. */
+    private fun publishActivity() {
+        synchronized(activityLock) {
+            val now = sessionActivity ?: if (sendPending) Activity.Starting else null
+            if (now == shownActivity) return
+            shownActivity = now
+            view?.activity(now)
+        }
+    }
+
     private val listener = object : ChatListener {
+        override fun onActivity(activity: Activity?) {
+            synchronized(activityLock) { sessionActivity = activity }
+            publishActivity()
+        }
+
         override fun onItem(item: ChatItem) {
             synchronized(lock) { items[item.id] = item }
             view?.item(item)
         }
 
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
+            val nowBusy = state == SessionState.RUNNING || state == SessionState.AWAITING_PERMISSION
+            if (nowBusy != busy) {
+                busy = nowBusy
+                onBusyChanged?.invoke()
+            }
             view?.state(state, sessionId, mode)
             val now = cwd
             if (now != knownCwd) {
@@ -105,6 +141,7 @@ class Chat(
         this.view = view
         view.reset(synchronized(lock) { items.values.toList() })
         view.state(session.state, session.sessionId, session.mode)
+        synchronized(activityLock) { shownActivity }?.let(view::activity)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)
         shownContext = HIDDEN // a new page shows no chip yet
@@ -189,6 +226,15 @@ class Chat(
     }
 
     private fun pump() {
+        try {
+            drain()
+        } finally {
+            sendPending = outbox.isNotEmpty()
+            publishActivity()
+        }
+    }
+
+    private fun drain() {
         while (!resolving) {
             val next = outbox.firstOrNull() ?: return
             val resolve = resolveContext
@@ -249,6 +295,7 @@ class Chat(
     fun dispose() {
         disposed = true
         outbox.clear()
+        sendPending = false
         attachments.clear()
         session.dispose()
     }

@@ -48,6 +48,49 @@ class ChatSessionTest {
 
     private val writeInput = """{"file_path":"/p/a.txt","content":"hi"}"""
 
+    // --- activity ---
+
+    @Test fun activityFollowsATurn() {
+        val s = session()
+        conn.emit(Fx.init())
+        assertTrue(listener.activities.isEmpty())
+        s.send("go")
+        assertEquals(listOf<Activity?>(Activity.Starting), listener.activities)
+        conn.emit(Fx.thinkingStart("m1", 0), Fx.thinkingDelta("m1", 0, "a"), Fx.thinkingDelta("m1", 0, "b"))
+        conn.emit(Fx.blockStop("m1", 0), Fx.textDelta("m1", 1, "Hi"), Fx.textDelta("m1", 1, " there"))
+        conn.emit(Fx.toolUse("m1", "t1", "Read", """{"file_path":"/p/a.txt"}"""))
+        conn.emit(Fx.canUseTool("r1", "t1", "Read", """{"file_path":"/p/a.txt"}"""))
+        s.respond("r1", PermissionDecision.Allow)
+        conn.emit(Fx.toolResult("t1", "x"))
+        conn.emit(Fx.result())
+        assertEquals(
+            listOf<Activity?>(
+                Activity.Starting, Activity.Thinking, Activity.Writing, Activity.Running("Read"),
+                Activity.Waiting, Activity.Running("Read"), Activity.Thinking, null,
+            ),
+            listener.activities,
+        )
+    }
+
+    @Test fun activityIsClearedWhenTheProcessDies() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.thinkingStart("m1", 0))
+        conn.exit(1, "boom")
+        assertNull(listener.activities.last())
+        assertEquals(SessionState.DEAD, listener.lastState())
+    }
+
+    @Test fun aQueuedMessageStartsANewTurnAtStarting() {
+        val s = session()
+        s.send("one")
+        s.send("two")
+        conn.emit(Fx.result())
+        assertEquals(listOf<Activity?>(Activity.Starting), listener.activities) // unchanged: the next turn also starts there
+        conn.emit(Fx.result())
+        assertNull(listener.activities.last())
+    }
+
     // --- lifecycle and turns ---
 
     @Test fun startSendsInitializeAndIsIdle() {

@@ -15,10 +15,24 @@ import java.util.Base64
 
 enum class SessionState { IDLE, RUNNING, AWAITING_PERMISSION, DEAD }
 
+/** What Claude is doing during a turn, as far as the CLI's events tell. */
+sealed interface Activity {
+    /** The message was handed over; nothing has come back yet. */
+    data object Starting : Activity
+    data object Thinking : Activity
+    data class Running(val tool: String) : Activity
+    data object Writing : Activity
+    /** A permission request or question is open. */
+    data object Waiting : Activity
+}
+
 /** Called while the session lock is held: do not call back into the session synchronously. */
 interface ChatListener {
     fun onItem(item: ChatItem)
     fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?)
+
+    /** The turn's activity, reported only when it changes; null when no turn is running. */
+    fun onActivity(activity: Activity?) {}
 }
 
 sealed interface PermissionDecision {
@@ -74,6 +88,11 @@ class ChatSession(
     private val deniedToolUses = HashSet<String>()
     private val sessionAllowedTools = HashSet<String>()
     private val diffs = HashMap<String, FileDiff>()
+    /** Tool calls started and not yet answered (id to name), oldest first. */
+    private val runningTools = LinkedHashMap<String, String>()
+    /** The phase of the running turn, null between turns; [Activity.Waiting] is derived from the open requests. */
+    private var phase: Activity? = null
+    private var reported: Activity? = null
 
     fun start() {
         synchronized(lock) {
@@ -116,7 +135,9 @@ class ChatSession(
             val line = CliMessages.userContent(payload, images)
             if (state == SessionState.IDLE) {
                 connection?.send(line)
+                phase = Activity.Starting
                 setState(SessionState.RUNNING)
+                reportActivity()
             } else {
                 queue.addLast(line)
             }
@@ -148,7 +169,11 @@ class ChatSession(
             }
             val status = if (decision is PermissionDecision.Deny) ToolStatus.DENIED else ToolStatus.RUNNING
             toolCalls[toolId]?.let { upsertTool(it.copy(status = status, permissionRequestId = null)) }
-            if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) setState(SessionState.RUNNING)
+            if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) {
+                phase = if (decision is PermissionDecision.Deny) Activity.Thinking else Activity.Running(req.toolName)
+                setState(SessionState.RUNNING)
+            }
+            reportActivity()
         }
     }
 
@@ -166,7 +191,11 @@ class ChatSession(
             pendingPermissions.remove(requestId)
             connection?.send(CliMessages.allow(requestId, Questions.withAnswers(req.input, texts)))
             toolCalls[toolId]?.let { upsertTool(it.copy(status = ToolStatus.RUNNING, permissionRequestId = null, question = card.copy(answers = texts))) }
-            if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) setState(SessionState.RUNNING)
+            if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) {
+                phase = Activity.Running(req.toolName)
+                setState(SessionState.RUNNING)
+            }
+            reportActivity()
             return true
         }
     }
@@ -205,8 +234,10 @@ class ChatSession(
                 connection?.send(CliMessages.deny(requestId, "Interrupted by the user."))
                 toolCalls[toolId]?.let { upsertTool(it.copy(status = ToolStatus.DENIED, permissionRequestId = null)) }
             }
+            if (pendingPermissions.isNotEmpty()) phase = Activity.Thinking
             pendingPermissions.clear()
             connection?.send(CliMessages.interrupt(nextId("interrupt")))
+            reportActivity()
         }
     }
 
@@ -255,7 +286,10 @@ class ChatSession(
                 val next = current.copy(text = current.text + event.text, streaming = true)
                 streamed[key] = next
                 emit(next)
+                phase = Activity.Writing
+                reportActivity()
             }
+            is CliEvent.ThinkingStart -> { phase = Activity.Thinking; reportActivity() }
             is CliEvent.BlockStop -> streamed.remove("${event.messageId}:${event.index}")?.let { emit(it.copy(streaming = false)) }
             is CliEvent.AssistantText ->
                 if (event.messageId !in streamedMessages) emit(ChatItem.AssistantText(nextId("text"), event.text, false))
@@ -263,6 +297,9 @@ class ChatSession(
                 val base = toolCalls[event.toolUseId]
                     ?: ChatItem.ToolCall(event.toolUseId, event.name, event.input, null, ToolStatus.RUNNING, null, null, false)
                 upsertTool(base.copy(name = event.name, input = event.input, filePath = filePathOf(event.input)))
+                runningTools[event.toolUseId] = event.name
+                phase = Activity.Running(event.name)
+                reportActivity()
             }
             is CliEvent.PermissionRequest -> onPermissionRequest(event)
             is CliEvent.ToolResult -> onToolResult(event, copies.orEmpty())
@@ -296,9 +333,13 @@ class ChatSession(
             question = questions?.let { QuestionCard(it) },
         ))
         setState(SessionState.AWAITING_PERMISSION)
+        reportActivity()
     }
 
     private fun onToolResult(event: CliEvent.ToolResult, copies: List<String>) {
+        runningTools.remove(event.toolUseId)
+        phase = runningTools.entries.lastOrNull()?.let { Activity.Running(it.value) } ?: Activity.Thinking
+        reportActivity()
         val tool = toolCalls[event.toolUseId] ?: return
         val status = when {
             event.toolUseId in deniedToolUses -> ToolStatus.DENIED
@@ -332,6 +373,8 @@ class ChatSession(
 
     private fun onResult(event: CliEvent.Result) {
         pendingPermissions.clear()
+        runningTools.clear()
+        phase = null
         if (interruptRequested) {
             interruptRequested = false
             emit(ChatItem.Notice(nextId("notice"), "Interrupted", isError = false))
@@ -342,20 +385,25 @@ class ChatSession(
         val next = queue.removeFirstOrNull()
         if (next != null) {
             connection?.send(next)
+            phase = Activity.Starting
             setState(SessionState.RUNNING)
         } else {
             setState(SessionState.IDLE)
         }
+        reportActivity()
     }
 
     private fun handleExit(code: Int, stderrTail: String) {
         connection = null
         pendingPermissions.clear()
+        runningTools.clear()
         queue.clear()
+        phase = null
         val detail = stderrTail.trim().takeLast(2000)
         val text = if (detail.isEmpty()) "Claude exited (code $code)." else "Claude exited (code $code).\n$detail"
         emit(ChatItem.Notice(nextId("notice"), text, isError = true))
         setState(SessionState.DEAD)
+        reportActivity()
     }
 
     private fun filePathOf(input: JsonObject): String? = input.str("file_path") ?: input.str("notebook_path")
@@ -363,5 +411,14 @@ class ChatSession(
     private fun upsertTool(tool: ChatItem.ToolCall) { toolCalls[tool.id] = tool; emit(tool) }
     private fun emit(item: ChatItem) = listener.onItem(item)
     private fun setState(newState: SessionState) { state = newState; notifyState() }
+    /** Tells the listener the current activity if it differs from the last one told. */
+    private fun reportActivity() {
+        val now = if (state == SessionState.RUNNING || state == SessionState.AWAITING_PERMISSION) {
+            if (pendingPermissions.isNotEmpty()) Activity.Waiting else phase
+        } else null
+        if (now == reported) return
+        reported = now
+        listener.onActivity(now)
+    }
     private fun notifyState() = listener.onState(state, sessionId, mode)
 }

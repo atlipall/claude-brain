@@ -11,6 +11,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.content.ContentFactory
 
 /** One closeable tool-window tab per chat. Closing a tab closes its chat (stops its process). EDT only. */
@@ -28,6 +29,12 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
         panel = ChatPanel(project, chat, onNewChat = { newChat { it.showInCenterOf(panel.browser.component) } }, parent = content)
         content.component = panel.browser.component
         content.preferredFocusableComponent = panel.browser.component
+        // The busy icon follows chat.busy, read again on the EDT so a late callback never shows a stale state.
+        chat.onBusyChanged = {
+            ApplicationManager.getApplication().invokeLater({
+                if (!Disposer.isDisposed(content)) content.icon = if (chat.busy) AnimatedIcon.Default.INSTANCE else null
+            }, project.disposed)
+        }
         chat.onTitleChanged = { content.displayName = chat.title } // Chat.send runs on the EDT
         val follower = CheckoutFollower.getInstance(project)
         chat.onCwdChanged = {
