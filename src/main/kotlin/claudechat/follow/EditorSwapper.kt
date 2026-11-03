@@ -1,6 +1,6 @@
 package claudechat.follow
 
-import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.ide.ui.UISettings
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditor
@@ -10,6 +10,7 @@ import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.ex.FileEditorOpenRequest
 import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 
 /** Swaps open editor tabs from one checkout to another (see [EditorSwapPlan]). EDT only. */
@@ -22,11 +23,15 @@ class EditorSwapper(private val project: Project, private val mapper: CheckoutMa
         val files = manager.openFiles.toList()
         if (files.isEmpty()) return
         val byPath = files.associateBy { it.path }
-        val fs = files.first().fileSystem // the local file system; an in-memory one in light tests
+        val local = LocalFileSystem.getInstance()
+        // Counterparts are real files: refreshing finds ones the VFS has not seen yet. A file that lives in another
+        // file system (the in-memory one of light tests) looks its counterpart up there.
+        val other = files.firstOrNull { it.fileSystem !== local }?.fileSystem
+        fun resolve(path: String): VirtualFile? = local.refreshAndFindFileByPath(path) ?: other?.findFileByPath(path)
         val open = files.map { OpenFile(it.path, caretOf(it)) }
-        val swaps = EditorSwapPlan.plan(open, from, to, mapper) { fs.findFileByPath(it) != null }.mapNotNull { r ->
+        val swaps = EditorSwapPlan.plan(open, from, to, mapper) { resolve(it) != null }.mapNotNull { r ->
             val old = byPath[r.from] ?: return@mapNotNull null
-            val new = fs.findFileByPath(r.to) ?: return@mapNotNull null
+            val new = resolve(r.to) ?: return@mapNotNull null
             Swap(old, new, r.caret)
         }
         if (swaps.isEmpty()) return
@@ -51,8 +56,11 @@ class EditorSwapper(private val project: Project, private val mapper: CheckoutMa
                 if (s.old !in window.fileList) continue
                 window.setSelectedComposite(s.old, false)
                 val request = FileEditorOpenRequest(targetWindow = window, selectAsCurrent = false, requestFocus = false)
+                // At the tab limit an extra tab would evict some other tab, so make room by closing the old one first.
+                val closeFirst = window.fileList.size >= UISettings.getInstance().editorTabLimit && window.fileList.size > 1
+                if (closeFirst) window.closeFile(s.old)
                 val editors = ex.openFile(s.new, request).allEditors
-                window.closeFile(s.old)
+                if (!closeFirst) window.closeFile(s.old)
                 placeCaret(s.new, editors, s.caret)
                 if (s.old == selected) reselect = s.new
             }
@@ -75,7 +83,10 @@ class EditorSwapper(private val project: Project, private val mapper: CheckoutMa
     }
 
     private fun caretOf(file: VirtualFile): Caret? =
-        (manager.getSelectedEditor(file) as? TextEditor)?.editor?.caretModel?.logicalPosition?.let { Caret(it.line, it.column) }
+        (manager.getSelectedEditor(file) as? TextEditor)?.editor?.let { e ->
+            val line = e.caretModel.logicalPosition.line
+            Caret(line, e.caretModel.offset - e.document.getLineStartOffset(line))
+        }
 
     private fun placeCaret(file: VirtualFile, editors: List<FileEditor>, caret: Caret?) {
         caret ?: return
@@ -83,7 +94,7 @@ class EditorSwapper(private val project: Project, private val mapper: CheckoutMa
             ?: (manager.getSelectedEditor(file) as? TextEditor)?.editor ?: return
         val document = editor.document
         val at = caret.clamp(document.lineCount) { document.getLineEndOffset(it) - document.getLineStartOffset(it) }
-        editor.caretModel.moveToLogicalPosition(LogicalPosition(at.line, at.column))
+        editor.caretModel.moveToOffset(document.getLineStartOffset(at.line) + at.column)
         editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
     }
 }

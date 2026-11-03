@@ -60,4 +60,10 @@ class EditorSwapPlanTest {
         assertEquals(Caret(0, 0), Caret(4, 4).clamp(0) { 0 })
         assertEquals(Caret(0, 0), Caret(-1, -1).clamp(2) { lengths[it] })
     }
+
+    @Test fun caretColumnIsACharacterOffsetOnATabIndentedLine() {
+        // "\t\tfoo" has 5 characters; a caret after the tabs is at character 2, whatever the tab width
+        assertEquals(Caret(0, 2), Caret(0, 2).clamp(1) { 5 })
+        assertEquals(Caret(0, 5), Caret(0, 12).clamp(1) { 5 })
+    }
 }

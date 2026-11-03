@@ -1,6 +1,6 @@
 package claudechat.follow
 
-/** A zero-based caret position. */
+/** A zero-based caret position: the line, and the column as a character offset within the line (a tab counts as one). */
 data class Caret(val line: Int, val column: Int) {
     /** This position moved inside a document of [lineCount] lines (at least one) whose line lengths [lineLength] gives. */
     fun clamp(lineCount: Int, lineLength: (Int) -> Int): Caret {

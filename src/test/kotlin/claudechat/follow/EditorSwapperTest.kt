@@ -75,4 +75,16 @@ class EditorSwapperTest : BasePlatformTestCase() {
         EditorSwapper(project, mapper).swap(main, wt1)
         assertTrue(manager.openFiles.isEmpty())
     }
+
+    fun testCaretOnATabIndentedLineKeepsItsCharacterColumn() {
+        val text = "\t\tfoo\n\t\tbar\n"
+        val a = file("a.txt", text)
+        file(".claude/worktrees/wt1/a.txt", text)
+        manager.openFile(a, true)
+        val editor = (manager.getSelectedEditor(a) as TextEditor).editor
+        editor.caretModel.moveToOffset(text.indexOf("bar") + 1)
+        EditorSwapper(project, mapper).swap(main, wt1)
+        val moved = (manager.getSelectedEditor(myFixture.findFileInTempDir(".claude/worktrees/wt1/a.txt")) as TextEditor).editor
+        assertEquals(text.indexOf("bar") + 1, moved.caretModel.offset)
+    }
 }
