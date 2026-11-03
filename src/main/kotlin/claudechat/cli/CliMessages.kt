@@ -1,9 +1,12 @@
 package claudechat.cli
 
+import claudechat.image.Image
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /** Builders for lines written to the CLI's stdin. */
@@ -20,6 +23,34 @@ object CliMessages {
             put("content", text)
         }
     }.toString()
+
+    /**
+     * A user message with images: a content array of the text block (left out when [text] is blank) and one base64
+     * image block per image, in that order. Without images it is [userText].
+     */
+    fun userContent(text: String, images: List<Image>): String {
+        if (images.isEmpty()) return userText(text)
+        return buildJsonObject {
+            put("type", "user")
+            putJsonObject("message") {
+                put("role", "user")
+                putJsonArray("content") {
+                    if (text.isNotBlank()) addJsonObject {
+                        put("type", "text")
+                        put("text", text)
+                    }
+                    for (image in images) addJsonObject {
+                        put("type", "image")
+                        putJsonObject("source") {
+                            put("type", "base64")
+                            put("media_type", image.type.mime)
+                            put("data", image.base64())
+                        }
+                    }
+                }
+            }
+        }.toString()
+    }
 
     fun allow(requestId: String, input: JsonObject): String = controlResponse(requestId) {
         put("behavior", "allow")

@@ -5,6 +5,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+/** A base64 image content block as the CLI sent it: [mediaType] is what the CLI claims, [data] is not yet checked. */
+data class ImageBlock(val mediaType: String?, val data: String)
+
 sealed interface CliEvent {
     data class SystemInit(val sessionId: String, val permissionMode: String?, val cwd: String?) : CliEvent
     data class TextDelta(val messageId: String, val index: Int, val text: String) : CliEvent
@@ -18,6 +21,8 @@ sealed interface CliEvent {
         val filePath: String?,
         val originalFile: String?,
         val hasOriginalFile: Boolean,
+        /** Image blocks inside the result's content (e.g. Read on a PNG), unvalidated. */
+        val images: List<ImageBlock> = emptyList(),
     ) : CliEvent
     data class UserText(val text: String) : CliEvent
     data class PermissionRequest(val requestId: String, val toolName: String, val toolUseId: String?, val input: JsonObject) : CliEvent
@@ -100,6 +105,7 @@ object CliParser {
                         filePath = extra?.str("filePath"),
                         originalFile = if (original == null || original is JsonNull) null else (original as? JsonPrimitive)?.content,
                         hasOriginalFile = extra?.containsKey("originalFile") == true,
+                        images = imagesOf(b["content"]),
                     )
                 }
                 "text" -> CliEvent.UserText(b.str("text") ?: "")
@@ -113,6 +119,14 @@ object CliParser {
         is JsonArray -> content.filterIsInstance<JsonObject>().mapNotNull { it.str("text") }.joinToString("\n")
         else -> ""
     }
+
+    /** `{"type":"image","source":{"type":"base64","media_type":…,"data":…}}` blocks of a tool result's content. */
+    private fun imagesOf(content: Any?): List<ImageBlock> =
+        (content as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .filter { it.str("type") == "image" }
+            .mapNotNull { it.obj("source") }
+            .filter { it.str("type") == "base64" }
+            .mapNotNull { source -> source.str("data")?.let { ImageBlock(source.str("media_type"), it) } }
 
     private fun controlRequest(obj: JsonObject): CliEvent {
         val request = obj.obj("request") ?: return CliEvent.Ignored("control_request/?")

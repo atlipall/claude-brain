@@ -1,6 +1,7 @@
 package claudechat.cli
 
 import claudechat.testutil.Fx
+import claudechat.testutil.TestImages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -93,5 +94,19 @@ class CliParserTest {
     @Test fun malformedAndUnknown() {
         assertEquals(CliEvent.Malformed("not json"), one("not json"))
         assertEquals(CliEvent.Ignored("mystery"), one("""{"type":"mystery"}"""))
+    }
+
+    @Test fun readOfAnImageCarriesItsImageBlock() {
+        val ev = one(Fx.readImageResult("t1", TestImages.BLUE_PNG_BASE64)) as CliEvent.ToolResult
+        assertEquals(
+            CliEvent.ToolResult("t1", false, "", null, null, false, listOf(ImageBlock("image/png", TestImages.BLUE_PNG_BASE64))),
+            ev)
+    }
+
+    @Test fun nonBase64AndMalformedImageBlocksAreSkipped() {
+        val line = """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"t1","type":"tool_result","content":[{"type":"text","text":"see"},{"type":"image","source":{"type":"url","url":"https://x/y.png"}},{"type":"image"},{"type":"image","source":{"type":"base64","data":"AAAA"}}]}]}}"""
+        val ev = one(line) as CliEvent.ToolResult
+        assertEquals("see", ev.content)
+        assertEquals(listOf(ImageBlock(null, "AAAA")), ev.images)
     }
 }

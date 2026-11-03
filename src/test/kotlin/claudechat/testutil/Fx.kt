@@ -51,6 +51,10 @@ object Fx {
         return """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"$toolUseId","type":"tool_result","content":${q(content)}$err}]},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"u7","timestamp":"2026-11-03T09:54:19.577Z"$tur}"""
     }
 
+    /** Read on a PNG, as claude 2.1.317 reports it: an image block inside tool_result.content, the bytes again in tool_use_result.file. */
+    fun readImageResult(toolUseId: String, base64: String, mediaType: String = "image/png") =
+        """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"$toolUseId","type":"tool_result","content":[{"type":"image","source":{"type":"base64","data":"$base64","media_type":"$mediaType"}}]}]},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"u12","timestamp":"2026-11-03T13:55:27.693Z","tool_use_result":{"type":"image","file":{"base64":"$base64","type":"$mediaType","originalSize":73,"dimensions":{"originalWidth":4,"originalHeight":4,"displayWidth":4,"displayHeight":4}}},"tool_result_meta":[{"id":"$toolUseId","permission_decision":{"decision":"accept","source":"config","reason_type":"mode"}}]}"""
+
     fun editResult(path: String, original: String) =
         """{"filePath":${q(path)},"oldString":"two","newString":"2","originalFile":${q(original)},"structuredPatch":[],"userModified":false,"replaceAll":false}"""
 
