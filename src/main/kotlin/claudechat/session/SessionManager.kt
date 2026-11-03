@@ -17,18 +17,6 @@ import com.intellij.util.EnvironmentUtil
 import com.intellij.util.execution.ParametersListUtil
 import java.io.File
 
-/** Receives chat updates. Methods may be called from any thread. */
-interface SessionView {
-    fun reset(items: List<ChatItem>)
-    fun item(item: ChatItem)
-    fun state(state: SessionState, sessionId: String?, mode: PermissionMode?)
-    fun insert(text: String)
-}
-
-class ClaudeNotFoundException : Exception(
-    "Claude Code CLI not found. Install it, run `claude` once in a terminal to log in, " +
-        "or set its path in Settings > Tools > Claude Chat."
-)
 
 @Service(Service.Level.PROJECT)
 class SessionManager(private val project: Project) : Disposable {
