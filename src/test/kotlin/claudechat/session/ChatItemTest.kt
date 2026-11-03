@@ -10,6 +10,10 @@ class ChatItemTest {
         """{"id":"u1","kind":"user","text":"hi"}""",
         ChatItem.UserText("u1", "hi").toJson().toString())
 
+    @Test fun userWithThumbnails() = assertEquals(
+        """{"id":"u1","kind":"user","text":"","images":["data:image/png;base64,AAAA",""]}""",
+        ChatItem.UserText("u1", "", listOf("data:image/png;base64,AAAA", "")).toJson().toString())
+
     @Test fun assistant() = assertEquals(
         """{"id":"a1","kind":"assistant","text":"x","streaming":true}""",
         ChatItem.AssistantText("a1", "x", true).toJson().toString())

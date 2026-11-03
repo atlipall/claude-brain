@@ -5,6 +5,8 @@ import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.context.ContextNotes
 import claudechat.context.EditorContext
+import claudechat.image.Attachment
+import claudechat.image.PendingAttachments
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -155,7 +157,10 @@ class Chat(
         view?.context(next.first, next.second)
     }
 
-    private class Outgoing(val text: String, val edits: String?, val withContext: Boolean)
+    /** Images waiting above this chat's message box; [send] takes them out. EDT only. */
+    val attachments = PendingAttachments()
+
+    private class Outgoing(val text: String, val edits: String?, val withContext: Boolean, val images: List<Attachment>)
 
     /** Messages waiting for their context, oldest first; only the head resolves, so order is kept. EDT only. */
     private val outbox = ArrayDeque<Outgoing>()
@@ -164,18 +169,20 @@ class Chat(
 
     /**
      * EDT only (the edit note saves documents, the context reads the editor). Ignored while the session is dead.
-     * Claude gets the edit note, then the editor-context note, then [text]; the chat shows only [text].
+     * Claude gets the edit note, then the editor-context note, then [text], then the [images]; the chat shows [text]
+     * under the images' thumbnails. Image bytes are dropped once the line is written to the CLI.
      * The edit note and the skip-once flag are taken now. When the symbol at the caret is not cached the message goes
      * out (and its bubble appears) once the background lookup returns, behind any earlier message still waiting.
      */
-    fun send(text: String) {
+    fun send(text: String, images: List<Attachment> = emptyList()) {
         if (session.state == SessionState.DEAD) return
+        if (text.isBlank() && images.isEmpty()) return
         if (firstMessage == null) {
-            firstMessage = text
+            firstMessage = text.ifBlank { IMAGE_TITLE }
             onTitleChanged?.invoke()
         }
         val edits = editNote(this) // saves documents first
-        outbox += Outgoing(text, edits, !contextOff)
+        outbox += Outgoing(text, edits, !contextOff, images)
         contextOff = false
         pump()
         refreshContext() // the chip is live again
@@ -231,16 +238,23 @@ class Chat(
 
     private fun deliver(message: Outgoing, context: String?) {
         if (disposed || session.state == SessionState.DEAD) return
-        session.send(message.text, listOfNotNull(message.edits, context).joinToString("\n\n").ifEmpty { null })
+        session.send(
+            message.text,
+            listOfNotNull(message.edits, context).joinToString("\n\n").ifEmpty { null },
+            message.images.map { it.image },
+            message.images.map { it.thumb },
+        )
     }
 
     fun dispose() {
         disposed = true
         outbox.clear()
+        attachments.clear()
         session.dispose()
     }
 
     private companion object {
         val HIDDEN = "" to false
+        const val IMAGE_TITLE = "[image]"
     }
 }

@@ -2,6 +2,7 @@ package claudechat.testutil
 
 import claudechat.cli.CliConnection
 import claudechat.cli.PermissionMode
+import claudechat.cli.arr
 import claudechat.cli.obj
 import claudechat.cli.parseJsonObject
 import claudechat.cli.str
@@ -9,6 +10,7 @@ import claudechat.session.ChatItem
 import claudechat.session.ChatListener
 import claudechat.session.SessionState
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 class FakeConnection : CliConnection {
     val sent = mutableListOf<String>()
@@ -30,8 +32,18 @@ class FakeConnection : CliConnection {
     /** request_id of the most recent control_request with the given subtype. */
     fun lastRequestId(subtype: String): String =
         sentJson().last { it.str("type") == "control_request" && it.obj("request")?.str("subtype") == subtype }.str("request_id")!!
+    /** Text of every user message: the string content, or the text blocks of a content array. */
     fun userMessages(): List<String> =
-        sentJson().filter { it.str("type") == "user" }.map { it.obj("message")!!.str("content")!! }
+        sentJson().filter { it.str("type") == "user" }.map { msg ->
+            val message = msg.obj("message")!!
+            message.str("content") ?: message.arr("content")!!.map { it.jsonObject }.filter { it.str("type") == "text" }.joinToString("\n") { it.str("text")!! }
+        }
+
+    /** Base64 data of the image blocks of every user message (empty for a text-only message). */
+    fun userImages(): List<List<String>> =
+        sentJson().filter { it.str("type") == "user" }.map { msg ->
+            msg.obj("message")!!.arr("content").orEmpty().map { it.jsonObject }.filter { it.str("type") == "image" }.map { it.obj("source")!!.str("data")!! }
+        }
 }
 
 class RecordingListener : ChatListener {

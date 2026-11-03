@@ -13,6 +13,10 @@ import java.util.concurrent.TimeUnit
 import claudechat.settings.ClaudeChatSettings
 import claudechat.testutil.FakeConnection
 import claudechat.testutil.Fx
+import claudechat.testutil.TestImages
+import claudechat.image.Attachment
+import claudechat.image.Image
+import claudechat.image.ImageType
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.ProjectRootManager
@@ -445,5 +449,42 @@ class ChatsTest : BasePlatformTestCase() {
             Thread.sleep(20)
         }
         assertTrue(connections.single().userMessages().isEmpty())
+    }
+
+    private fun attachment(id: String) =
+        Attachment(id, "$id.png", Image(ImageType.PNG, TestImages.bytes(TestImages.BLUE_PNG_BASE64), 4, 4), "data:image/png;base64,T$id")
+
+    fun testSendCarriesAttachmentsAfterTheNotes() {
+        settings.attachEditorContext = false
+        val chat = chats.open(ChatSpec.inProject(root))
+        val view = RecordingView()
+        chat.attach(view)
+        chat.send("what is this?", listOf(attachment("a"), attachment("b")))
+        assertEquals(listOf("what is this?"), connections.single().userMessages())
+        assertEquals(listOf(listOf(TestImages.BLUE_PNG_BASE64, TestImages.BLUE_PNG_BASE64)), connections.single().userImages())
+        val bubble = view.items.filterIsInstance<ChatItem.UserText>().single()
+        assertEquals(listOf("data:image/png;base64,Ta", "data:image/png;base64,Tb"), bubble.images)
+    }
+
+    fun testImageOnlyMessageIsSentAndTitledImage() {
+        settings.attachEditorContext = false
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("", listOf(attachment("a")))
+        assertEquals(listOf(listOf(TestImages.BLUE_PNG_BASE64)), connections.single().userImages())
+        assertEquals("main · [image]", chat.title)
+    }
+
+    fun testBlankMessageWithoutImagesIsIgnored() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("  ")
+        assertTrue(connections.single().userMessages().isEmpty())
+        assertEquals("main", chat.title)
+    }
+
+    fun testClosingAChatDropsItsPendingAttachments() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.attachments.add(attachment("a"))
+        chats.close(chat)
+        assertEquals(0, chat.attachments.size)
     }
 }

@@ -1,6 +1,8 @@
 package claudechat.session
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -10,7 +12,8 @@ enum class ToolStatus { RUNNING, AWAITING_PERMISSION, DONE, ERROR, DENIED }
 sealed interface ChatItem {
     val id: String
 
-    data class UserText(override val id: String, val text: String) : ChatItem
+    /** [images]: thumbnails of the attached images as `data:` URLs ("" for one that has no thumbnail). */
+    data class UserText(override val id: String, val text: String, val images: List<String> = emptyList()) : ChatItem
     data class AssistantText(override val id: String, val text: String, val streaming: Boolean) : ChatItem
     data class ToolCall(
         override val id: String,
@@ -29,7 +32,11 @@ sealed interface ChatItem {
 fun ChatItem.toJson(): JsonObject = buildJsonObject {
     put("id", id)
     when (val item = this@toJson) {
-        is ChatItem.UserText -> { put("kind", "user"); put("text", item.text) }
+        is ChatItem.UserText -> {
+            put("kind", "user")
+            put("text", item.text)
+            if (item.images.isNotEmpty()) put("images", JsonArray(item.images.map(::JsonPrimitive)))
+        }
         is ChatItem.AssistantText -> { put("kind", "assistant"); put("text", item.text); put("streaming", item.streaming) }
         is ChatItem.ToolCall -> {
             put("kind", "tool")

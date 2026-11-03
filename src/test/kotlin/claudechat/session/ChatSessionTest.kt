@@ -9,6 +9,9 @@ import claudechat.cli.str
 import claudechat.testutil.FakeConnection
 import claudechat.testutil.Fx
 import claudechat.testutil.RecordingListener
+import claudechat.testutil.TestImages
+import claudechat.image.Image
+import claudechat.image.ImageType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -66,6 +69,45 @@ class ChatSessionTest {
         assertEquals("hello", listener.latest<ChatItem.UserText>().text)
         assertEquals(listOf("[IDE] note\n\nhello"), conn.userMessages())
         assertEquals(SessionState.RUNNING, s.state)
+    }
+
+    private val red = Image(ImageType.PNG, TestImages.bytes(TestImages.RED_PNG_BASE64), 4, 4)
+
+    @Test fun sendWithImagesSendsAContentArrayAndShowsThumbnails() {
+        val s = session()
+        s.send("what is this?", prefix = "[IDE] note", images = listOf(red), thumbs = listOf("data:image/png;base64,T"))
+        val item = listener.latest<ChatItem.UserText>()
+        assertEquals("what is this?", item.text)
+        assertEquals(listOf("data:image/png;base64,T"), item.images)
+        assertEquals(listOf("[IDE] note\n\nwhat is this?"), conn.userMessages())
+        assertEquals(listOf(listOf(TestImages.RED_PNG_BASE64)), conn.userImages())
+        assertEquals(SessionState.RUNNING, s.state)
+    }
+
+    @Test fun imageOnlyMessageWithoutNotesHasNoTextBlock() {
+        val s = session()
+        s.send("", images = listOf(red, red), thumbs = listOf("", ""))
+        val content = conn.sentJson().last().obj("message")!!["content"].toString()
+        assertEquals(2, Regex("\"type\":\"image\"").findAll(content).count())
+        assertFalse(content.contains("\"type\":\"text\""))
+    }
+
+    @Test fun queuedMessageKeepsItsImages() {
+        val s = session()
+        s.send("first")
+        s.send("second", images = listOf(red))
+        assertEquals(listOf("first"), conn.userMessages())
+        conn.emit(Fx.result())
+        assertEquals(listOf("first", "second"), conn.userMessages())
+        assertEquals(listOf(emptyList(), listOf(TestImages.RED_PNG_BASE64)), conn.userImages())
+    }
+
+    @Test fun noticeIsShownInTheChat() {
+        val s = session()
+        s.notice("Couldn't attach a.bmp: not a PNG, JPEG, GIF or WebP image.")
+        val notice = listener.latest<ChatItem.Notice>()
+        assertEquals("Couldn't attach a.bmp: not a PNG, JPEG, GIF or WebP image.", notice.text)
+        assertTrue(notice.isError)
     }
 
     @Test fun streamedTextIsOneItemAndFinalAssistantMessageIsNotDuplicated() {

@@ -51,11 +51,17 @@ class SessionStore(private val claudeHome: File) {
         lines.mapNotNull { parseJsonObject(it) }.filter { it.str("type") == "user" }.mapNotNull { userText(it) }.firstOrNull()
     }
 
+    /** The text the user typed, under one `[image]` per image they attached (the plugin keeps no image data). */
     private fun userText(obj: JsonObject): String? {
         if (obj.bool("isMeta") == true || obj.bool("isSidechain") == true) return null
-        val text = textOf(obj.obj("message")?.get("content")) ?: return null
-        if (text.startsWith("<") || text.startsWith("[Request interrupted")) return null
-        return stripIdeNote(text)
+        val content = obj.obj("message")?.get("content")
+        val text = textOf(content)
+        if (text != null && (text.startsWith("<") || text.startsWith("[Request interrupted"))) return null
+        val typed = text?.let(::stripIdeNote)
+        val images = (content as? JsonArray).orEmpty().count { (it as? JsonObject)?.str("type") == "image" }
+        if (images == 0) return typed
+        val marks = List(images) { IMAGE_MARK }.joinToString(" ")
+        return if (typed == null) marks else "$marks\n$typed"
     }
 
     private fun assistantText(obj: JsonObject): String? {
@@ -83,6 +89,7 @@ class SessionStore(private val claudeHome: File) {
 
     companion object {
         private val NON_ALNUM = Regex("[^A-Za-z0-9]")
+        const val IMAGE_MARK = "[image]"
 
         fun default(): SessionStore {
             val home = System.getenv("CLAUDE_CONFIG_DIR")?.let(::File) ?: File(System.getProperty("user.home"), ".claude")

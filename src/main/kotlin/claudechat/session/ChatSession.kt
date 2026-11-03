@@ -7,6 +7,7 @@ import claudechat.cli.CliParser
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.cli.str
+import claudechat.image.Image
 import kotlinx.serialization.json.JsonObject
 
 enum class SessionState { IDLE, RUNNING, AWAITING_PERMISSION, DEAD }
@@ -55,6 +56,7 @@ class ChatSession(
     private var generation = 0
     private var seq = 0
     private var interruptRequested = false
+    /** Lines for the CLI's stdin waiting for the running turn to end (image bytes live only here until sent). */
     private val queue = ArrayDeque<String>()
     private val toolCalls = HashMap<String, ChatItem.ToolCall>()
     private val streamed = HashMap<String, ChatItem.AssistantText>()
@@ -89,19 +91,28 @@ class ChatSession(
         }
     }
 
-    /** Shows [text] in the chat; sends "[prefix]\n\n[text]" to Claude. Queued while a turn is running. */
-    fun send(text: String, prefix: String? = null) {
+    /**
+     * Shows [text] (with [thumbs] above it) in the chat; sends "[prefix]\n\n[text]" and [images] to Claude. Queued
+     * while a turn is running.
+     */
+    fun send(text: String, prefix: String? = null, images: List<Image> = emptyList(), thumbs: List<String> = emptyList()) {
         synchronized(lock) {
             if (state == SessionState.DEAD) return
-            emit(ChatItem.UserText(nextId("user"), text))
-            val payload = if (prefix.isNullOrBlank()) text else "$prefix\n\n$text"
+            emit(ChatItem.UserText(nextId("user"), text, thumbs))
+            val payload = listOfNotNull(prefix?.takeIf { it.isNotBlank() }, text.takeIf { it.isNotEmpty() }).joinToString("\n\n")
+            val line = CliMessages.userContent(payload, images)
             if (state == SessionState.IDLE) {
-                connection?.send(CliMessages.userText(payload))
+                connection?.send(line)
                 setState(SessionState.RUNNING)
             } else {
-                queue.addLast(payload)
+                queue.addLast(line)
             }
         }
+    }
+
+    /** Shows a notice in the chat (e.g. an image that could not be attached). Any thread. */
+    fun notice(text: String, isError: Boolean = true) {
+        synchronized(lock) { emit(ChatItem.Notice(nextId("notice"), text, isError)) }
     }
 
     fun respond(requestId: String, decision: PermissionDecision) {
@@ -249,7 +260,7 @@ class ChatSession(
         }
         val next = queue.removeFirstOrNull()
         if (next != null) {
-            connection?.send(CliMessages.userText(next))
+            connection?.send(next)
             setState(SessionState.RUNNING)
         } else {
             setState(SessionState.IDLE)
