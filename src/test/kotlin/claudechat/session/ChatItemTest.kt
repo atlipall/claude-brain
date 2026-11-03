@@ -32,6 +32,20 @@ class ChatItemTest {
             ChatItem.ToolCall("t1", "Read", input, "/p/a.png", ToolStatus.DONE, null, "", false, listOf("data:image/png;base64,AAAA", "")).toJson().toString())
     }
 
+    @Test fun subagentTextHasItsParent() = assertEquals(
+        """{"id":"a1","kind":"assistant","text":"x","streaming":false,"parentId":"t1"}""",
+        ChatItem.AssistantText("a1", "x", false, "t1").toJson().toString())
+
+    @Test fun agentCall() = assertEquals(
+        """{"id":"t1","kind":"tool","name":"Agent","input":{},"filePath":null,"status":"done","permissionRequestId":null,"resultPreview":null,"hasDiff":false,""" +
+            """"agent":{"subagentType":"general-purpose","background":true,"prompt":"p","state":"running","toolUses":2,"durationMs":900,"lastTool":"Bash","report":null}}""",
+        ChatItem.ToolCall("t1", "Agent", buildJsonObject {}, null, ToolStatus.DONE, null, null, false,
+            agent = AgentInfo("general-purpose", true, "p", AgentState.RUNNING, 2, 900, "Bash")).toJson().toString())
+
+    @Test fun subagentToolHasItsParent() = assertEquals(
+        """{"id":"t2","kind":"tool","name":"Bash","input":{},"filePath":null,"status":"running","permissionRequestId":null,"resultPreview":null,"hasDiff":false,"parentId":"t1"}""",
+        ChatItem.ToolCall("t2", "Bash", buildJsonObject {}, null, ToolStatus.RUNNING, null, null, false, parentId = "t1").toJson().toString())
+
     @Test fun result() = assertEquals(
         """{"id":"r1","kind":"result","isError":false,"text":null,"durationMs":5566,"costUsd":0.19}""",
         ChatItem.TurnResult("r1", false, null, 5566, 0.19).toJson().toString())
