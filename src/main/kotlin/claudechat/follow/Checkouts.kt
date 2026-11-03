@@ -58,6 +58,16 @@ class CheckoutMapper(projectDir: String) {
         return to.dir.trimEnd('/') + "/" + relative
     }
 
+    /** The checkout [path] lies in: the worktree for files under `<project>/.claude/worktrees/<name>/`, main for other files in the project, else null. */
+    fun checkoutOf(path: String): Checkout? {
+        val file = canonicalPath(path)
+        if (file.startsWith(worktrees)) {
+            val name = file.removePrefix(worktrees).substringBefore('/', missingDelimiterValue = "")
+            return if (name.isEmpty()) null else (place(worktrees + name) as? Placement.Followable)?.checkout
+        }
+        return if (file.startsWith("$project/")) main else null
+    }
+
     companion object {
         const val WORKTREES = ".claude/worktrees"
 

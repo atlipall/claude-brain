@@ -72,4 +72,13 @@ class CheckoutsTest {
         assertEquals("file:.claude/worktrees/wt1//*", ScopePatterns.forCheckout(wt1))
         assertEquals("file:wts/a//*", ScopePatterns.under("/wts/a/"))
     }
+
+    @Test fun checkoutOfAFile() {
+        assertEquals(main, mapper.checkoutOf("/p/src/a.ts"))
+        assertEquals(wt1, mapper.checkoutOf("/p/.claude/worktrees/wt1/src/a.ts"))
+        assertNull(mapper.checkoutOf("/p/.claude/worktrees/a.ts"))
+        assertNull(mapper.checkoutOf("/p/.claude/worktrees/main/a.ts"))
+        assertNull(mapper.checkoutOf("/other/a.ts"))
+        assertNull(mapper.checkoutOf("/p"))
+    }
 }
