@@ -16,11 +16,19 @@
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
   const PATH_RE = /^[\w@.\/~-]*[\w-]\.[A-Za-z0-9]{1,10}(?:(?::|#L)\d+(?:[:-]\d+)?)?$/;
   const MAX_PRE = 6000;
+  const SANITIZE = {
+    FORBID_TAGS: ['style', 'form', 'button', 'input', 'textarea', 'select', 'option', 'iframe', 'object', 'embed', 'link', 'meta', 'base'],
+    FORBID_ATTR: ['style', 'class', 'id'],
+    ALLOW_DATA_ATTR: false,
+  };
+  // Elements created by h() are the only ones the click handler acts on; model markup is never trusted.
+  const trusted = new WeakSet();
 
   function send(msg) { if (window.__send) window.__send(JSON.stringify(msg)); }
 
   function h(tag, attrs, ...children) {
     const el = document.createElement(tag);
+    trusted.add(el);
     for (const [k, v] of Object.entries(attrs || {})) {
       if (v === null || v === undefined || v === false) continue;
       if (k === 'class') el.className = v; else el.setAttribute(k, v === true ? '' : String(v));
@@ -64,7 +72,7 @@
 
   function renderAssistant(el, item) {
     el.className = 'msg assistant';
-    el.innerHTML = DOMPurify.sanitize(marked.parse(item.text || ''));
+    el.innerHTML = DOMPurify.sanitize(marked.parse(item.text || ''), SANITIZE);
     if (!item.streaming) linkify(el);
   }
 
@@ -195,16 +203,21 @@
     if (id) send({ type: 'resume', sessionId: id });
   });
 
+  // Capture phase: no anchor click or form submit reaches the browser's default navigation.
+  document.addEventListener('auxclick', (e) => { if (e.target.closest('a')) e.preventDefault(); }, true);
+  document.addEventListener('submit', (e) => e.preventDefault(), true);
+
   document.addEventListener('click', (e) => {
     const a = e.target.closest('a');
     if (a) {
       e.preventDefault();
-      if (a.classList.contains('file')) send({ type: 'openFile', target: a.dataset.target, line: a.dataset.line ? Number(a.dataset.line) : null });
-      else if (/^https?:/i.test(a.getAttribute('href') || '')) send({ type: 'openUrl', url: a.href });
+      if (a.classList.contains('file')) {
+        if (trusted.has(a)) send({ type: 'openFile', target: a.dataset.target, line: a.dataset.line ? Number(a.dataset.line) : null });
+      } else if (/^https?:/i.test(a.getAttribute('href') || '')) send({ type: 'openUrl', url: a.href });
       return;
     }
     const b = e.target.closest('button[data-action]');
-    if (!b) return;
+    if (!b || !trusted.has(b)) return;
     const action = b.dataset.action;
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
