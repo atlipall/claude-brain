@@ -20,4 +20,10 @@ class WebAssetsTest {
         assertTrue(page.contains("Content-Security-Policy"))
         assertTrue(page.contains("img-src data:"))
     }
+
+    @Test fun historyDropdownIsGone() {
+        val page = WebAssets.page()
+        assertFalse(page.contains("id=\"sessions\""))
+        assertFalse(page.contains("listSessions"))
+    }
 }

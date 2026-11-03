@@ -14,7 +14,7 @@
         <applicationConfigurable parentId="tools" id="claudechat.settings" displayName="Claude Chat"
                                  instance="claudechat.settings.ClaudeChatConfigurable"/>
         <toolWindow id="Claude Chat" anchor="right" icon="AllIcons.Toolwindows.ToolWindowMessages"
-                    factoryClass="claudechat.ui.ChatToolWindowFactory"/>
+                    canCloseContents="true" factoryClass="claudechat.ui.ChatToolWindowFactory"/>
     </extensions>
 
     <actions>

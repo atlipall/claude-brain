@@ -1,6 +1,6 @@
 package claudechat.ui
 
-import claudechat.session.SessionManager
+import claudechat.session.Chat
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -14,11 +14,11 @@ import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefRequestHandlerAdapter
 import org.cef.network.CefRequest
 
-/** JCEF browser hosting the chat page, wired to a [ChatBridge]. */
-class ChatPanel(private val project: Project, parent: Disposable) : Disposable {
+/** JCEF browser hosting one chat's page, wired to a [ChatBridge] bound to that chat. */
+class ChatPanel(project: Project, private val chat: Chat, onNewChat: () -> Unit, parent: Disposable) : Disposable {
     val browser = JBCefBrowser()
     private val query = JBCefJSQuery.create(browser as JBCefBrowserBase)
-    private val bridge = ChatBridge(project, ::post)
+    private val bridge = ChatBridge(project, chat, onNewChat, ::post)
     @Volatile private var pageUrl: String? = null
     @Volatile private var disposed = false
 
@@ -26,7 +26,7 @@ class ChatPanel(private val project: Project, parent: Disposable) : Disposable {
         Disposer.register(parent, this)
 
         query.addHandler { json ->
-            ApplicationManager.getApplication().invokeLater({ bridge.handle(json) }, project.disposed)
+            ApplicationManager.getApplication().invokeLater({ if (!disposed) bridge.handle(json) }, project.disposed)
             null
         }
         browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
@@ -56,7 +56,7 @@ class ChatPanel(private val project: Project, parent: Disposable) : Disposable {
 
     override fun dispose() {
         disposed = true
-        SessionManager.getInstance(project).detach(bridge)
+        chat.detach(bridge)
         Disposer.dispose(query)
         Disposer.dispose(browser)
     }

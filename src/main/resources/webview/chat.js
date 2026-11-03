@@ -5,7 +5,6 @@
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const modeSel = document.getElementById('mode');
-  const sessionsSel = document.getElementById('sessions');
   const stopBtn = document.getElementById('stop');
   const restartBtn = document.getElementById('restart');
   const statusEl = document.getElementById('status');
@@ -45,7 +44,6 @@
         case 'reset': items.clear(); log.textContent = ''; msg.items.forEach(upsert); break;
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
-        case 'sessions': fillSessions(msg.sessions); break;
         case 'resolved': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.paths); break; }
         case 'insert': insertText(msg.text); break;
         case 'theme': applyTheme(msg); break;
@@ -166,15 +164,6 @@
     if (msg.mode) modeSel.value = msg.mode;
   }
 
-  function fillSessions(sessions) {
-    sessionsSel.textContent = '';
-    sessionsSel.append(h('option', { value: '' }, sessions.length ? 'History…' : 'No past sessions'));
-    for (const s of sessions) {
-      const when = new Date(s.modified).toLocaleString();
-      sessionsSel.append(h('option', { value: s.id, title: when }, s.title));
-    }
-  }
-
   function insertText(text) {
     const start = input.selectionStart, end = input.selectionEnd;
     const before = input.value.slice(0, start), after = input.value.slice(end);
@@ -208,13 +197,6 @@
   stopBtn.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
-  sessionsSel.addEventListener('mousedown', () => send({ type: 'listSessions' }));
-  sessionsSel.addEventListener('focus', () => send({ type: 'listSessions' }));
-  sessionsSel.addEventListener('change', () => {
-    const id = sessionsSel.value;
-    sessionsSel.value = '';
-    if (id) send({ type: 'resume', sessionId: id });
-  });
 
   // Capture phase: no anchor click or form submit reaches the browser's default navigation.
   document.addEventListener('auxclick', (e) => { if (e.target.closest('a')) e.preventDefault(); }, true);

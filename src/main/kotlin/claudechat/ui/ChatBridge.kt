@@ -6,33 +6,36 @@ import claudechat.cli.long
 import claudechat.cli.parseJsonObject
 import claudechat.cli.str
 import claudechat.ide.FileLinker
+import claudechat.session.Chat
 import claudechat.session.ChatItem
 import claudechat.session.PermissionDecision
-import claudechat.session.SessionManager
 import claudechat.session.SessionState
-import claudechat.session.SessionSummary
 import claudechat.session.SessionView
 import claudechat.session.toJson
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.project.Project
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
-/** Translates web-view messages into SessionManager/FileLinker calls and chat updates into web-view messages. */
-class ChatBridge(private val project: Project, private val post: (String) -> Unit) : SessionView {
-    private val manager get() = SessionManager.getInstance(project)
+/** Connects one chat page to one [Chat]: web-view messages in, chat updates out. */
+class ChatBridge(
+    private val project: Project,
+    private val chat: Chat,
+    private val onNewChat: () -> Unit,
+    private val post: (String) -> Unit,
+) : SessionView {
     private val linker get() = FileLinker.getInstance(project)
+    private val session get() = chat.session
 
     /** EDT only. */
     fun handle(json: String) {
         val msg = parseJsonObject(json) ?: return
         when (msg.str("type")) {
-            "ready" -> { post(Theme.message()); manager.attach(this) }
-            "send" -> msg.str("text")?.takeIf { it.isNotBlank() }?.let(manager::send)
+            "ready" -> { post(Theme.message()); chat.attach(this) }
+            "send" -> msg.str("text")?.takeIf { it.isNotBlank() }?.let(chat::send)
             "permission" -> {
                 val requestId = msg.str("requestId") ?: return
                 val decision = when (msg.str("decision")) {
@@ -40,16 +43,14 @@ class ChatBridge(private val project: Project, private val post: (String) -> Uni
                     "allowSession" -> PermissionDecision.AllowForSession
                     else -> PermissionDecision.Deny(msg.str("message") ?: "The user denied this action.")
                 }
-                manager.current?.respond(requestId, decision)
+                session.respond(requestId, decision)
             }
-            "setMode" -> PermissionMode.fromCli(msg.str("mode"))?.let { manager.current?.setPermissionMode(it) }
-            "interrupt" -> manager.current?.interrupt()
-            "newChat" -> manager.newChat()
-            "restart" -> manager.current?.restart()
-            "listSessions" -> post(sessionsMessage(manager.listSessions()))
-            "resume" -> msg.str("sessionId")?.let(manager::resume)
+            "setMode" -> PermissionMode.fromCli(msg.str("mode"))?.let(session::setPermissionMode)
+            "interrupt" -> session.interrupt()
+            "newChat" -> onNewChat()
+            "restart" -> session.restart()
             "openFile" -> msg.str("target")?.let { linker.open(it, msg.long("line")?.toInt()) }
-            "openDiff" -> msg.str("toolUseId")?.let { id -> manager.current?.diffFor(id)?.let(linker::showDiff) }
+            "openDiff" -> msg.str("toolUseId")?.let { id -> session.diffFor(id)?.let(linker::showDiff) }
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))
         }
@@ -76,13 +77,6 @@ class ChatBridge(private val project: Project, private val post: (String) -> Uni
         put("type", "insert")
         put("text", text)
     }.toString())
-
-    private fun sessionsMessage(sessions: List<SessionSummary>) = buildJsonObject {
-        put("type", "sessions")
-        put("sessions", JsonArray(sessions.map { s ->
-            buildJsonObject { put("id", s.id); put("title", s.title); put("modified", s.modifiedMillis) }
-        }))
-    }.toString()
 
     private fun resolvedMessage(reqId: Long, candidates: List<String>) = buildJsonObject {
         put("type", "resolved")
