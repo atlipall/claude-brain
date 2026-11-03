@@ -149,9 +149,9 @@ class WebAssetsTest {
     @Test fun toolCallsRenderAsCompactRows() {
         val js = WebAssets.page()
         assertTrue(js.contains("class: 'tool-row'"))
-        assertTrue(js.contains("firstLine(str(i.description) || str(i.command))"))
+        assertTrue(js.contains("firstLine(str(i.description)).trim() || firstLine(str(i.command))"))
         assertTrue(js.contains("const expandedTools = new Set();"))
-        assertTrue(js.contains("if (row && trusted.has(row) && row.hasAttribute('role')) toggleRow(row);"))
+        assertTrue(js.contains("row.hasAttribute('role') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);"))
         assertTrue(js.contains("t.status !== 'awaiting_permission'"))
         assertTrue(js.contains("@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }"))
         val body = js.substringAfter("function renderToolRow(").substringBefore("function renderTool(")

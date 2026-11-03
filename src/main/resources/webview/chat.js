@@ -214,7 +214,7 @@
     const i = t.input || {};
     const str = (v) => (typeof v === 'string' ? v : '');
     switch (t.name) {
-      case 'Bash': return firstLine(str(i.description) || str(i.command)).trim();
+      case 'Bash': return firstLine(str(i.description)).trim() || firstLine(str(i.command)).trim();
       case 'Grep': return str(i.pattern) ? str(i.pattern) + (str(i.path) ? ' in ' + str(i.path) : '') : '';
       case 'Glob': return str(i.pattern);
       case 'WebFetch': {
@@ -532,6 +532,7 @@
     s.setProperty('--border', t.border); s.setProperty('--accent', t.accent); s.setProperty('--code-bg', t.codeBg);
     s.setProperty('--font', '"' + t.font + '", system-ui, sans-serif'); s.setProperty('--font-size', t.fontSize + 'px');
     s.setProperty('--add', t.dark ? '#2f5a3a' : '#d7f5dd'); s.setProperty('--del', t.dark ? '#5a2f2f' : '#f9d7d7');
+    s.setProperty('--ok', t.dark ? '#5fb865' : '#2e7d32');
   }
 
   function submit() {
@@ -642,7 +643,7 @@
     const b = e.target.closest('button[data-action]');
     if (!b) {
       const row = e.target.closest('.tool-row');
-      if (row && trusted.has(row) && row.hasAttribute('role')) toggleRow(row);
+      if (row && trusted.has(row) && row.hasAttribute('role') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);
       return;
     }
     if (!b || !trusted.has(b)) return;

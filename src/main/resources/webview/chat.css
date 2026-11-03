@@ -1,6 +1,6 @@
 :root {
   --bg: #1e1f22; --fg: #dfe1e5; --muted: #8c8f94; --border: #393b40; --accent: #589df6;
-  --code-bg: #2b2d30; --add: #2f5a3a; --del: #5a2f2f; --danger: #c75450;
+  --code-bg: #2b2d30; --add: #2f5a3a; --del: #5a2f2f; --danger: #c75450; --ok: #5fb865;
   --font: system-ui, sans-serif; --font-size: 13px;
 }
 * { box-sizing: border-box; }
@@ -33,7 +33,7 @@ a:hover { text-decoration: underline; }
 .tool-row[role=button] { cursor: pointer; }
 .tool-row:hover { background: var(--code-bg); }
 .tool-icon { width: 14px; text-align: center; flex: none; }
-.status-done .tool-icon { color: var(--ok, #5fb865); }
+.status-done .tool-icon { color: var(--ok); }
 .status-error .tool-icon, .status-denied .tool-icon { color: var(--danger); }
 .tool-row .tool-name { color: var(--fg); flex: none; }
 .tool-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
