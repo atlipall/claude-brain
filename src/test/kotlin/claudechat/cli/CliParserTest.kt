@@ -4,6 +4,7 @@ import kotlinx.serialization.json.jsonObject
 import claudechat.testutil.Fx
 import claudechat.testutil.TestImages
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,7 +25,7 @@ class CliParserTest {
     @Test fun otherSystemMessagesAreIgnored() {
         assertEquals(CliEvent.Ignored("system/hook_started"), one(Fx.hookStarted()))
         assertEquals(CliEvent.Ignored("rate_limit_event"), one(Fx.rateLimit()))
-        assertEquals(CliEvent.Ignored("stream_event/message_start"), one(Fx.subagentMessageStart("m1", "toolu_1")))
+        assertEquals(CliEvent.Ignored("stream_event/subagent"), one(Fx.subagentMessageStart("m1", "toolu_1")))
     }
 
     @Test fun promptSuggestion() {
@@ -35,6 +36,24 @@ class CliParserTest {
     @Test fun textDeltaAndBlockStop() {
         assertEquals(CliEvent.TextDelta("m1", 1, "DO"), one(Fx.textDelta("m1", 1, "DO")))
         assertEquals(CliEvent.BlockStop("m1", 1), one(Fx.blockStop("m1", 1)))
+    }
+
+    @Test fun subagentEventsCarryTheirParent() {
+        assertEquals(CliEvent.ToolUse("t2", "Bash", parseJsonObject("""{"command":"ls"}""")!!, "t1"),
+            one(Fx.subagentToolUse("t1", "t2", "Bash", """{"command":"ls"}""")))
+        assertEquals(CliEvent.AssistantText("sm1", "hi", "t1"), one(Fx.subagentText("t1", "sm1", "hi")))
+        assertEquals("t1", (one(Fx.subagentToolResult("t1", "t2", "out")) as CliEvent.ToolResult).parentId)
+        assertTrue(CliParser.parse(Fx.subagentPrompt("t1", "Do it")).isEmpty())
+        assertEquals(CliEvent.Ignored("stream_event/subagent"), one(Fx.subagentTextDelta("t1", "sm1", "x")))
+        assertNull((one(Fx.toolUse("m1", "t1", "Agent", "{}")) as CliEvent.ToolUse).parentId)
+    }
+
+    @Test fun taskEventsAreParsed() {
+        assertEquals(CliEvent.TaskStarted("t1", "general-purpose", true, "Count"), one(Fx.taskStarted("t1", true, "Count")))
+        assertEquals(CliEvent.TaskProgress("t1", 7, 42000, "Bash"), one(Fx.taskProgress("t1", 7, 42000, "Bash")))
+        assertEquals(CliEvent.TaskDone("t1", "completed", 3, 4063, "DONE"), one(Fx.taskNotification("t1")))
+        assertEquals(CliEvent.TaskDone("t1", "failed", 3, 4063, null), one(Fx.taskNotification("t1", "failed", null)))
+        assertEquals(CliEvent.Ignored("system/task_started"), one(Fx.taskStarted("t1").replace(""""tool_use_id":"t1",""", "")))
     }
 
     @Test fun aTopLevelMessageStartIsParsed() {

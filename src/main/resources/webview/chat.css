@@ -46,6 +46,15 @@ a:hover { text-decoration: underline; }
 .tool-detail { margin: 2px 0 4px 26px; border-left: 2px solid var(--border); padding: 2px 8px; }
 .tool-detail pre { margin: 2px 0 6px; }
 .tool-label { color: var(--muted); font-size: 11px; }
+.agent { border-left: 3px solid var(--border); padding-left: 4px; }
+.agent.agent-running { border-left-color: var(--accent); }
+.agent.agent-failed { border-left-color: var(--danger); }
+.agent-done > .agent-head .tool-icon { color: var(--ok); }
+.agent-failed > .agent-head .tool-icon { color: var(--danger); }
+.agent-tag { flex: none; font-size: 11px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+.agent-body { margin: 2px 0 4px 18px; }
+.agent-children > .msg { margin: 4px 0; }
+.agent-report { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 2px; }
 .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(88,157,246,.25); border-top-color: var(--accent); border-radius: 50%; animation: tool-spin .8s linear infinite; vertical-align: -1px; }
 @keyframes tool-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

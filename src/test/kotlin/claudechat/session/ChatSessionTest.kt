@@ -121,6 +121,117 @@ class ChatSessionTest {
         assertEquals(SessionState.IDLE, s.state)
     }
 
+    // --- subagents ---
+
+    private fun startAgent(s: ChatSession, background: Boolean = false) {
+        s.send("go")
+        conn.emit(Fx.toolUse("m1", "t1", "Agent", """{"description":"Do it","subagent_type":"general-purpose","prompt":"Do it"}"""))
+        conn.emit(Fx.taskStarted("t1", background, "Do it"))
+    }
+
+    @Test fun anAgentCallCarriesItsAgentInfo() {
+        val s = session()
+        startAgent(s, background = true)
+        conn.emit(Fx.taskProgress("t1", 2, 900, "Bash"))
+        assertEquals(AgentInfo("general-purpose", true, "Do it", AgentState.RUNNING, 2, 900, "Bash"), listener.latest<ChatItem.ToolCall>().agent)
+        conn.emit(Fx.taskNotification("t1", report = "All done"))
+        val done = listener.latest<ChatItem.ToolCall>().agent!!
+        assertEquals(AgentState.DONE, done.state)
+        assertEquals("All done", done.report)
+        assertEquals(3, done.toolUses)
+        assertNull(done.lastTool)
+    }
+
+    @Test fun aFailedAgentIsFailed() {
+        val s = session()
+        startAgent(s)
+        conn.emit(Fx.taskNotification("t1", "failed", null))
+        assertEquals(AgentState.FAILED, listener.latest<ChatItem.ToolCall>().agent!!.state)
+    }
+
+    @Test fun taskEventsBeforeTheCallAreKept() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.taskStarted("t1", true, "Do it"))
+        conn.emit(Fx.toolUse("m1", "t1", "Agent", "{}"))
+        assertEquals(true, listener.latest<ChatItem.ToolCall>().agent!!.background)
+    }
+
+    @Test fun subagentItemsCarryTheirParentAndLeaveThePhaseAlone() {
+        val s = session()
+        startAgent(s)
+        conn.emit(Fx.subagentText("t1", "sm1", "Looking"))
+        conn.emit(Fx.subagentToolUse("t1", "t2", "Bash", """{"command":"ls"}"""))
+        assertEquals(Activity.Running("Agent"), listener.activities.last())
+        conn.emit(Fx.subagentToolResult("t1", "t2", "a.txt"))
+        assertEquals(Activity.Running("Agent"), listener.activities.last())
+        assertEquals("t1", listener.latest<ChatItem.AssistantText>().parentId)
+        val bash = listener.latest<ChatItem.ToolCall>()
+        assertEquals("t2", bash.id)
+        assertEquals("t1", bash.parentId)
+        assertEquals(ToolStatus.DONE, bash.status)
+    }
+
+    @Test fun handbackCallsAreNotShown() {
+        val s = session()
+        startAgent(s)
+        conn.emit(Fx.subagentToolUse("t1", "t3", "SubagentHandback", """{"text":"x"}"""), Fx.subagentToolResult("t1", "t3", "ok"))
+        assertTrue(listener.items.none { it.id == "t3" })
+        assertEquals(Activity.Running("Agent"), listener.activities.last())
+    }
+
+    @Test fun aSubagentPermissionRequestKeepsItsParent() {
+        val s = session()
+        startAgent(s)
+        conn.emit(Fx.subagentToolUse("t1", "t2", "Bash", """{"command":"ls"}"""))
+        conn.emit(Fx.canUseTool("r1", "t2", "Bash", """{"command":"ls"}"""))
+        val bash = listener.latest<ChatItem.ToolCall>()
+        assertEquals(ToolStatus.AWAITING_PERMISSION, bash.status)
+        assertEquals("t1", bash.parentId)
+    }
+
+    @Test fun aForegroundAgentStillRunningWhenTheTurnEndsFailed() {
+        val s = session()
+        startAgent(s)
+        conn.emit(Fx.result())
+        assertEquals(AgentState.FAILED, listener.latest<ChatItem.ToolCall>().agent!!.state)
+    }
+
+    @Test fun aBackgroundAgentOutlivesTheTurnButNotTheProcess() {
+        val s = session()
+        startAgent(s, background = true)
+        conn.emit(Fx.result())
+        assertEquals(AgentState.RUNNING, listener.current().filterIsInstance<ChatItem.ToolCall>().single { it.id == "t1" }.agent!!.state)
+        conn.exit(1, "boom")
+        assertEquals(AgentState.FAILED, listener.latest<ChatItem.ToolCall>().agent!!.state)
+    }
+
+    @Test fun allowingASubagentToolKeepsTheStripOnTheAgent() {
+        val s = session()
+        startAgent(s)
+        conn.emit(Fx.subagentToolUse("t1", "t2", "Bash", """{"command":"ls"}"""), Fx.canUseTool("r1", "t2", "Bash", """{"command":"ls"}"""))
+        s.respond("r1", PermissionDecision.Allow)
+        assertEquals(Activity.Running("Agent"), listener.activities.last())
+    }
+
+    @Test fun unchangedProgressIsNotReSent() {
+        val s = session()
+        startAgent(s)
+        conn.emit(Fx.taskProgress("t1", 2, 900, "Bash"))
+        val before = listener.items.size
+        conn.emit(Fx.taskProgress("t1", 2, 900, "Bash"))
+        assertEquals(before, listener.items.size)
+    }
+
+    @Test fun longReportsAreCut() {
+        val s = session()
+        startAgent(s)
+        conn.emit(Fx.taskNotification("t1", report = "x".repeat(200_000)))
+        val report = listener.latest<ChatItem.ToolCall>().agent!!.report!!
+        assertEquals(MAX_AGENT_TEXT + 1, report.length)
+        assertTrue(report.endsWith("\u2026"))
+    }
+
     // --- lifecycle and turns ---
 
     @Test fun startSendsInitializeAndIsIdle() {
