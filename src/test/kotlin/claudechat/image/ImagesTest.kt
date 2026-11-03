@@ -74,6 +74,12 @@ class ImagesTest {
         assertTrue(Images.prepare(whole.copyOf(whole.size / 2)) is Prepared.Rejected)
     }
 
+    @Test fun trailerContainingAStartOfScanMarkerDoesNotCauseARefusal() {
+        val whole = TestImages.noiseIn(64, 64, "jpeg")
+        val trailer = byteArrayOf(0x00, 0xFF.toByte(), 0xDA.toByte(), 0x12, 0x34)
+        assertTrue(Images.prepare(whole + trailer) is Prepared.Ok)
+    }
+
     @Test fun aLongEdgeOver2000IsScaledDownKeepingTheFormat() {
         val png = ok(Images.prepare(TestImages.solid(3000, 1500)))
         assertEquals(ImageType.PNG, png.type)

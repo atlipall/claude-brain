@@ -127,11 +127,11 @@ object Images {
         } catch (e: Exception) { null }
     }
 
-    /** A JPEG is complete when an end-of-image marker (FFD9) follows its last start-of-scan marker (FFDA); data after it is fine. */
+    /** A JPEG is complete when an end-of-image marker (FFD9) follows its first start-of-scan marker (FFDA; scan data only holds byte-stuffed FF00 and RST markers); data after it is fine. */
     private fun endsWithJpegEoi(b: ByteArray): Boolean {
         fun marker(i: Int, code: Int) = (b[i].toInt() and 0xFF) == 0xFF && (b[i + 1].toInt() and 0xFF) == code
-        val lastSos = (b.size - 2 downTo 0).firstOrNull { marker(it, 0xDA) } ?: return false
-        return (lastSos + 2 until b.size - 1).any { marker(it, 0xD9) }
+        val firstSos = (0 until b.size - 1).firstOrNull { marker(it, 0xDA) } ?: return false
+        return (firstSos + 2 until b.size - 1).any { marker(it, 0xD9) }
     }
 
     private fun fit(source: BufferedImage, type: ImageType, maxEdge: Int, maxBytes: Int): Image? {
