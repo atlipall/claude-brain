@@ -40,13 +40,15 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
 
 ## Install
 
-Build the plugin and install the zip:
+Quit WebStorm, then from the project root:
 
 ```sh
-./gw buildPlugin
+./install.sh            # builds and installs into the newest WebStorm config folder
+./install.sh --no-build # install the existing zip
+./install.sh --force    # install while WebStorm runs; restart it afterwards
 ```
 
-Then either:
+Or manually, after `./gw buildPlugin`, either:
 
 - Settings → Plugins → ⚙️ → **Install Plugin from Disk…** → `build/distributions/claude-chat-0.1.0.zip`, and restart; or
 - with WebStorm closed, unzip it into the plugins folder:
