@@ -151,6 +151,12 @@ class ChatBridge(
             session.notice("Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
             return
         }
+        post(buildJsonObject {
+            put("type", "attachment")
+            put("id", id)
+            put("name", name)
+            put("loading", true)
+        }.toString())
         prepare(id, name) { if (file.length > Images.MAX_INPUT_BYTES) null else file.contentsToByteArray() }
     }
 

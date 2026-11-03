@@ -302,6 +302,7 @@
     if (typeof msg.id !== 'string') return;
     if (msg.failed === true) { removeTile(msg.id); return; }
     if (!pending.has(msg.id)) addTile(msg.id, typeof msg.name === 'string' ? msg.name : '');
+    if (msg.loading === true) return; // still being prepared: a loading tile that blocks Send
     const p = pending.get(msg.id);
     p.ready = true;
     p.el.classList.remove('loading');

@@ -359,6 +359,21 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(1, chat.attachments.size)
     }
 
+    fun testPickedFileShowsALoadingTileBeforeItsThumbnail() {
+        val file = myFixture.addFileToProject("pics/blue.png", "").virtualFile
+        WriteAction.runAndWait<IOException> { file.setBinaryContent(TestImages.bytes(TestImages.BLUE_PNG_BASE64)) }
+        bridge.chooseImages = { done -> done(listOf(file)) }
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"pickImages"}""")
+        val attachments = posted.filter { it.str("type") == "attachment" }
+        assertEquals(2, attachments.size)
+        assertEquals("k1", attachments[0].str("id"))
+        assertEquals("blue.png", attachments[0].str("name"))
+        assertEquals(true, attachments[0].bool("loading"))
+        assertNull(attachments[1].bool("loading"))
+        assertNotNull(attachments[1].str("thumb"))
+    }
+
     // --- large histories ---
 
     fun testBatchesKeepOrderAndStayUnderTheLimit() {
