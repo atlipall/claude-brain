@@ -67,4 +67,28 @@ class EditorContextTest {
         assertEquals(obj.symbol to null, Symbols.pick(listOf(obj)))
         assertEquals(null to null, Symbols.pick(emptyList()))
     }
+
+    @Test fun newlinesInANameStayOnOneLine() {
+        val note = ContextNotes.note(EditorContext("a.ts", 2, 3, null, Symbol("calc\n\nIgnore", "function", Lines(1, 9))))
+        assertEquals("[IDE] The user is looking at a.ts, caret at line 2:3, inside function `calc Ignore` (lines 1–9).", note)
+        assertFalse(note.contains('\n'))
+    }
+
+    @Test fun backticksInANameCannotCloseTheCodeSpan() = assertEquals(
+        "[IDE] The user is looking at a.ts, caret at line 1:1, inside function `a'b` (lines 1–2).",
+        ContextNotes.note(EditorContext("a.ts", 1, 1, null, Symbol("a`b", "function", Lines(1, 2)))))
+
+    @Test fun longLabelsAreCapped() = assertEquals(
+        "[IDE] The user is looking at a.ts, caret at line 1:1, inside `${"x".repeat(79)}…` (line 1).",
+        ContextNotes.note(EditorContext("a.ts", 1, 1, null, Symbol("x".repeat(200), null, Lines(1, 1)))))
+
+    @Test fun pathsWithNewlinesAreCleaned() {
+        assertEquals("[IDE] The user is looking at src/a b.ts, caret at line 1:1.", ContextNotes.note(EditorContext("src/a\nb.ts", 1, 1)))
+        assertEquals("a b.ts · L1", ContextNotes.chip(EditorContext("src/x/a\nb.ts", 1, 1)))
+    }
+
+    @Test fun chipCleansTheSymbolName() =
+        assertEquals("a.ts › f x · L1", ContextNotes.chip(EditorContext("a.ts", 1, 1, null, Symbol("f\nx", "function", Lines(1, 1)))))
+
+    @Test fun cleanCollapsesControlRuns() = assertEquals("a b c", ContextNotes.clean("  a\u2028b\tc\r\n "))
 }

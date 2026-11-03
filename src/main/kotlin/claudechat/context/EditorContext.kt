@@ -55,7 +55,7 @@ object Symbols {
 object ContextNotes {
     /** The paragraph prepended to the user's message. Location only, never file contents. */
     fun note(c: EditorContext): String = buildString {
-        append("[IDE] The user is looking at ${c.path}, caret at line ${c.line}:${c.column}")
+        append("[IDE] The user is looking at ${clean(c.path)}, caret at line ${c.line}:${c.column}")
         c.symbol?.let { append(", inside ").append(describe(it)) }
         c.container?.let { append(", within ").append(describe(it)) }
         append('.')
@@ -64,13 +64,28 @@ object ContextNotes {
 
     /** The chip above the input: `invoice.ts › calculateTotals · L142`, or `· L140–145` while lines are selected. */
     fun chip(c: EditorContext): String {
-        val file = c.path.substringAfterLast('/')
-        val symbol = c.symbol?.let { " › ${it.name}" }.orEmpty()
+        val file = clean(c.path.substringAfterLast('/'))
+        val symbol = c.symbol?.let { " › ${clean(it.name)}" }.orEmpty()
         val where = c.selection?.let { if (it.start == it.end) "L${it.start}" else "L${it.start}–${it.end}" } ?: "L${c.line}"
         return "$file$symbol · $where"
     }
 
-    private fun describe(s: Symbol) = (s.kind?.let { "$it " } ?: "") + "`${s.name}` (${lines(s.lines)})"
+    /**
+     * Makes [s] safe to put in a note or chip: every run of whitespace or control characters (including line and
+     * paragraph separators) becomes one space, the result is trimmed, backticks become apostrophes so they cannot close
+     * a code span, and anything longer than [max] characters is cut to [max] - 1 characters plus "…".
+     */
+    internal fun clean(s: String, max: Int = 80): String {
+        val flat = s.replace(CONTROL_RUN, " ").trim().replace('`', '\'')
+        return if (flat.length > max) flat.take(max - 1) + "…" else flat
+    }
+
+    private val CONTROL_RUN = Regex("[\\s\\p{Cntrl}\\u2028\\u2029]+")
+
+    private fun describe(s: Symbol): String {
+        val kind = s.kind?.let { clean(it) }?.takeIf { it.isNotEmpty() }?.let { "$it " }.orEmpty()
+        return "$kind`${clean(s.name)}` (${lines(s.lines)})"
+    }
 
     private fun lines(l: Lines) = if (l.start == l.end) "line ${l.start}" else "lines ${l.start}–${l.end}"
 }
