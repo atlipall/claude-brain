@@ -15,7 +15,7 @@
                                  instance="claudechat.settings.ClaudeChatConfigurable"/>
         <toolWindow id="Claude Chat" anchor="right" icon="AllIcons.Toolwindows.ToolWindowMessages"
                     canCloseContents="true" factoryClass="claudechat.ui.ChatToolWindowFactory"/>
-        <notificationGroup id="Claude Chat" displayType="BALLOON"/>
+        <notificationGroup id="Claude Chat" displayType="STICKY_BALLOON"/>
     </extensions>
 
     <actions>

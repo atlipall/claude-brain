@@ -20,6 +20,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
     private val root get() = ProjectRootManager.getInstance(project).contentRoots.first().path
     private var savedScopeName: String? = null
     private var savedFollow = true
+    private var offers = 0
     private lateinit var follower: CheckoutFollower
 
     override fun setUp() {
@@ -31,7 +32,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         savedScopeName = FindSettings.getInstance().defaultScopeName
         savedFollow = settings.followCheckout
         settings.followCheckout = true
-        follower = CheckoutFollower(project).also { it.projectDir = root } // a fresh follower: IDE shows main
+        follower = CheckoutFollower(project).also { it.projectDir = root; it.excluded = { false }; it.offer = { offers++ } } // a fresh follower: IDE shows main
     }
 
     override fun tearDown() {
@@ -138,5 +139,33 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         assertEquals("IDE: main", Indicator.text(true, main, Placement.Followable(main)))
         assertEquals("IDE: main · /x is outside this window; open it as a separate project to follow it",
             Indicator.text(true, main, Placement.Outside("/x")))
+    }
+
+    fun testExcludedWorktreeSwapsEditorsButLeavesViewAndFindAlone() {
+        openMainFileWithCounterpart()
+        FindSettings.getInstance().defaultScopeName = "Mine"
+        follower.excluded = { true }
+        val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        follower.follow(wt)
+        assertEquals("wt1", follower.current?.name)
+        assertEquals(setOf(".claude/worktrees/wt1/a.txt"), openPaths())
+        assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
+        assertEquals("IDE: wt1 · worktrees are excluded from indexing (no Project view / Find scope)", wt.checkoutText)
+        assertEquals(1, offers)
+    }
+
+    fun testNotExcludedWorktreeSetsFindAndOffersNothing() {
+        openMainFileWithCounterpart()
+        val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        follower.follow(wt)
+        assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
+        assertEquals("IDE: wt1", wt.checkoutText)
+        assertEquals(0, offers)
+    }
+
+    fun testOfferIsClaimedOncePerProject() {
+        assertTrue(AutoExclude.claimOffer("test-a"))
+        assertFalse(AutoExclude.claimOffer("test-a"))
+        assertTrue(AutoExclude.claimOffer("test-b"))
     }
 }

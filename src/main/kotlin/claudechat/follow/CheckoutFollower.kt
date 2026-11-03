@@ -10,8 +10,10 @@ import com.intellij.openapi.project.Project
 
 object Indicator {
     /** The chat header's text: empty when following is off, otherwise `IDE: <checkout>` plus a note for a chat outside this window. */
-    fun text(enabled: Boolean, ide: Checkout, chat: Placement): String = when {
+    fun text(enabled: Boolean, ide: Checkout, chat: Placement, worktreesExcluded: Boolean = false): String = when {
         !enabled -> ""
+        !ide.isMain && worktreesExcluded && chat !is Placement.Outside ->
+            "IDE: ${ide.name} · worktrees are excluded from indexing (no Project view / Find scope)"
         chat is Placement.Outside ->
             "IDE: ${ide.name} · ${chat.dir} is outside this window; open it as a separate project to follow it"
         else -> "IDE: ${ide.name}"
@@ -34,6 +36,12 @@ class CheckoutFollower(private val project: Project) {
     /** The checkout the IDE shows; null means main (nothing followed yet). */
     var current: Checkout? = null
         private set
+
+    /** Whether the IDE excludes `.claude/worktrees` from indexing (tests inject it; the registry is never changed). */
+    var excluded: () -> Boolean = AutoExclude::worktreesExcludedNow
+
+    /** Offers to stop excluding worktrees (tests replace it so no notification is shown). */
+    var offer: (Project) -> Unit = AutoExclude::offerToInclude
 
     private val enabled get() = ClaudeChatSettings.getInstance().state.followCheckout
 
@@ -58,13 +66,20 @@ class CheckoutFollower(private val project: Project) {
             if (target != null && (selecting || target != (current ?: mapper.main))) show(mapper, target)
         }
         val ide = current ?: mapper.main
-        chats.all().forEach { it.showCheckout(Indicator.text(on, ide, mapper.place(it.cwd))) }
+        val noScopes = excluded()
+        chats.all().forEach { it.showCheckout(Indicator.text(on, ide, mapper.place(it.cwd), noScopes)) }
     }
 
     private fun show(mapper: CheckoutMapper, target: Checkout) {
         val shown = current ?: mapper.main
         if (target != shown) EditorSwapper(project, mapper).swap(shown, target)
         current = target
+        val noScopes = !target.isMain && excluded()
+        if (!noScopes) applyViews(target) // excluded files match no scope: the Project view and Find would show nothing
+        if (noScopes) offer(project)
+    }
+
+    private fun applyViews(target: Checkout) {
         SearchDefaults.use(project, target.scopeName)
         // The Scope pane may learn about a new scope asynchronously: if it does not list it yet, try once more later.
         if (!ProjectViewSwitcher(project).show(target.scopeName)) {
@@ -72,7 +87,6 @@ class CheckoutFollower(private val project: Project) {
                 if (enabled && current == target) ProjectViewSwitcher(project).show(target.scopeName)
             }, project.disposed)
         }
-        if (!target.isMain) AutoExclude.offerToInclude(project)
     }
 
     private fun followable(mapper: CheckoutMapper, chat: Chat): Checkout? = (mapper.place(chat.cwd) as? Placement.Followable)?.checkout

@@ -6,7 +6,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * WebStorm 2026.2 excludes `.worktrees` and `.claude/worktrees` from every project (registry key [KEY], read at
@@ -16,19 +16,29 @@ import java.util.concurrent.atomic.AtomicBoolean
 object AutoExclude {
     const val KEY = "ide.workspace.model.relative.paths.to.exclude.automatically"
     private const val WORKTREES = CheckoutMapper.WORKTREES
-    private val offered = AtomicBoolean()
+    private val offered: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     fun excludesWorktrees(value: String): Boolean = entries(value).any { it == WORKTREES }
+
+    /** The registry's current value says worktrees are excluded; false when the key does not exist. */
+    fun worktreesExcludedNow(): Boolean = try {
+        excludesWorktrees(Registry.get(KEY).asString())
+    } catch (_: Exception) {
+        false
+    }
+
+    /** True the first time [key] (a project) asks since the IDE started. */
+    internal fun claimOffer(key: String): Boolean = offered.add(key)
 
     /** [value] without the `.claude/worktrees` entry. */
     fun withoutWorktrees(value: String): String = entries(value).filterNot { it == WORKTREES }.joinToString(";")
 
     private fun entries(value: String) = value.split(';').map { it.trim().trimEnd('/') }.filter { it.isNotEmpty() }
 
-    /** Once per IDE session: offers to stop excluding `.claude/worktrees` (needs a restart). */
+    /** Once per project and IDE session: offers to stop excluding `.claude/worktrees` (needs a restart). */
     fun offerToInclude(project: Project) {
+        if (!worktreesExcludedNow() || !claimOffer(project.locationHash)) return
         val registry = Registry.get(KEY)
-        if (!excludesWorktrees(registry.asString()) || !offered.compareAndSet(false, true)) return
         NotificationGroupManager.getInstance().getNotificationGroup(NOTIFICATION_GROUP)
             .createNotification(
                 "Worktrees are excluded from this project",
