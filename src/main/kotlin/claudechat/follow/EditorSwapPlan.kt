@@ -1,5 +1,7 @@
 package claudechat.follow
 
+import claudechat.git.canonicalPath
+
 /** A zero-based caret position: the line, and the column as a character offset within the line (a tab counts as one). */
 data class Caret(val line: Int, val column: Int) {
     /** This position moved inside a document of [lineCount] lines (at least one) whose line lengths [lineLength] gives. */
@@ -23,10 +25,11 @@ object EditorSwapPlan {
      */
     fun plan(open: List<OpenFile>, from: Checkout, to: Checkout, mapper: CheckoutMapper, exists: (String) -> Boolean): List<Replacement> {
         if (from == to) return emptyList()
-        val openPaths = open.map { it.path }.toSet()
-        return open.distinctBy { it.path }.mapNotNull { file ->
+        // Canonical spellings: a symlinked project root must not make an open counterpart look closed.
+        val openPaths = open.map { canonicalPath(it.path) }.toSet()
+        return open.distinctBy { canonicalPath(it.path) }.mapNotNull { file ->
             val target = mapper.counterpart(file.path, from, to) ?: return@mapNotNull null
-            if (target in openPaths || !exists(target)) null else Replacement(file.path, target, file.caret)
+            if (canonicalPath(target) in openPaths || !exists(target)) null else Replacement(file.path, target, file.caret)
         }
     }
 }

@@ -1,5 +1,6 @@
 package claudechat.follow
 
+import claudechat.git.canonicalPath
 import com.intellij.ide.ui.UISettings
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -22,7 +23,7 @@ class EditorSwapper(private val project: Project, private val mapper: CheckoutMa
     fun swap(from: Checkout, to: Checkout) {
         val files = manager.openFiles.toList()
         if (files.isEmpty()) return
-        val byPath = files.associateBy { it.path }
+        val byPath = files.associateBy { canonicalPath(it.path) }
         val local = LocalFileSystem.getInstance()
         // Counterparts are real files: refreshing finds ones the VFS has not seen yet. A file that lives in another
         // file system (the in-memory one of light tests) looks its counterpart up there.
@@ -30,7 +31,7 @@ class EditorSwapper(private val project: Project, private val mapper: CheckoutMa
         fun resolve(path: String): VirtualFile? = local.refreshAndFindFileByPath(path) ?: other?.findFileByPath(path)
         val open = files.map { OpenFile(it.path, caretOf(it)) }
         val swaps = EditorSwapPlan.plan(open, from, to, mapper) { resolve(it) != null }.mapNotNull { r ->
-            val old = byPath[r.from] ?: return@mapNotNull null
+            val old = byPath[canonicalPath(r.from)] ?: return@mapNotNull null
             val new = resolve(r.to) ?: return@mapNotNull null
             Swap(old, new, r.caret)
         }
