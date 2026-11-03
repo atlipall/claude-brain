@@ -1,42 +1,69 @@
 package claudechat.ide
 
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 class EditTrackerTest : BasePlatformTestCase() {
     private val tracker get() = EditTracker.getInstance(project)
+    private val root get() = ProjectRootManager.getInstance(project).contentRoots.first().path
+    private val worktree get() = "$root/.claude/worktrees/wt1"
+
+    private fun note(vararg files: String) =
+        "[IDE] Since your last turn the user edited these files: ${files.joinToString(", ")}.\nRe-read them before relying on earlier contents."
+
+    /** Opens [path] (relative to the content root) and types into it without saving. */
+    private fun edit(path: String) {
+        myFixture.openFileInEditor(myFixture.addFileToProject(path, "x").virtualFile)
+        myFixture.type("y")
+    }
 
     override fun setUp() {
         super.setUp()
-        tracker.consumeNote() // light project is shared between tests: start clean
+        // The light project is shared between tests: save leftovers first, then start every key clean.
+        FileDocumentManager.getInstance().saveAllDocuments()
+        tracker.register("main")
+        tracker.register("wt")
     }
 
     fun testUnsavedEditIsReportedOnce() {
-        myFixture.configureByText("a.ts", "let x = 1;")
-        myFixture.type("2")
-        val note = tracker.consumeNote()
-        assertEquals(
-            "[IDE] Since your last turn the user edited these files: a.ts.\nRe-read them before relying on earlier contents.",
-            note)
-        assertNull(tracker.consumeNote())
+        edit("a.txt")
+        assertEquals(note("a.txt"), tracker.consumeNote("main", root))
+        assertNull(tracker.consumeNote("main", root))
     }
 
-    fun testNoEditsMeansNoNote() {
-        myFixture.configureByText("b.ts", "x")
-        assertNull(tracker.consumeNote())
+    fun testEveryChatWhoseFolderHoldsTheFileIsToldOnce() {
+        tracker.register("other")
+        edit("b.txt")
+        assertEquals(note("b.txt"), tracker.consumeNote("main", root))
+        assertEquals(note("b.txt"), tracker.consumeNote("other", root))
+        assertNull(tracker.consumeNote("other", root))
+    }
+
+    fun testWorktreeFilesGoToTheWorktreeChatOnly() {
+        edit(".claude/worktrees/wt1/src/c.txt")
+        assertNull(tracker.consumeNote("main", root))
+        assertEquals(note("src/c.txt"), tracker.consumeNote("wt", worktree))
+    }
+
+    fun testFilesOutsideTheFolderAreNotReported() {
+        edit("d.txt")
+        assertNull(tracker.consumeNote("wt", worktree))
+        assertEquals(note("d.txt"), tracker.consumeNote("main", root))
+    }
+
+    fun testRegisteringIgnoresEarlierSaves() {
+        edit("e.txt")
+        FileDocumentManager.getInstance().saveAllDocuments()
+        tracker.register("late")
+        assertNull(tracker.consumeNote("late", root))
+        assertEquals(note("e.txt"), tracker.consumeNote("main", root))
     }
 
     fun testExternalChangeIsNotReported() {
-        val file = myFixture.configureByText("c.ts", "a").virtualFile
+        val file = myFixture.addFileToProject("f.txt", "a").virtualFile
         WriteAction.run<Exception> { file.setBinaryContent("b".toByteArray()) }
-        assertNull(tracker.consumeNote())
-    }
-
-    fun testClearDropsRecordedEdits() {
-        myFixture.configureByText("d.ts", "x")
-        myFixture.type("y")
-        com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
-        tracker.clear()
-        assertNull(tracker.consumeNote())
+        assertNull(tracker.consumeNote("main", root))
     }
 }

@@ -2,9 +2,9 @@ package claudechat.session
 
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
-import claudechat.ide.EditTracker
 import claudechat.testutil.FakeConnection
 import claudechat.testutil.Fx
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.io.File
@@ -34,7 +34,7 @@ class ChatsTest : BasePlatformTestCase() {
         home = Files.createTempDirectory("claude-home").toFile()
         chats.connector = { launch -> launches += launch; FakeConnection().also { connections += it } }
         chats.store = SessionStore(home)
-        EditTracker.getInstance(project).consumeNote() // drop saves recorded by earlier tests
+        FileDocumentManager.getInstance().saveAllDocuments() // chats opened below only hear about later saves
     }
 
     override fun tearDown() {
@@ -138,5 +138,25 @@ class ChatsTest : BasePlatformTestCase() {
         val content = connections.single().userMessages().single()
         assertTrue(content, content.startsWith("[IDE] Since your last turn the user edited these files: a.txt."))
         assertTrue(content.endsWith("\n\nhello"))
+    }
+
+    fun testEditNotesFollowEachChatsFolder() {
+        val main = chats.open(ChatSpec.inProject(root))
+        val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        myFixture.openFileInEditor(myFixture.addFileToProject(".claude/worktrees/wt1/b.txt", "x").virtualFile)
+        myFixture.type("y")
+        main.send("first")
+        wt.send("second")
+        assertEquals(listOf("first"), connections[0].userMessages())
+        assertTrue(connections[1].userMessages().single().startsWith("[IDE] Since your last turn the user edited these files: b.txt."))
+    }
+
+    fun testChatOpenedLaterIsNotToldAboutEarlierSaves() {
+        myFixture.configureByText("early.txt", "x")
+        myFixture.type("y")
+        FileDocumentManager.getInstance().saveAllDocuments()
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("hi")
+        assertEquals(listOf("hi"), connections.single().userMessages())
     }
 }

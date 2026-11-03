@@ -48,15 +48,17 @@ class Chats(private val project: Project) : Disposable {
     /** Creates and starts a chat (a resumed one shows its transcript). EDT. */
     fun open(spec: ChatSpec): Chat {
         val history = spec.resumeId?.let { store.transcript(spec.cwd, it) }.orEmpty()
+        val tracker = EditTracker.getInstance(project)
         val chat = Chat(
             id = ids.incrementAndGet(),
             spec = spec,
             history = history,
             connector = connector,
             initialMode = defaultMode(),
-            editNote = { EditTracker.getInstance(project).consumeNote() },
+            editNote = { c -> tracker.consumeNote(c.id, c.cwd) },
             log = { LOG.info(it) },
         )
+        tracker.register(chat.id)
         chats += chat
         chat.start()
         return chat
@@ -64,7 +66,10 @@ class Chats(private val project: Project) : Disposable {
 
     /** Stops the chat's process. Its transcript stays on disk. */
     fun close(chat: Chat) {
-        if (chats.remove(chat)) chat.dispose()
+        if (chats.remove(chat)) {
+            chat.dispose()
+            EditTracker.getInstance(project).forget(chat.id)
+        }
     }
 
     fun closeAll() = all().forEach(::close)
