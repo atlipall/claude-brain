@@ -268,28 +268,6 @@ class ChatsTest : BasePlatformTestCase() {
             connections.single().userMessages())
     }
 
-    fun testSkippedContextIsLeftOutOnceThenComesBack() {
-        myFixture.configureByText("a.txt", "x")
-        val chat = chats.open(ChatSpec.inProject(root))
-        chat.skipContext(true)
-        chat.send("one")
-        assertFalse(chat.contextOff)
-        connections.single().emit(Fx.result())
-        chat.send("two")
-        awaitMessages(connections.single(), 2)
-        assertEquals(listOf("one", "[IDE] The user is looking at a.txt, caret at line 1:1.\n\ntwo"), connections.single().userMessages())
-    }
-
-    fun testSkipCanBeUndone() {
-        myFixture.configureByText("a.txt", "x")
-        val chat = chats.open(ChatSpec.inProject(root))
-        chat.skipContext(true)
-        chat.skipContext(false)
-        chat.send("one")
-        awaitMessages(connections.single(), 1)
-        assertEquals(listOf("[IDE] The user is looking at a.txt, caret at line 1:1.\n\none"), connections.single().userMessages())
-    }
-
     fun testSettingOffSendsNoContext() {
         myFixture.configureByText("a.txt", "x")
         settings.attachEditorContext = false
@@ -324,10 +302,8 @@ class ChatsTest : BasePlatformTestCase() {
         )
         try {
             chat.start()
-            chat.skipContext(false)
             chat.send("hello")
             assertEquals(listOf("[IDE] edit note\n\nhello"), connection.userMessages())
-            assertFalse(chat.contextOff)
         } finally {
             chat.dispose()
         }
@@ -337,7 +313,7 @@ class ChatsTest : BasePlatformTestCase() {
     private val inTotal = "[IDE] The user is looking at calc.js, caret at line 2:11, inside function `total` (lines 1–3).\n\n"
     private val locationOnly = "[IDE] The user is looking at calc.js, caret at line 2:11.\n\n"
 
-    fun testNoSymbolLookupRunsOnTheEdtOnSendOrRefresh() {
+    fun testNoSymbolLookupRunsOnTheEdtOnSend() {
         myFixture.configureByText("calc.js", calc)
         val onEdt = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
         contextService.finder = { file, document, offset ->
@@ -345,8 +321,7 @@ class ChatsTest : BasePlatformTestCase() {
             claudechat.context.SymbolFinder.find(file, document, offset)
         }
         val chat = chats.open(ChatSpec.inProject(root))
-        chat.attach(RecordingView()) // the chip refreshes
-        chat.refreshContext()
+        chat.attach(RecordingView())
         chat.send("hi")
         awaitMessages(connections.single(), 1)
         assertEquals(listOf(inTotal + "hi"), connections.single().userMessages())
@@ -478,8 +453,7 @@ class ChatsTest : BasePlatformTestCase() {
         val chat = chats.open(ChatSpec.inProject(root))
         val view = RecordingView().also(chat::attach)
         chat.send("first")
-        chat.skipContext(true)
-        chat.send("second") // needs no context, but must still queue behind the first
+        chat.send("second") // must queue behind the first
         chat.send("third")
         assertTrue(view.items.none { it is ChatItem.UserText })
         release.countDown()
@@ -489,7 +463,7 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(listOf(inTotal + "first"), connections.single().userMessages())
         connections.single().emit(Fx.result())
         awaitMessages(connections.single(), 2)
-        assertEquals("second", connections.single().userMessages()[1])
+        assertTrue(connections.single().userMessages()[1].endsWith("second"))
     }
 
     fun testClosingTheChatWhileASendWaitsSendsNothingAndThrowsNothing() {

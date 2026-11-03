@@ -22,8 +22,7 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
 - **Claude knows what you edited.** Files you save between messages are listed in a hidden note
   on your next message, so Claude re-reads them instead of working from stale contents.
 - **Claude knows where you are looking.** Every message carries your current file, caret line,
-  selection and enclosing function, so "what does this function do?" just works. A chip above the
-  input shows what will be attached; × skips it for one message.
+  selection and enclosing function, so "what does this function do?" just works.
 - **Images.** Paste, drop or 📎-pick images to send with a message (PNG/JPEG/GIF/WebP, up to 10,
   5 MB each, large ones downscaled). Images Claude reads, and local project images referenced in its
   replies, are shown inline. Remote images are never loaded.

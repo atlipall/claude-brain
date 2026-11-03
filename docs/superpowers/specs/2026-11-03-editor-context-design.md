@@ -48,3 +48,7 @@ Prepended to the message sent to Claude (not shown in the user's bubble), after 
 - Sending code contents.
 - Multiple carets beyond the primary one.
 - Context from non-text editors (images, diffs).
+
+## Update (2026-11-03): the chip and skip-once were removed at the user's request; the note is still attached to every message
+
+The visible chip above the input, its × button and the skip-once feature are gone, along with the `context` and `contextOff` bridge messages. Every message still carries the hidden `[IDE] The user is looking at …` note, governed by "Attach editor context to messages". The symbol cache is still warmed by `EditorContextService` after each caret pause, whether or not any listener is registered.

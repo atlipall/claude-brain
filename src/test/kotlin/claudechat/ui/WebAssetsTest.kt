@@ -42,22 +42,19 @@ class WebAssetsTest {
         assertTrue(page.contains("ArrowDown"))
     }
 
-    @Test fun pageShowsTheContextChipAsPlainText() {
+    @Test fun pageHasNoContextChip() {
         val page = WebAssets.page()
-        assertTrue(page.contains("<div id=\"context\" hidden><span id=\"context-text\"></span>"))
-        assertTrue(page.contains("case 'context': setContext(msg.text, msg.off); break;"))
-        assertTrue(page.contains("contextText.textContent ="))
-        assertFalse(page.contains("contextText.innerHTML"))
-        assertFalse(page.contains("contextEl.innerHTML"))
-        assertTrue(page.contains("send({ type: 'contextOff', off: true })"))
-        assertTrue(page.contains("send({ type: 'contextOff', off: false })"))
-        assertTrue(page.contains("#context[hidden] { display: none; }"))
+        assertFalse(page.contains("id=\"context\""))
+        assertFalse(page.contains("#context"))
+        assertFalse(page.contains("setContext"))
+        assertFalse(page.contains("contextOff"))
+        assertFalse(page.contains("case 'context'"))
     }
 
     @Test fun pageShowsWhatClaudeIsDoingAboveTheInput() {
         val page = WebAssets.page()
         val html = page.substring(page.indexOf("<main id=\"log\">"))
-        assertTrue(html.indexOf("<div id=\"activity\" hidden>") in 0 until html.indexOf("<div id=\"context\""))
+        assertTrue(html.indexOf("<div id=\"activity\" hidden>") in 0 until html.indexOf("<div id=\"attachments\""))
         assertTrue(html.indexOf("<main id=\"log\"></main>") < html.indexOf("<div id=\"activity\""))
         assertFalse(page.contains("id=\"stop\""))
         assertFalse(page.contains("getElementById('stop')"))

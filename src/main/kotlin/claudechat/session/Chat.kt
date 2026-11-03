@@ -21,9 +21,6 @@ interface SessionView {
     /** What the IDE window shows for this chat (`IDE: <checkout>`); empty hides it. */
     fun checkout(text: String) {}
 
-    /** The editor-context chip: empty [text] hides it; [off] shows it muted (left out of the next message). */
-    fun context(text: String, off: Boolean) {}
-
     /** What Claude is doing now (changes only); null when no turn is running. */
     fun activity(activity: Activity?) {}
 }
@@ -38,7 +35,7 @@ class Chat(
     private val editNote: (Chat) -> String?,
     /**
      * Where the user is looking, as this chat names the file; null for none (or when the setting is off). EDT, cheap:
-     * the chip reads it on every refresh, so it must not search for symbols.
+     * it must not search for symbols.
      */
     private val editorContext: (Chat) -> EditorContext? = { null },
     /**
@@ -136,7 +133,7 @@ class Chat(
         session.start()
     }
 
-    /** EDT only (the chip reads the editor). */
+    /** EDT only. */
     fun attach(view: SessionView) {
         this.view = view
         view.reset(synchronized(lock) { items.values.toList() })
@@ -144,8 +141,6 @@ class Chat(
         synchronized(activityLock) { shownActivity }?.let(view::activity)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)
-        shownContext = HIDDEN // a new page shows no chip yet
-        refreshContext()
     }
 
     fun detach(view: SessionView) {
@@ -163,16 +158,6 @@ class Chat(
         view?.checkout(text)
     }
 
-    /** True after the user turned editor context off for the next message only. EDT only. */
-    var contextOff = false
-        private set
-
-    /** Leaves the editor context out of the next message ([off]) or puts it back. EDT only. */
-    fun skipContext(off: Boolean) {
-        contextOff = off
-        refreshContext()
-    }
-
     /** The formatted editor context, or null when there is none or capturing it failed (a failure must never block sending). */
     private fun captureContext(format: (EditorContext) -> String): String? = try {
         editorContext(this)?.let(format)
@@ -182,22 +167,10 @@ class Chat(
         null
     }
 
-    /** The chip text and muted state the page shows. EDT only. */
-    private var shownContext = HIDDEN
-
-    /** Recomputes the chip and tells the page when its text or muted state changed. EDT only. */
-    fun refreshContext() {
-        if (view == null) return // a detached chat has no chip; attach resets it and refreshes
-        val next = captureContext(ContextNotes::chip).orEmpty() to contextOff
-        if (next == shownContext) return
-        shownContext = next
-        view?.context(next.first, next.second)
-    }
-
     /** Images waiting above this chat's message box; [send] takes them out. EDT only. */
     val attachments = PendingAttachments()
 
-    private class Outgoing(val text: String, val edits: String?, val withContext: Boolean, val images: List<Attachment>)
+    private class Outgoing(val text: String, val edits: String?, val images: List<Attachment>)
 
     /** Messages waiting for their context, oldest first; only the head resolves, so order is kept. EDT only. */
     private val outbox = ArrayDeque<Outgoing>()
@@ -208,7 +181,7 @@ class Chat(
      * EDT only (the edit note saves documents, the context reads the editor). Ignored while the session is dead.
      * Claude gets the edit note, then the editor-context note, then [text], then the [images]; the chat shows [text]
      * under the images' thumbnails. Image bytes are dropped once the line is written to the CLI.
-     * The edit note and the skip-once flag are taken now. When the symbol at the caret is not cached the message goes
+     * The edit note is taken now. When the symbol at the caret is not cached the message goes
      * out (and its bubble appears) once the background lookup returns, behind any earlier message still waiting.
      */
     fun send(text: String, images: List<Attachment> = emptyList()) {
@@ -219,10 +192,8 @@ class Chat(
             onTitleChanged?.invoke()
         }
         val edits = editNote(this) // saves documents first
-        outbox += Outgoing(text, edits, !contextOff, images)
-        contextOff = false
+        outbox += Outgoing(text, edits, images)
         pump()
-        refreshContext() // the chip is live again
     }
 
     private fun pump() {
@@ -238,9 +209,9 @@ class Chat(
         while (!resolving) {
             val next = outbox.firstOrNull() ?: return
             val resolve = resolveContext
-            if (!next.withContext || resolve == null) {
+            if (resolve == null) {
                 outbox.removeFirst()
-                deliver(next, if (next.withContext) captureContext(ContextNotes::note) else null)
+                deliver(next, captureContext(ContextNotes::note))
                 continue
             }
             resolving = true
@@ -312,7 +283,6 @@ class Chat(
     }
 
     private companion object {
-        val HIDDEN = "" to false
         const val IMAGE_TITLE = "[image]"
     }
 }

@@ -13,9 +13,6 @@
   const restartBtn = document.getElementById('restart');
   const statusEl = document.getElementById('status');
   const checkoutEl = document.getElementById('checkout');
-  const contextEl = document.getElementById('context');
-  const contextText = document.getElementById('context-text');
-  const contextOffBtn = document.getElementById('context-off');
   const attachEl = document.getElementById('attachments');
   const attachBtn = document.getElementById('attach');
   const pending = new Map(); // attachment id -> { el, ready }
@@ -83,7 +80,6 @@
         case 'theme': applyTheme(msg); break;
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
         case 'checkout': setCheckout(msg.text); break;
-        case 'context': setContext(msg.text, msg.off); break;
         case 'attachment': setAttachment(msg); break;
       }
     }
@@ -451,17 +447,6 @@
     checkoutEl.hidden = !checkoutEl.textContent;
   }
 
-  // Plain text only: file and symbol names from the editor never become markup.
-  function setContext(text, off) {
-    const t = typeof text === 'string' ? text : '';
-    const muted = off === true;
-    contextEl.hidden = !t;
-    contextEl.classList.toggle('off', muted);
-    contextEl.title = muted ? '' : t;
-    contextText.textContent = muted ? 'context off for next message — click to restore' : t;
-    contextOffBtn.hidden = muted;
-  }
-
   function addTile(id, name) {
     const tile = h('div', { class: 'tile loading', title: name },
       h('span', { class: 'img-alt' }, '…'),
@@ -597,8 +582,6 @@
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
-  contextOffBtn.addEventListener('click', (e) => { e.stopPropagation(); send({ type: 'contextOff', off: true }); });
-  contextEl.addEventListener('click', () => { if (contextEl.classList.contains('off')) send({ type: 'contextOff', off: false }); });
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
   // Pasted image data (Cmd+V of a screenshot) anywhere on the page becomes an attachment; text pastes are untouched.

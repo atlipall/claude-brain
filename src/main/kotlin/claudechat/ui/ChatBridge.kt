@@ -151,7 +151,6 @@ class ChatBridge(
             "openDiff" -> msg.str("toolUseId")?.let { id -> session.diffFor(id)?.let(linker::showDiff) }
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))
-            "contextOff" -> msg.bool("off")?.let(chat::skipContext) // booleans only
             "resolveImages" -> {
                 val reqId = msg.long("reqId") ?: 0
                 val paths = strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS)
@@ -292,12 +291,6 @@ class ChatBridge(
     override fun checkout(text: String) = post(buildJsonObject {
         put("type", "checkout")
         put("text", text)
-    }.toString())
-
-    override fun context(text: String, off: Boolean) = post(buildJsonObject {
-        put("type", "context")
-        put("text", text)
-        put("off", off)
     }.toString())
 
     /** `{ "<question>": { "labels": [..], "other": ".." } }`, or null if the shape is wrong anywhere (the session checks the content). */

@@ -47,7 +47,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         super.setUp()
         PromptHistory.getInstance(project).clear()
         chats.closeAll()
-        manager.openFiles.forEach(manager::closeFile) // no editor, no chip, unless a test opens one
+        manager.openFiles.forEach(manager::closeFile) // no editor, unless a test opens one
         savedAttach = settings.attachEditorContext
         settings.attachEditorContext = true
         savedSchedule = contextService.schedule
@@ -206,70 +206,29 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(before, posted.size)
     }
 
-    fun testReadyPostsTheEditorContextChip() {
+    fun testReadyPostsNoContextMessage() {
         myFixture.configureByText("calc.js", "function total(a) {\n  return a<caret> + 1;\n}\n")
         bridge.handle("""{"type":"ready"}""")
-        // the symbol arrives from the background lookup after the first, location-only chip
-        PlatformTestUtil.waitWithEventsDispatching("No chip with the symbol", { posted.last().str("text") == "calc.js › total · L2" }, 10)
-        val msg = posted.last()
-        assertEquals("context", msg.str("type"))
-        assertEquals("calc.js › total · L2", msg.str("text"))
-        assertEquals(false, msg.bool("off"))
+        assertTrue(posted.none { it.str("type") == "context" })
     }
 
-    fun testContextOffMutesTheChipAndSkipsOneMessage() {
+    fun testContextOffMessageIsIgnoredAndTheNoteIsStillSent() {
         myFixture.configureByText("a.txt", "x")
         bridge.handle("""{"type":"ready"}""")
+        val count = posted.size
         bridge.handle("""{"type":"contextOff","off":true}""")
-        assertEquals("a.txt · L1", posted.last().str("text"))
-        assertEquals(true, posted.last().bool("off"))
-        bridge.handle("""{"type":"send","text":"hello"}""")
-        val sent = connections[0].userMessages().single()
-        assertTrue(sent.endsWith("hello"))
-        assertFalse(sent, sent.contains("The user is looking at"))
-        assertEquals(false, posted.last { it.str("type") == "context" }.bool("off"))
-    }
-
-    fun testContextOffCanBeUndone() {
-        myFixture.configureByText("a.txt", "x")
-        bridge.handle("""{"type":"ready"}""")
-        bridge.handle("""{"type":"contextOff","off":true}""")
-        bridge.handle("""{"type":"contextOff","off":false}""")
-        assertEquals(false, posted.last().bool("off"))
+        assertEquals(count, posted.size)
         bridge.handle("""{"type":"send","text":"hello"}""")
         PlatformTestUtil.waitWithEventsDispatching("Not sent", { connections[0].userMessages().isNotEmpty() }, 10)
         assertTrue(connections[0].userMessages().single().contains("[IDE] The user is looking at a.txt, caret at line 1:1."))
     }
 
-    fun testNonBooleanContextOffIsIgnored() {
+    fun testSettingOffSendsNoNote() {
         myFixture.configureByText("a.txt", "x")
         bridge.handle("""{"type":"ready"}""")
-        val count = posted.size
-        bridge.handle("""{"type":"contextOff","off":"yes"}""")
-        bridge.handle("""{"type":"contextOff"}""")
-        assertEquals(count, posted.size)
-        assertFalse(chat.contextOff)
-    }
-
-    fun testCaretMovesUpdateTheChipOnlyWhenItsTextChanges() {
-        myFixture.configureByText("a.txt", "one\ntwo\n")
-        bridge.handle("""{"type":"ready"}""")
-        assertEquals("a.txt · L1", posted.last().str("text"))
-        myFixture.editor.caretModel.moveToOffset(5)
-        assertEquals("a.txt · L2", posted.last().str("text"))
-        val count = posted.size
-        myFixture.editor.caretModel.moveToOffset(6) // same line, same chip
-        assertEquals(count, posted.size)
-    }
-
-    fun testSettingOffHidesTheChip() {
-        myFixture.configureByText("a.txt", "x")
-        bridge.handle("""{"type":"ready"}""")
-        assertEquals("a.txt · L1", posted.last().str("text"))
         settings.attachEditorContext = false
-        chat.refreshContext()
-        assertEquals("context", posted.last().str("type"))
-        assertEquals("", posted.last().str("text"))
+        bridge.handle("""{"type":"send","text":"hello"}""")
+        assertEquals(listOf("hello"), connections[0].userMessages())
     }
 
     // --- attachments ---

@@ -51,7 +51,7 @@ object Symbols {
     }
 }
 
-/** The text Claude and the chip get for an [EditorContext] whose path is already relative to the chat's folder. */
+/** The text Claude gets for an [EditorContext] whose path is already relative to the chat's folder. */
 object ContextNotes {
     /** The paragraph prepended to the user's message. Location only, never file contents. */
     fun note(c: EditorContext): String = buildString {
@@ -62,16 +62,8 @@ object ContextNotes {
         c.selection?.let { append(" Selection: ").append(lines(it)).append('.') }
     }
 
-    /** The chip above the input: `invoice.ts › calculateTotals · L142`, or `· L140–145` while lines are selected. */
-    fun chip(c: EditorContext): String {
-        val file = clean(c.path.substringAfterLast('/'))
-        val symbol = c.symbol?.let { " › ${clean(it.name)}" }.orEmpty()
-        val where = c.selection?.let { if (it.start == it.end) "L${it.start}" else "L${it.start}–${it.end}" } ?: "L${c.line}"
-        return "$file$symbol · $where"
-    }
-
     /**
-     * Makes [s] safe to put in a note or chip: every run of whitespace, control, format (bidi, zero-width) or
+     * Makes [s] safe to put in a note: every run of whitespace, control, format (bidi, zero-width) or
      * separator character (including NEL and the line and paragraph separators) becomes one space, the result is trimmed, backticks become apostrophes so they cannot close
      * a code span, and anything longer than [max] characters is cut to [max] - 1 characters plus "…".
      */

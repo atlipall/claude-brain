@@ -118,11 +118,11 @@ class EditorContextService(private val project: Project) : Disposable {
 
     /**
      * The cheap part of the context plus the symbol only if the cache holds it for the current caret, selection and text;
-     * never walks PSI, so it is safe on the EDT (the chip reads this). Null without a context editor or a name for the
+     * never walks PSI, so it is safe on the EDT (listeners and sends read this). Null without a context editor or a name for the
      * file in [cwd] ([ContextPaths.forChat]).
      */
     fun contextFor(cwd: String): EditorContext? {
-        val cheap = cheap(commit = false) ?: return null // the chip needs no commit (the lookup start commits)
+        val cheap = cheap(commit = false) ?: return null // no commit needed here (the lookup start commits)
         val path = pathFor(cheap, cwd) ?: return null
         return build(cheap, path, cached?.takeIf { it.key == cheap.key }?.found)
     }
@@ -205,7 +205,7 @@ class EditorContextService(private val project: Project) : Disposable {
             val store = found != null && !DumbService.isDumb(project) && currentKey() == cheap.key
             if (store) cached = Cached(cheap.key, found!!)
             waiters.forEach { w -> try { w(found) } catch (e: Exception) { if (e is ControlFlowException) throw e; logger<EditorContextService>().warn("A context lookup waiter failed", e) } }
-            if (store) listeners.forEach(::notify) // the chip learns the symbol
+            if (store) listeners.forEach(::notify) // listeners learn the symbol
         }
         val file = cheap.file
         val offset = cheap.offset
@@ -241,7 +241,6 @@ class EditorContextService(private val project: Project) : Disposable {
 
     private fun changed(editor: Editor?) {
         if (editor != null && !accepts(editor)) return // consoles, diffs and previews never change the context
-        if (listeners.isEmpty()) return
         schedule(Runnable {
             if (project.isDisposed) return@Runnable
             warm()

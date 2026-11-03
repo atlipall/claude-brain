@@ -203,6 +203,19 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         assertNotNull(capture()!!.symbol)
     }
 
+    fun testCaretPauseWarmsTheCacheEvenWithoutListeners() {
+        myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
+        val onEdt = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+        service.finder = { file, document, offset ->
+            onEdt += ApplicationManager.getApplication().isDispatchThread
+            SymbolFinder.find(file, document, offset)
+        }
+        myFixture.editor.caretModel.moveToOffset(myFixture.editor.caretModel.offset + 1) // a debounce round, no listeners
+        PlatformTestUtil.waitWithEventsDispatching("The cache never warmed", { service.contextFor(root)?.symbol != null }, 10)
+        assertEquals("inner", service.contextFor(root)!!.symbol!!.name)
+        assertFalse(onEdt.any { it })
+    }
+
     fun testAThrowingListenerDoesNotStopTheOthers() {
         myFixture.configureByText("a.txt", "one\ntwo\n")
         var second = 0
@@ -212,20 +225,20 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         assertTrue(second > 0)
     }
 
-    fun testSymbolsAreFoundOffTheEdtAndTheChipOnlyReadsTheCache() {
+    fun testSymbolsAreFoundOffTheEdtAndTheListenerOnlyReadsTheCache() {
         myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
         val onEdt = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
         service.finder = { file, document, offset ->
             onEdt += ApplicationManager.getApplication().isDispatchThread
             SymbolFinder.find(file, document, offset)
         }
-        val chips = mutableListOf<EditorContext?>()
-        service.addListener(testRootDisposable) { chips += service.contextFor(root) }
+        val seen = mutableListOf<EditorContext?>()
+        service.addListener(testRootDisposable) { seen += service.contextFor(root) }
         myFixture.editor.caretModel.moveToOffset(myFixture.editor.caretModel.offset + 1) // a debounce round (run inline here)
         assertTrue(onEdt.isEmpty() || onEdt.none { it }) // nothing ran on the EDT while the round returned
-        assertNull(chips.first()!!.symbol) // the chip got the location at once, without waiting for the lookup
-        PlatformTestUtil.waitWithEventsDispatching("The symbol never arrived", { chips.last()?.symbol != null }, 10)
-        assertEquals("inner", chips.last()!!.symbol!!.name)
+        assertNull(seen.first()!!.symbol) // the listener got the location at once, without waiting for the lookup
+        PlatformTestUtil.waitWithEventsDispatching("The symbol never arrived", { seen.last()?.symbol != null }, 10)
+        assertEquals("inner", seen.last()!!.symbol!!.name)
         assertTrue(onEdt.isNotEmpty())
         assertFalse(onEdt.any { it })
         val calls = onEdt.size
@@ -234,8 +247,8 @@ class EditorContextServiceTest : BasePlatformTestCase() {
     }
 
     fun testAFailingLookupCompletesWithTheLocationOnly() {
+        service.finder = { _, _, _ -> throw IllegalStateException("boom") } // before the file opens: caret events warm the cache
         myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
-        service.finder = { _, _, _ -> throw IllegalStateException("boom") }
         val context = capture()!!
         assertEquals(4, context.line)
         assertNull(context.symbol)

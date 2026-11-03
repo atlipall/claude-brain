@@ -40,7 +40,7 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
         chat.onTitleChanged = { content.displayName = chat.title } // Chat.send runs on the EDT
         val follower = CheckoutFollower.getInstance(project)
         chat.onCwdChanged = {
-            ApplicationManager.getApplication().invokeLater({ follower.refresh(); chat.refreshContext() }, project.disposed)
+            ApplicationManager.getApplication().invokeLater({ follower.refresh() }, project.disposed)
         }
         toolWindow.contentManager.addContent(content)
         toolWindow.contentManager.setSelectedContent(content, true)
