@@ -29,7 +29,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class ChatBridgeTest : BasePlatformTestCase() {
-    private val posted = mutableListOf<JsonObject>()
+    /** What the bridge posted; appended off the EDT too (session events, the background revert mark). */
+    private val posted = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
     private val connections = mutableListOf<FakeConnection>()
     private var newChatRequests = 0
     private lateinit var chat: Chat

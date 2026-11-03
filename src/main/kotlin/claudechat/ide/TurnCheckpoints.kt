@@ -9,6 +9,7 @@ import com.intellij.history.Label
 import com.intellij.history.LocalHistory
 import com.intellij.history.LocalHistoryException
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -46,7 +47,12 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
             // Writes the previous turn made behind the IDE's back belong before this label, not after it.
             VfsUtil.markDirtyAndRefresh(false, true, true, dir)
             val message = shorten(item.text)
-            val label = LocalHistory.getInstance().putSystemLabel(project, "Tether: before “$message”")
+            // Local History is shared by every open project. A label put while a command or refresh is open anywhere
+            // joins that change set, and revert never finds a label whose change set changes nothing in its folder.
+            // In a write action on the EDT none is half-open, so the label gets a change set of its own.
+            val label = WriteAction.computeAndWait<Label, RuntimeException> {
+                LocalHistory.getInstance().putSystemLabel(project, "Tether: before “$message”")
+            }
             val forChat = checkpoints.computeIfAbsent(chat.id) {
                 java.util.Collections.synchronizedMap(object : LinkedHashMap<String, Checkpoint>() {
                     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Checkpoint>) = size > MAX_PER_CHAT

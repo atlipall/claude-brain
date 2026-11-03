@@ -42,14 +42,19 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         }
     }
 
-    private fun write(name: String, text: String) = WriteAction.run<Exception> {
-        val file = root.findChild(name) ?: root.createChildData(this, name)
+    private fun write(name: String, text: String, dir: com.intellij.openapi.vfs.VirtualFile = root) = WriteAction.run<Exception> {
+        val file = dir.findChild(name) ?: dir.createChildData(this, name)
         VfsUtil.saveText(file, text)
     }
 
     /** Sends [text] and ends its turn, once its checkpoint is in (it is put in the background). */
     private fun turn(chat: claudechat.session.Chat, text: String): ChatItem.UserText {
         chat.send(text)
+        return endTurn(chat)
+    }
+
+    /** Ends the turn of the message just sent, once its checkpoint is in. */
+    private fun endTurn(chat: claudechat.session.Chat): ChatItem.UserText {
         PlatformTestUtil.waitWithEventsDispatching("The message was not marked", { sent(chat).revertable }, 10)
         conn.emit(Fx.result())
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
@@ -81,6 +86,28 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         assertEquals("before", read("a.txt"))
         assertNull("files created since are removed", read("new.txt"))
         assertTrue(TurnCheckpoints.getInstance(project).consumeNote(chat.id)!!.contains("reverted"))
+    }
+
+    /**
+     * A label put while a change set is open (a command or VFS refresh, in any open project) joins it, and Local
+     * History's revert skips change sets that change nothing in the reverted folder, label and all.
+     */
+    fun testAMessageSentWhileAnotherFolderChangesCanStillBeRevertedTo() {
+        write("d.txt", "before")
+        val elsewhere = VfsUtil.findFile(Files.createTempDirectory("elsewhere"), true)!!
+        PsiTestUtil.addContentRoot(module, elsewhere)
+        val chat = chats.open(ChatSpec.inProject(root.path))
+        com.intellij.openapi.command.CommandProcessor.getInstance().executeCommand(project, {
+            write("x.txt", "typed meanwhile", elsewhere)
+            chat.send("change it")
+            // Time for a label put straight from the pooled thread to land inside this command's change set.
+            Thread.sleep(500)
+        }, "Typing", null)
+        val item = endTurn(chat)
+        write("d.txt", "after")
+        TestDialogManager.setTestDialog(TestDialog.YES)
+        chat.revertTo(item.id)
+        assertEquals("before", read("d.txt"))
     }
 
     fun testARunningTurnIsNotReverted() {
