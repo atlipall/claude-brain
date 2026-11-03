@@ -77,14 +77,14 @@ object Fx {
     fun blockStop(msg: String, index: Int) =
         """{"type":"stream_event","event":{"type":"content_block_stop","index":$index},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"u4","api_message_id":"$msg"}"""
 
-    fun assistantText(msg: String, text: String) =
-        """{"type":"assistant","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[{"type":"text","text":${q(text)}}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"u5"}"""
+    fun assistantText(msg: String, text: String, uuid: String = "u5") =
+        """{"type":"assistant","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[{"type":"text","text":${q(text)}}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"$uuid"}"""
 
-    fun assistantThinking(msg: String) =
-        """{"type":"assistant","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"","signature":"sig"}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"u5"}"""
+    fun assistantThinking(msg: String, uuid: String = "u5") =
+        """{"type":"assistant","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"","signature":"sig"}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"$uuid"}"""
 
-    fun toolUse(msg: String, toolUseId: String, name: String, inputJson: String) =
-        """{"type":"assistant","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[{"type":"tool_use","id":"$toolUseId","name":"$name","input":$inputJson,"caller":{"type":"direct"}}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"u6"}"""
+    fun toolUse(msg: String, toolUseId: String, name: String, inputJson: String, uuid: String = "u6") =
+        """{"type":"assistant","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[{"type":"tool_use","id":"$toolUseId","name":"$name","input":$inputJson,"caller":{"type":"direct"}}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"$uuid"}"""
 
     /** A CLI-forwarded MCP message for in-process server [server] ([messageJson] is the JSON-RPC message). */
     fun mcpMessage(requestId: String, server: String, messageJson: String) =

@@ -436,6 +436,7 @@ class ChatSession(
                 event.parentId != null -> emit(ChatItem.AssistantText(nextId("text"), event.text, false, event.parentId))
                 event.messageId !in streamedMessages -> emit(ChatItem.AssistantText(nextId("text"), event.text, false))
             }
+            is CliEvent.AssistantMessage -> {}
             is CliEvent.ToolUse -> {
                 if (event.parentId != null && event.name == HANDBACK) return
                 val base = toolCalls[event.toolUseId]

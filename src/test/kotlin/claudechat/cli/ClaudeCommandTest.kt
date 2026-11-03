@@ -22,6 +22,10 @@ class ClaudeCommandTest {
         base + listOf("--permission-mode", "plan", "--worktree", "wt-1"),
         ClaudeCommand.build("/bin/claude", SessionLaunch(null, PermissionMode.PLAN, "/p", "wt-1"), emptyList()))
 
+    @Test fun rewindResumesAtAMessageInAFork() = assertEquals(
+        base + listOf("--resume", "abc", "--resume-session-at", "u-9", "--fork-session"),
+        ClaudeCommand.build("/bin/claude", SessionLaunch("abc", null, "/p", resumeAt = "u-9", fork = true), emptyList()))
+
     @Test fun cwdIsNotAnArgument() =
         assertEquals(base, ClaudeCommand.build("/bin/claude", SessionLaunch(null, null, "/somewhere/else"), emptyList()))
 

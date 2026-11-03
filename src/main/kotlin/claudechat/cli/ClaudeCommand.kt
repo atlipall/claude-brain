@@ -13,13 +13,17 @@ enum class PermissionMode(val cli: String) {
 
 /**
  * What a new CLI process should start as. [cwd] is the process directory; [worktree] asks claude to
- * create `<cwd>/.claude/worktrees/<name>` on branch `worktree-<name>` and run there.
+ * create `<cwd>/.claude/worktrees/<name>` on branch `worktree-<name>` and run there. [resumeAt] resumes [resumeId]
+ * only up to and including that assistant message; [fork] continues under a new session id, leaving [resumeId]'s
+ * transcript as it was.
  */
 data class SessionLaunch(
     val resumeId: String?,
     val permissionMode: PermissionMode?,
     val cwd: String,
     val worktree: String? = null,
+    val resumeAt: String? = null,
+    val fork: Boolean = false,
 )
 
 object ClaudeCommand {
@@ -33,6 +37,8 @@ object ClaudeCommand {
         launch.permissionMode?.let { add("--permission-mode"); add(it.cli) }
         launch.worktree?.let { add("--worktree"); add(it) }
         launch.resumeId?.let { add("--resume"); add(it) }
+        launch.resumeAt?.let { add("--resume-session-at"); add(it) }
+        if (launch.fork) add("--fork-session")
         addAll(extraArgs)
     }
 }

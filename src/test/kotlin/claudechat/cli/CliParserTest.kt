@@ -11,6 +11,9 @@ import org.junit.Test
 class CliParserTest {
     private fun one(line: String): CliEvent = CliParser.parse(line).single()
 
+    /** The events of an assistant line after its [CliEvent.AssistantMessage]. */
+    private fun blocks(line: String): List<CliEvent> = CliParser.parse(line).filterNot { it is CliEvent.AssistantMessage }
+
     @Test fun systemInit() {
         assertEquals(CliEvent.SystemInit("sess-1", "acceptEdits", "/proj"), one(Fx.init(mode = "acceptEdits")))
         assertEquals(
@@ -45,7 +48,7 @@ class CliParserTest {
         assertEquals("t1", (one(Fx.subagentToolResult("t1", "t2", "out")) as CliEvent.ToolResult).parentId)
         assertTrue(CliParser.parse(Fx.subagentPrompt("t1", "Do it")).isEmpty())
         assertEquals(CliEvent.Ignored("stream_event/subagent"), one(Fx.subagentTextDelta("t1", "sm1", "x")))
-        assertNull((one(Fx.toolUse("m1", "t1", "Agent", "{}")) as CliEvent.ToolUse).parentId)
+        assertNull((blocks(Fx.toolUse("m1", "t1", "Agent", "{}")).single() as CliEvent.ToolUse).parentId)
     }
 
     @Test fun taskEventsAreParsed() {
@@ -70,16 +73,29 @@ class CliParserTest {
         assertEquals(CliEvent.Ignored("stream_event/content_block_delta/thinking_delta"), one(Fx.thinkingDelta("m1", 0, "hmm")))
     }
 
+    @Test fun aMainThreadAssistantLineReportsItsUuidFirst() {
+        assertEquals(
+            listOf(CliEvent.AssistantMessage("a-1"), CliEvent.AssistantText("m1", "DONE")),
+            CliParser.parse(Fx.assistantText("m1", "DONE", uuid = "a-1")))
+        // A line with only thinking shows nothing, but it is still a message a rewind can resume at.
+        assertEquals(listOf(CliEvent.AssistantMessage("a-2")), CliParser.parse(Fx.assistantThinking("m1", uuid = "a-2")))
+    }
+
+    @Test fun aSubagentsAssistantLineReportsNoUuid() {
+        // Subagent messages live in their own transcript; the main conversation can't be resumed at them.
+        assertTrue(CliParser.parse(Fx.subagentText("toolu_1", "m2", "hi")).none { it is CliEvent.AssistantMessage })
+    }
+
     @Test fun assistantTextAndToolUse() {
-        assertEquals(CliEvent.AssistantText("m1", "DONE"), one(Fx.assistantText("m1", "DONE")))
-        val tool = one(Fx.toolUse("m1", "t1", "Write", """{"file_path":"/p/a.txt","content":"hi"}""")) as CliEvent.ToolUse
+        assertEquals(CliEvent.AssistantText("m1", "DONE"), blocks(Fx.assistantText("m1", "DONE")).single())
+        val tool = blocks(Fx.toolUse("m1", "t1", "Write", """{"file_path":"/p/a.txt","content":"hi"}""")).single() as CliEvent.ToolUse
         assertEquals("t1", tool.toolUseId)
         assertEquals("Write", tool.name)
         assertEquals("/p/a.txt", tool.input.str("file_path"))
     }
 
     @Test fun thinkingBlocksProduceNoEvents() {
-        assertTrue(CliParser.parse(Fx.assistantThinking("m1")).isEmpty())
+        assertTrue(blocks(Fx.assistantThinking("m1")).isEmpty())
     }
 
     @Test fun permissionRequest() {
