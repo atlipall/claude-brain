@@ -83,7 +83,7 @@ class ChatBridge(
         put("reqId", reqId)
         putJsonObject("paths") {
             for (candidate in candidates) {
-                val resolved = linker.resolve(candidate) ?: continue
+                val resolved = linker.resolve(candidate, chat.cwd) ?: continue
                 put(candidate, buildJsonObject { put("target", resolved.target); put("line", resolved.line) })
             }
         }

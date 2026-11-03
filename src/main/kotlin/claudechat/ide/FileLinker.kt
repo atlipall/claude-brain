@@ -1,5 +1,6 @@
 package claudechat.ide
 
+import claudechat.git.canonicalPath
 import claudechat.session.FileDiff
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
@@ -21,16 +22,20 @@ data class ResolvedPath(val target: String, val line: Int?)
 class FileLinker(private val project: Project) {
     private val pattern = Regex("""^(.+?)(?:(?::|#L)(\d+)(?:[:-]\d+)?)?$""")
 
-    fun resolve(candidate: String): ResolvedPath? {
+    /**
+     * Resolves a path Claude mentioned. Relative paths are tried against [cwd] (the chat's folder) first, then
+     * the project content roots. A file counts if it is project content or lies under [cwd].
+     */
+    fun resolve(candidate: String, cwd: String? = null): ResolvedPath? {
         val match = pattern.matchEntire(candidate.trim()) ?: return null
         val raw = match.groupValues[1]
         val line = match.groupValues[2].toIntOrNull()
-        val file = findFile(raw) ?: return null
+        val file = findFile(raw, cwd) ?: return null
         return ResolvedPath(file.url, line)
     }
 
-    private fun findFile(raw: String): VirtualFile? {
-        val cached = ReadAction.compute<VirtualFile?, RuntimeException> { lookup(raw) }
+    private fun findFile(raw: String, cwd: String?): VirtualFile? {
+        val cached = ReadAction.compute<VirtualFile?, RuntimeException> { lookup(raw, cwd) }
         if (cached != null) return cached
         // Claude may have just created the file; the VFS may not know yet. Refresh outside the read action.
         val relative = raw.removePrefix("./")
@@ -39,26 +44,51 @@ class FileLinker(private val project: Project) {
             ProjectRootManager.getInstance(project).contentRoots.filter { it.fileSystem === local }
         }
         val paths = buildList {
-            if (raw.startsWith("/")) add(raw)
-            roots.forEach { add("${it.path}/$relative") }
+            if (raw.startsWith("/")) {
+                add(raw)
+            } else {
+                if (cwd != null) add("${cwd.trimEnd('/')}/$relative")
+                roots.forEach { add("${it.path}/$relative") }
+            }
         }
         val refreshed = paths.mapNotNull { local.refreshAndFindFileByPath(it) }
-        return ReadAction.compute<VirtualFile?, RuntimeException> {
-            val index = ProjectFileIndex.getInstance(project)
-            refreshed.firstOrNull { !it.isDirectory && index.isInContent(it) }
+        return ReadAction.compute<VirtualFile?, RuntimeException> { refreshed.firstOrNull { accepts(it, cwd) } }
+    }
+
+    private fun lookup(raw: String, cwd: String?): VirtualFile? {
+        val relative = raw.removePrefix("./")
+        val candidates = buildList {
+            if (raw.startsWith("/")) {
+                LocalFileSystem.getInstance().findFileByPath(raw)?.let(::add)
+            } else {
+                folder(cwd)?.findFileByRelativePath(relative)?.let(::add)
+                ProjectRootManager.getInstance(project).contentRoots.forEach { root ->
+                    root.findFileByRelativePath(relative)?.let(::add)
+                }
+            }
+        }
+        return candidates.firstOrNull { accepts(it, cwd) }
+    }
+
+    /** The chat folder: on disk, or inside a content root that lives on another file system (tests use an in-memory one). */
+    private fun folder(cwd: String?): VirtualFile? {
+        if (cwd == null) return null
+        LocalFileSystem.getInstance().findFileByPath(cwd)?.let { return it }
+        val dir = cwd.trimEnd('/')
+        return ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { root ->
+            when {
+                dir == root.path -> root
+                dir.startsWith(root.path + "/") -> root.findFileByRelativePath(dir.removePrefix(root.path + "/"))
+                else -> null
+            }
         }
     }
 
-    private fun lookup(raw: String): VirtualFile? {
-        val index = ProjectFileIndex.getInstance(project)
-        val candidates = buildList {
-            if (raw.startsWith("/")) LocalFileSystem.getInstance().findFileByPath(raw)?.let(::add)
-            ProjectRootManager.getInstance(project).contentRoots.forEach { root ->
-                root.findFileByRelativePath(raw.removePrefix("./"))?.let(::add)
-            }
-        }
-        return candidates.firstOrNull { !it.isDirectory && index.isInContent(it) }
-    }
+    private fun accepts(file: VirtualFile, cwd: String?): Boolean =
+        !file.isDirectory && (ProjectFileIndex.getInstance(project).isInContent(file) || isUnder(file.path, cwd))
+
+    private fun isUnder(path: String, dir: String?): Boolean =
+        dir != null && canonicalPath(path).startsWith(canonicalPath(dir).trimEnd('/') + "/")
 
     /** [target] is a VFS URL or an absolute local path; [line] is 1-based. */
     fun open(target: String, line: Int?) {

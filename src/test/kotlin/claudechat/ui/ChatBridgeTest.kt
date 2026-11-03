@@ -83,4 +83,15 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertTrue(posted.isEmpty())
         assertEquals(1, connections.size)
     }
+
+    fun testResolvePathsUsesTheChatsFolder() {
+        val inWorktree = myFixture.addFileToProject(".claude/worktrees/wt1/lib/z.txt", "a").virtualFile
+        val wtChat = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        val wtPosted = mutableListOf<JsonObject>()
+        val wtBridge = ChatBridge(project, wtChat, {}) { wtPosted += parseJsonObject(it)!! }
+        wtBridge.handle("""{"type":"resolvePaths","reqId":1,"candidates":["lib/z.txt"]}""")
+        assertEquals(inWorktree.url, wtPosted.single().obj("paths")!!.obj("lib/z.txt")!!.str("target"))
+        bridge.handle("""{"type":"resolvePaths","reqId":2,"candidates":["lib/z.txt"]}""")
+        assertNull(posted.single().obj("paths")!!["lib/z.txt"])
+    }
 }
