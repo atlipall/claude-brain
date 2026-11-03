@@ -39,6 +39,30 @@ object Fx {
     fun backgroundTasks(vararg descriptions: String) =
         """{"type":"system","subtype":"background_tasks_changed","tasks":[${descriptions.mapIndexed { i, d -> """{"task_id":"a$i","run_id":"r$i","task_type":"local_agent","subagent_type":"general-purpose","description":${q(d)}}""" }.joinToString(",")}],"uuid":"u13","session_id":"sess-1"}"""
 
+    fun subagentToolUse(parent: String, toolUseId: String, name: String, inputJson: String) =
+        """{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"sm-$toolUseId","type":"message","role":"assistant","content":[{"type":"tool_use","id":"$toolUseId","name":"$name","input":$inputJson}],"stop_reason":null},"parent_tool_use_id":"$parent","session_id":"sess-1","uuid":"u20"}"""
+
+    fun subagentText(parent: String, msg: String, text: String) =
+        """{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"$msg","type":"message","role":"assistant","content":[{"type":"text","text":${q(text)}}],"stop_reason":null},"parent_tool_use_id":"$parent","session_id":"sess-1","uuid":"u21"}"""
+
+    fun subagentPrompt(parent: String, text: String) =
+        """{"type":"user","message":{"role":"user","content":[{"type":"text","text":${q(text)}}]},"parent_tool_use_id":"$parent","session_id":"sess-1","uuid":"u22"}"""
+
+    fun subagentToolResult(parent: String, toolUseId: String, content: String) =
+        """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"$toolUseId","type":"tool_result","content":${q(content)}}]},"parent_tool_use_id":"$parent","session_id":"sess-1","uuid":"u23"}"""
+
+    fun subagentTextDelta(parent: String, msg: String, text: String) =
+        """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":${q(text)}}},"session_id":"sess-1","parent_tool_use_id":"$parent","uuid":"u24","api_message_id":"$msg"}"""
+
+    fun taskStarted(toolUseId: String, background: Boolean = false, prompt: String = "Do it") =
+        """{"type":"system","subtype":"task_started","task_id":"a1","run_id":"r1","tool_use_id":"$toolUseId","description":"Do it","subagent_type":"general-purpose","is_backgrounded":$background,"spawn_depth":1,"task_type":"local_agent","prompt":${q(prompt)},"uuid":"u25","session_id":"sess-1"}"""
+
+    fun taskProgress(toolUseId: String, toolUses: Int, durationMs: Long, lastTool: String) =
+        """{"type":"system","subtype":"task_progress","task_id":"a1","run_id":"r1","tool_use_id":"$toolUseId","description":"Do it","subagent_type":"general-purpose","usage":{"total_tokens":100,"tool_uses":$toolUses,"duration_ms":$durationMs},"last_tool_name":"$lastTool","uuid":"u26","session_id":"sess-1"}"""
+
+    fun taskNotification(toolUseId: String, status: String = "completed", report: String? = "DONE") =
+        """{"type":"system","subtype":"task_notification","task_id":"a1","run_id":"r1","tool_use_id":"$toolUseId","status":"$status","output_file":"/tmp/x.output","summary":"s","usage":{"total_tokens":120,"tool_uses":3,"duration_ms":4063},"handback":"send"${if (report != null) ""","handback_report":{"text":${q(report)}}""" else ""},"uuid":"u27","session_id":"sess-1"}"""
+
     fun textDelta(msg: String, index: Int, text: String) =
         """{"type":"stream_event","event":{"type":"content_block_delta","index":$index,"delta":{"type":"text_delta","text":${q(text)}}},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"u3","api_message_id":"$msg"}"""
 

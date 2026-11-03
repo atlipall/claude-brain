@@ -345,6 +345,7 @@ class ChatSession(
             is CliEvent.UserText -> Unit
             is CliEvent.Result -> onResult(event)
             is CliEvent.PromptSuggestion -> onSuggestion(event.text)
+            is CliEvent.TaskStarted, is CliEvent.TaskProgress, is CliEvent.TaskDone -> Unit
             is CliEvent.Ignored -> Unit
             is CliEvent.Malformed -> log("Malformed line from claude: ${event.line.take(200)}")
         }

@@ -13,13 +13,19 @@ sealed interface CliEvent {
     data class TextDelta(val messageId: String, val index: Int, val text: String) : CliEvent
     /** A top-level assistant message began streaming (a subagent's messages are not reported). */
     data class MessageStart(val messageId: String) : CliEvent
+    /** A subagent began; [toolUseId] is the Agent call that started it. */
+    data class TaskStarted(val toolUseId: String, val subagentType: String?, val background: Boolean, val prompt: String?) : CliEvent
+    data class TaskProgress(val toolUseId: String, val toolUses: Int?, val durationMs: Long?, val lastTool: String?) : CliEvent
+    /** A subagent ended; [status] is "completed" on success. [report] is what it handed back. */
+    data class TaskDone(val toolUseId: String, val status: String, val toolUses: Int?, val durationMs: Long?, val report: String?) : CliEvent
     /** How many background tasks (e.g. agents started with run_in_background) the CLI is running now. */
     data class BackgroundTasks(val count: Int) : CliEvent
     /** A thinking content block began (its text is never shown). */
     data class ThinkingStart(val messageId: String, val index: Int) : CliEvent
     data class BlockStop(val messageId: String, val index: Int) : CliEvent
-    data class AssistantText(val messageId: String, val text: String) : CliEvent
-    data class ToolUse(val toolUseId: String, val name: String, val input: JsonObject) : CliEvent
+    /** [parentId]: the Agent call whose subagent sent this; null for the main conversation (also below). */
+    data class AssistantText(val messageId: String, val text: String, val parentId: String? = null) : CliEvent
+    data class ToolUse(val toolUseId: String, val name: String, val input: JsonObject, val parentId: String? = null) : CliEvent
     data class ToolResult(
         val toolUseId: String,
         val isError: Boolean,
@@ -29,6 +35,7 @@ sealed interface CliEvent {
         val hasOriginalFile: Boolean,
         /** Image blocks inside the result's content (e.g. Read on a PNG), unvalidated. */
         val images: List<ImageBlock> = emptyList(),
+        val parentId: String? = null,
     ) : CliEvent
     data class UserText(val text: String) : CliEvent
     data class PermissionRequest(val requestId: String, val toolName: String, val toolUseId: String?, val input: JsonObject) : CliEvent
@@ -58,6 +65,16 @@ object CliParser {
                 when (obj.str("subtype")) {
                     "init" -> listOf(CliEvent.SystemInit(obj.str("session_id") ?: "", obj.str("permissionMode"), obj.str("cwd")))
                     "background_tasks_changed" -> listOf(CliEvent.BackgroundTasks(obj.arr("tasks")?.size ?: 0))
+                    "task_started" -> listOf(CliEvent.TaskStarted(
+                        obj.str("tool_use_id") ?: "", obj.str("subagent_type"), obj.bool("is_backgrounded") == true, obj.str("prompt"),
+                    ))
+                    "task_progress" -> listOf(CliEvent.TaskProgress(
+                        obj.str("tool_use_id") ?: "", toolUsesOf(obj), obj.obj("usage")?.long("duration_ms"), obj.str("last_tool_name"),
+                    ))
+                    "task_notification" -> listOf(CliEvent.TaskDone(
+                        obj.str("tool_use_id") ?: "", obj.str("status") ?: "", toolUsesOf(obj), obj.obj("usage")?.long("duration_ms"),
+                        obj.obj("handback_report")?.str("text"),
+                    ))
                     else -> listOf(CliEvent.Ignored("system/${obj.str("subtype")}"))
                 }
             "stream_event" -> listOf(streamEvent(obj))
@@ -71,7 +88,10 @@ object CliParser {
         }
     }
 
+    private fun toolUsesOf(task: JsonObject): Int? = task.obj("usage")?.long("tool_uses")?.toInt()
+
     private fun streamEvent(obj: JsonObject): CliEvent {
+        if (obj.str("parent_tool_use_id") != null) return CliEvent.Ignored("stream_event/subagent")
         val messageId = obj.str("api_message_id") ?: ""
         val event = obj.obj("event") ?: return CliEvent.Ignored("stream_event/?")
         val index = event.long("index")?.toInt() ?: 0
@@ -85,8 +105,7 @@ object CliParser {
                 if (event.obj("content_block")?.str("type") == "thinking") CliEvent.ThinkingStart(messageId, index)
                 else CliEvent.Ignored("stream_event/content_block_start")
             "content_block_stop" -> CliEvent.BlockStop(messageId, index)
-            "message_start" ->
-                if (obj.str("parent_tool_use_id") == null) CliEvent.MessageStart(messageId) else CliEvent.Ignored("stream_event/message_start")
+            "message_start" -> CliEvent.MessageStart(messageId)
             else -> CliEvent.Ignored("stream_event/$type")
         }
     }
@@ -94,11 +113,12 @@ object CliParser {
     private fun assistant(obj: JsonObject): List<CliEvent> {
         val message = obj.obj("message") ?: return emptyList()
         val messageId = message.str("id") ?: ""
+        val parent = obj.str("parent_tool_use_id")
         return message.arr("content").orEmpty().mapNotNull { block ->
             val b = block as? JsonObject ?: return@mapNotNull null
             when (b.str("type")) {
-                "text" -> CliEvent.AssistantText(messageId, b.str("text") ?: "")
-                "tool_use" -> CliEvent.ToolUse(b.str("id") ?: "", b.str("name") ?: "", b.obj("input") ?: EMPTY)
+                "text" -> CliEvent.AssistantText(messageId, b.str("text") ?: "", parent)
+                "tool_use" -> CliEvent.ToolUse(b.str("id") ?: "", b.str("name") ?: "", b.obj("input") ?: EMPTY, parent)
                 else -> null
             }
         }
@@ -106,7 +126,9 @@ object CliParser {
 
     private fun user(obj: JsonObject): List<CliEvent> {
         val content = obj.obj("message")?.get("content") ?: return emptyList()
-        if (content is JsonPrimitive) return listOf(CliEvent.UserText(content.content))
+        // A subagent's user text is its prompt, which its task_started event already carries.
+        val parent = obj.str("parent_tool_use_id")
+        if (content is JsonPrimitive) return if (parent == null) listOf(CliEvent.UserText(content.content)) else emptyList()
         val blocks = (content as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val toolUseResult = obj["tool_use_result"] as? JsonObject
         val singleResult = blocks.count { it.str("type") == "tool_result" } == 1
@@ -123,9 +145,10 @@ object CliParser {
                         originalFile = if (original == null || original is JsonNull) null else (original as? JsonPrimitive)?.content,
                         hasOriginalFile = extra?.containsKey("originalFile") == true,
                         images = imagesOf(b["content"]),
+                        parentId = parent,
                     )
                 }
-                "text" -> CliEvent.UserText(b.str("text") ?: "")
+                "text" -> if (parent == null) CliEvent.UserText(b.str("text") ?: "") else null
                 else -> null
             }
         }
