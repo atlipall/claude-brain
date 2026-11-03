@@ -1,5 +1,6 @@
 package claudechat.session
 
+import claudechat.cli.CliConnection
 import claudechat.cli.CliMessages
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
@@ -256,5 +257,24 @@ class ChatSessionTest {
     @Test fun resumeIdAndModeArePassedToFirstLaunch() {
         session(resumeId = "abc", mode = PermissionMode.AUTO)
         assertEquals(SessionLaunch("abc", PermissionMode.AUTO), launches.single())
+    }
+
+    private class ThrowingSendConnection : CliConnection {
+        var stopped = false
+        var onExit: ((Int, String) -> Unit)? = null
+        override fun start(onLine: (String) -> Unit, onExit: (Int, String) -> Unit) { this.onExit = onExit }
+        override fun send(line: String) { throw IllegalStateException("pipe closed") }
+        override fun stop() { stopped = true }
+    }
+
+    @Test fun startFailureAfterConnectStopsConnectionAndIgnoresLateExit() {
+        val bad = ThrowingSendConnection()
+        val s = ChatSession(connect = { bad }, listener = listener)
+        s.start()
+        assertEquals(SessionState.DEAD, s.state)
+        assertEquals(1, listener.items.filterIsInstance<ChatItem.Notice>().size)
+        assertTrue(bad.stopped)
+        bad.onExit!!(1, "late")
+        assertEquals(1, listener.items.filterIsInstance<ChatItem.Notice>().size)
     }
 }

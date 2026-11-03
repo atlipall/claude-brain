@@ -58,8 +58,10 @@ class ChatSession(
     fun start() {
         synchronized(lock) {
             val gen = ++generation
+            var created: CliConnection? = null
             try {
                 val conn = connect(SessionLaunch(sessionId, mode))
+                created = conn
                 connection = conn
                 conn.start(
                     onLine = { line -> synchronized(lock) { if (gen == generation) handleLine(line) } },
@@ -67,6 +69,8 @@ class ChatSession(
                 )
                 conn.send(CliMessages.initialize(nextId("init")))
             } catch (e: Exception) {
+                generation++
+                created?.let { runCatching { it.stop() } }
                 connection = null
                 emit(ChatItem.Notice(nextId("notice"), e.message ?: e.toString(), isError = true))
                 setState(SessionState.DEAD)
