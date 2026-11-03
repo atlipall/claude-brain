@@ -78,7 +78,12 @@
 
   function linkify(root) {
     const codes = [...root.querySelectorAll('code')].filter((c) => !c.closest('pre') && PATH_RE.test(c.textContent.trim()));
-    if (!codes.length) return;
+    // Markdown links whose target is not a web URL may point at project files.
+    const anchors = [...root.querySelectorAll('a[href]')]
+      .filter((a) => !trusted.has(a) && !/^(?:https?:|mailto:)/i.test((a.getAttribute('href') || '').trim()))
+      .map((a) => ({ a, key: (a.getAttribute('href') || '').trim().replace(/^\.\//, '') }))
+      .filter((x) => x.key);
+    if (!codes.length && !anchors.length) return;
     const reqId = ++reqSeq;
     pendingResolve.set(reqId, (paths) => {
       for (const c of codes) {
@@ -88,8 +93,16 @@
         c.replaceWith(a);
         a.appendChild(c);
       }
+      for (const { a: old, key } of anchors) {
+        const r = paths[key];
+        if (!r || !old.isConnected) continue;
+        const a = h('a', { class: 'file', href: '#', 'data-target': r.target, 'data-line': r.line });
+        while (old.firstChild) a.appendChild(old.firstChild);
+        old.replaceWith(a);
+      }
     });
-    send({ type: 'resolvePaths', reqId, candidates: [...new Set(codes.map((c) => c.textContent.trim()))] });
+    const candidates = [...codes.map((c) => c.textContent.trim()), ...anchors.map((x) => x.key)];
+    send({ type: 'resolvePaths', reqId, candidates: [...new Set(candidates)] });
   }
 
   function summary(t) {
