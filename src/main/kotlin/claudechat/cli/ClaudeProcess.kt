@@ -3,7 +3,9 @@ package claudechat.cli
 import java.io.BufferedWriter
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /** Runs the claude CLI and exchanges NDJSON over its stdin/stdout. */
@@ -13,14 +15,21 @@ class ClaudeProcess(
     private val env: Map<String, String>,
 ) : CliConnection {
     private var process: Process? = null
-    private var writer: BufferedWriter? = null
+
+    /** Lines waiting for the stdin writer thread; null until start() and after the writer exits. */
+    @Volatile private var outbox: LinkedBlockingQueue<Any>? = null
+    private val stopped = AtomicBoolean(false)
 
     override fun start(onLine: (String) -> Unit, onExit: (exitCode: Int, stderrTail: String) -> Unit) {
         val builder = ProcessBuilder(command).directory(workDir)
         builder.environment().putAll(env)
         val p = builder.start()
         process = p
-        writer = p.outputStream.bufferedWriter(Charsets.UTF_8)
+
+        val queue = LinkedBlockingQueue<Any>()
+        val stdin = p.outputStream.bufferedWriter(Charsets.UTF_8)
+        thread(isDaemon = true, name = "claude-stdin") { writeLoop(stdin, queue) }
+        outbox = queue
 
         val tail = ArrayDeque<String>()
         val stderrThread = thread(isDaemon = true, name = "claude-stderr") {
@@ -43,27 +52,41 @@ class ClaudeProcess(
         }
     }
 
-    @Synchronized
-    override fun send(line: String) {
-        val w = writer ?: return
+    /** Sole writer to stdin. Lines are written in queue order; CLOSE ends the loop. */
+    private fun writeLoop(w: BufferedWriter, queue: LinkedBlockingQueue<Any>) {
         try {
-            w.write(line)
-            w.write("\n")
-            w.flush()
+            while (true) {
+                val item = queue.take()
+                if (item === CLOSE) break
+                w.write(item as String)
+                w.write("\n")
+                w.flush()
+            }
         } catch (_: IOException) {
             // process is gone; the exit callback reports it
+        } finally {
+            outbox = null
+            runCatching { w.close() }
         }
     }
 
+    /** Never blocks the caller: the line is queued for the stdin writer thread. */
+    override fun send(line: String) {
+        if (stopped.get()) return
+        outbox?.offer(line)
+    }
+
     override fun stop() {
-        synchronized(this) {
-            runCatching { writer?.close() }
-            writer = null
-        }
+        if (!stopped.compareAndSet(false, true)) return
+        outbox?.offer(CLOSE)
         val p = process ?: return
         p.destroy()
         thread(isDaemon = true, name = "claude-reaper") {
             if (!p.waitFor(3, TimeUnit.SECONDS)) p.destroyForcibly()
         }
+    }
+
+    private companion object {
+        val CLOSE = Any()
     }
 }

@@ -43,4 +43,32 @@ class ClaudeProcessTest {
         assertTrue(exited.await(5, TimeUnit.SECONDS))
         p.send("x")
     }
+
+    @Test fun sendPreservesOrderAndNeverBlocks() {
+        val lines = CopyOnWriteArrayList<String>()
+        val all = CountDownLatch(1000)
+        val p = ClaudeProcess(listOf("/bin/sh", "-c", "while IFS= read -r l; do echo \"\$l\"; done"), tmp, emptyMap())
+        try {
+            p.start(onLine = { lines += it; all.countDown() }, onExit = { _, _ -> })
+            for (i in 0 until 1000) p.send("line $i")
+            assertTrue(all.await(10, TimeUnit.SECONDS))
+            assertEquals((0 until 1000).map { "line $it" }, lines.toList())
+        } finally {
+            p.stop()
+        }
+    }
+
+    @Test fun sendDoesNotBlockWhenChildNeverReadsStdin() {
+        val p = ClaudeProcess(listOf("/bin/sh", "-c", "sleep 5"), tmp, emptyMap())
+        try {
+            p.start(onLine = {}, onExit = { _, _ -> })
+            val payload = "x".repeat(5_000)
+            val started = System.nanoTime()
+            repeat(200) { p.send(payload) }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertTrue("200 sends took ${elapsedMs}ms", elapsedMs < 1000)
+        } finally {
+            p.stop()
+        }
+    }
 }
