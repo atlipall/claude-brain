@@ -29,7 +29,27 @@ class FileLinker(private val project: Project) {
         return ResolvedPath(file.url, line)
     }
 
-    private fun findFile(raw: String): VirtualFile? = ReadAction.compute<VirtualFile?, RuntimeException> {
+    private fun findFile(raw: String): VirtualFile? {
+        val cached = ReadAction.compute<VirtualFile?, RuntimeException> { lookup(raw) }
+        if (cached != null) return cached
+        // Claude may have just created the file; the VFS may not know yet. Refresh outside the read action.
+        val relative = raw.removePrefix("./")
+        val local = LocalFileSystem.getInstance()
+        val roots = ReadAction.compute<List<VirtualFile>, RuntimeException> {
+            ProjectRootManager.getInstance(project).contentRoots.filter { it.fileSystem === local }
+        }
+        val paths = buildList {
+            if (raw.startsWith("/")) add(raw)
+            roots.forEach { add("${it.path}/$relative") }
+        }
+        val refreshed = paths.mapNotNull { local.refreshAndFindFileByPath(it) }
+        return ReadAction.compute<VirtualFile?, RuntimeException> {
+            val index = ProjectFileIndex.getInstance(project)
+            refreshed.firstOrNull { !it.isDirectory && index.isInContent(it) }
+        }
+    }
+
+    private fun lookup(raw: String): VirtualFile? {
         val index = ProjectFileIndex.getInstance(project)
         val candidates = buildList {
             if (raw.startsWith("/")) LocalFileSystem.getInstance().findFileByPath(raw)?.let(::add)
@@ -37,7 +57,7 @@ class FileLinker(private val project: Project) {
                 root.findFileByRelativePath(raw.removePrefix("./"))?.let(::add)
             }
         }
-        candidates.firstOrNull { !it.isDirectory && index.isInContent(it) }
+        return candidates.firstOrNull { !it.isDirectory && index.isInContent(it) }
     }
 
     /** [target] is a VFS URL or an absolute local path; [line] is 1-based. */
