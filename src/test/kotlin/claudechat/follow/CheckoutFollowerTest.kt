@@ -32,7 +32,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         savedScopeName = FindSettings.getInstance().defaultScopeName
         savedFollow = settings.followCheckout
         settings.followCheckout = true
-        follower = CheckoutFollower(project).also { it.projectDir = root; it.excluded = { false }; it.offer = { offers++ } } // a fresh follower: IDE shows main
+        follower = CheckoutFollower(project).also { it.projectDir = root; it.excluded = { false }; it.dirExists = ::dirExists; it.offer = { offers++ } } // a fresh follower: IDE shows main
     }
 
     override fun tearDown() {
@@ -46,6 +46,9 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
             super.tearDown()
         }
     }
+
+    private fun dirExists(path: String) =
+        ProjectRootManager.getInstance(project).contentRoots.first().fileSystem.findFileByPath(path)?.isDirectory == true
 
     private fun openPaths() = manager.openFiles.map { it.path.removePrefix("$root/") }.toSet()
     private fun scopeNames() = holder.editableScopes.map { it.scopeId }
@@ -167,5 +170,20 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         assertTrue(AutoExclude.claimOffer("test-a"))
         assertFalse(AutoExclude.claimOffer("test-a"))
         assertTrue(AutoExclude.claimOffer("test-b"))
+    }
+
+    fun testNewWorktreeSwapsEditorsOnceItsFolderExists() {
+        manager.openFile(myFixture.addFileToProject("a.txt", "x").virtualFile, true)
+        val wt = chats.open(ChatSpec.newWorktree(root, "wt2"))
+        follower.follow(wt)
+        assertEquals("wt2", follower.current?.name)
+        assertEquals(setOf("a.txt"), openPaths())
+        follower.refresh()
+        assertEquals(setOf("a.txt"), openPaths()) // still no folder
+        myFixture.addFileToProject(".claude/worktrees/wt2/a.txt", "x")
+        follower.refresh()
+        assertEquals(setOf(".claude/worktrees/wt2/a.txt"), openPaths())
+        follower.refresh()
+        assertEquals(setOf(".claude/worktrees/wt2/a.txt"), openPaths())
     }
 }

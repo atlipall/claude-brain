@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import java.io.File
 
 object Indicator {
     /** The chat header's text: empty when following is off, otherwise `IDE: <checkout>` plus a note for a chat outside this window. */
@@ -43,6 +44,12 @@ class CheckoutFollower(private val project: Project) {
     /** Offers to stop excluding worktrees (tests replace it so no notification is shown). */
     var offer: (Project) -> Unit = AutoExclude::offerToInclude
 
+    /** Whether a checkout's folder exists on disk (tests inject it, as their files live in an in-memory file system). */
+    var dirExists: (String) -> Boolean = { File(it).isDirectory }
+
+    /** Set while the IDE shows a worktree whose folder was not there yet: the checkout its editors still belong to. */
+    private var pendingSwapFrom: Checkout? = null
+
     private val enabled get() = ClaudeChatSettings.getInstance().state.followCheckout
 
     /** [chat]'s tab was selected: the IDE shows its checkout, and the Project view and Find in Files are set to it again. */
@@ -63,7 +70,7 @@ class CheckoutFollower(private val project: Project) {
         if (on) {
             CheckoutScopes(project).sync(listOf(mapper.main) + chats.all().mapNotNull { followable(mapper, it) }.filterNot { it.isMain })
             val target = selected?.let { followable(mapper, it) }
-            if (target != null && (selecting || target != (current ?: mapper.main))) show(mapper, target)
+            if (target != null && (selecting || target != (current ?: mapper.main) || pendingSwapFrom != null)) show(mapper, target)
         }
         val ide = current ?: mapper.main
         val noScopes = excluded()
@@ -72,7 +79,17 @@ class CheckoutFollower(private val project: Project) {
 
     private fun show(mapper: CheckoutMapper, target: Checkout) {
         val shown = current ?: mapper.main
-        if (target != shown) EditorSwapper(project, mapper).swap(shown, target)
+        if (target != shown) {
+            // `claude --worktree` selects its tab before the folder exists: swap once refresh() sees the folder.
+            pendingSwapFrom = null
+            if (!target.isMain && !dirExists(target.dir)) pendingSwapFrom = shown else EditorSwapper(project, mapper).swap(shown, target)
+        } else {
+            val from = pendingSwapFrom
+            if (from != null && dirExists(target.dir)) {
+                EditorSwapper(project, mapper).swap(from, target)
+                pendingSwapFrom = null
+            }
+        }
         current = target
         val noScopes = !target.isMain && excluded()
         if (!noScopes) applyViews(target) // excluded files match no scope: the Project view and Find would show nothing
