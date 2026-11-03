@@ -14,4 +14,10 @@ class WebAssetsTest {
         // only the three closing script tags we wrote may appear
         assertTrue(Regex("</script").findAll(page).count() == 3)
     }
+
+    @Test fun pageDeclaresContentSecurityPolicy() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("Content-Security-Policy"))
+        assertTrue(page.contains("img-src data:"))
+    }
 }
