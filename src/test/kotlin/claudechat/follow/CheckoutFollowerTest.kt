@@ -186,4 +186,18 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         follower.refresh()
         assertEquals(setOf(".claude/worktrees/wt2/a.txt"), openPaths())
     }
+
+    fun testMainLeavesFindAloneUntilAWorktreeIsFollowed() {
+        FindSettings.getInstance().defaultScopeName = "Mine"
+        val main = chats.open(ChatSpec.inProject(root))
+        val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        follower.follow(main)
+        assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
+        assertEquals("IDE: main", main.checkoutText)
+        assertEquals(listOf("Claude: main", "Claude: wt1"), scopeNames())
+        follower.follow(wt)
+        assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
+        follower.follow(main)
+        assertEquals("Claude: main", FindSettings.getInstance().defaultScopeName)
+    }
 }

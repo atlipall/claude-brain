@@ -50,6 +50,9 @@ class CheckoutFollower(private val project: Project) {
     /** Set while the IDE shows a worktree whose folder was not there yet: the checkout its editors still belong to. */
     private var pendingSwapFrom: Checkout? = null
 
+    /** Whether the Project view and Find default were switched to a checkout of this project. */
+    private var viewsApplied = false
+
     private val enabled get() = ClaudeChatSettings.getInstance().state.followCheckout
 
     /** [chat]'s tab was selected: the IDE shows its checkout, and the Project view and Find in Files are set to it again. */
@@ -79,6 +82,8 @@ class CheckoutFollower(private val project: Project) {
 
     private fun show(mapper: CheckoutMapper, target: Checkout) {
         val shown = current ?: mapper.main
+        // A project that never shows a worktree keeps its own Project view and Find scope; going back to main restores them.
+        val leaveViews = target.isMain && (current == null || current!!.isMain || !viewsApplied)
         if (target != shown) {
             // `claude --worktree` selects its tab before the folder exists: swap once refresh() sees the folder.
             pendingSwapFrom = null
@@ -92,11 +97,12 @@ class CheckoutFollower(private val project: Project) {
         }
         current = target
         val noScopes = !target.isMain && excluded()
-        if (!noScopes) applyViews(target) // excluded files match no scope: the Project view and Find would show nothing
+        if (!noScopes && !leaveViews) applyViews(target) // excluded files match no scope: the Project view and Find would show nothing
         if (noScopes) offer(project)
     }
 
     private fun applyViews(target: Checkout) {
+        viewsApplied = true
         SearchDefaults.use(project, target.scopeName)
         // The Scope pane may learn about a new scope asynchronously: if it does not list it yet, try once more later.
         if (!ProjectViewSwitcher(project).show(target.scopeName)) {
