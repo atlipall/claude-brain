@@ -12,6 +12,8 @@
     <depends>com.intellij.modules.vcs</depends>
     <!-- TypeScript service errors for the diagnostics tool; the plugin works without it. -->
     <depends optional="true" config-file="tether-javascript.xml">JavaScript</depends>
+    <!-- "Send Failures to Tether" in the test runner. -->
+    <depends optional="true" config-file="tether-tests.xml">intellij.testRunner.plugin</depends>
 
     <extensionPoints>
         <extensionPoint qualifiedName="local.claudechat.problemSource" interface="claudechat.ide.tools.ProblemSource" dynamic="true"/>
@@ -23,6 +25,11 @@
         <toolWindow id="Tether" anchor="right" icon="/icons/tether.svg"
                     canCloseContents="true" factoryClass="claudechat.ui.ChatToolWindowFactory"/>
         <notificationGroup id="Tether" displayType="STICKY_BALLOON"/>
+        <intentionAction>
+            <language/>
+            <className>claudechat.ide.FixWithTether</className>
+            <category>Tether</category>
+        </intentionAction>
     </extensions>
 
     <actions>
@@ -31,6 +38,10 @@
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt K"/>
             <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta shift alt K"/>
+        </action>
+        <action id="claudechat.SendConsoleToTether" class="claudechat.ide.SendConsoleToTether"
+                text="Send to Tether" description="Put the selected console output (or all of it) into the Tether chat">
+            <add-to-group group-id="ConsoleView.PopupMenu" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>
