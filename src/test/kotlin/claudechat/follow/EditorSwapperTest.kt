@@ -121,12 +121,12 @@ class EditorSwapperTest : BasePlatformTestCase() {
         file(".claude/worktrees/wt1/a.txt")
         manager.openFile(a, true)
         var current = true
-        swapper().swap(main, wt1) { current }
+        swapper().swap(main, wt1, { current })
         assertEquals(setOf(".claude/worktrees/wt1/a.txt"), openPaths())
         manager.closeFile(myFixture.findFileInTempDir(".claude/worktrees/wt1/a.txt"))
         manager.openFile(a, true)
         current = false
-        swapper().swap(main, wt1) { current }
+        swapper().swap(main, wt1, { current })
         assertEquals(setOf("a.txt"), openPaths())
     }
 

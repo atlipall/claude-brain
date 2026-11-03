@@ -35,19 +35,20 @@ class EditorSwapper(
 
     private data class Swap(val old: VirtualFile, val new: VirtualFile, val caret: Caret?)
 
-    /** Swaps the tabs of [from] for their counterparts in [to]; the result is dropped when [isCurrent] is false by then. */
-    fun swap(from: Checkout, to: Checkout, isCurrent: () -> Boolean = { true }) {
+    /** Swaps the tabs of [from] for their counterparts in [to]; the result is dropped when [isCurrent] is false by then. [onDone] runs on the EDT once the swap is applied, dropped or found to be empty. */
+    fun swap(from: Checkout, to: Checkout, isCurrent: () -> Boolean = { true }, onDone: () -> Unit = {}) {
         val files = manager.openFiles.toList()
-        if (files.isEmpty()) return
+        if (files.isEmpty()) return onDone()
         val carets = files.associateWith { caretOf(it) }
         val candidates = files.mapNotNull { mapper.counterpart(it.path, from, to) }.distinct()
-        if (candidates.isEmpty()) return
+        if (candidates.isEmpty()) return onDone()
         // A file that lives in another file system (the in-memory one of light tests) looks its counterpart up there.
         val other = files.firstOrNull { it.fileSystem !== LocalFileSystem.getInstance() }?.fileSystem
         runInBackground {
             val resolved: Map<String, VirtualFile?> = candidates.associateWith { lookup(it) ?: other?.findFileByPath(it) }
             runOnEdt {
                 if (!project.isDisposed && isCurrent()) apply(from, to, resolved, carets)
+                onDone()
             }
         }
     }

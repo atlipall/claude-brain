@@ -253,4 +253,48 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         queued.single().run()
         assertEquals(setOf(".claude/worktrees/wt1/a.txt"), openPaths())
     }
+
+    private fun twoWorktrees() {
+        manager.openFile(myFixture.addFileToProject("a.txt", "x").virtualFile, true)
+        myFixture.addFileToProject(".claude/worktrees/wt1/a.txt", "x")
+        myFixture.addFileToProject(".claude/worktrees/wt2/a.txt", "x")
+    }
+
+    fun testQuickSwitchChainsTheSwapFromWhatTheEditorsShow() {
+        twoWorktrees()
+        val queued = mutableListOf<Runnable>()
+        follower.swapBackground = { queued += it }
+        val wt1 = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        val wt2 = chats.open(ChatSpec("wt2", "$root/.claude/worktrees/wt2"))
+        follower.follow(wt1) // main -> wt1 still looking up
+        follower.follow(wt2) // wt1 -> wt2: the tabs are still main's
+        queued.forEach { it.run() }
+        assertEquals("wt2", follower.current?.name)
+        assertEquals(setOf(".claude/worktrees/wt2/a.txt"), openPaths())
+    }
+
+    fun testSwitchingAwayAndBackBeforeTheLookupFinishesKeepsTheTabs() {
+        twoWorktrees()
+        val queued = mutableListOf<Runnable>()
+        follower.swapBackground = { queued += it }
+        val main = chats.open(ChatSpec.inProject(root))
+        val wt1 = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        follower.follow(wt1)
+        follower.follow(main)
+        queued.forEach { it.run() }
+        assertEquals("main", follower.current?.name)
+        assertEquals(setOf("a.txt"), openPaths())
+        follower.follow(wt1) // nothing stuck in flight: a later switch still swaps
+        queued.toList().forEach { it.run() }
+        assertEquals(setOf(".claude/worktrees/wt1/a.txt"), openPaths())
+    }
+
+    fun testQuickSwitchPastANewWorktreeWithoutFolderKeepsTheOriginalFrom() {
+        twoWorktrees()
+        val newWt = chats.open(ChatSpec.newWorktree(root, "wt3")) // no folder yet
+        val wt2 = chats.open(ChatSpec("wt2", "$root/.claude/worktrees/wt2"))
+        follower.follow(newWt)
+        follower.follow(wt2) // the editors still show main
+        assertEquals(setOf(".claude/worktrees/wt2/a.txt"), openPaths())
+    }
 }

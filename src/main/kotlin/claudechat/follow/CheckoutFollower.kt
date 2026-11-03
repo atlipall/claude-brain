@@ -63,6 +63,9 @@ class CheckoutFollower(private val project: Project) : Disposable {
     /** Set while the IDE shows a worktree whose folder was not there yet: the checkout its editors still belong to. */
     private var pendingSwapFrom: Checkout? = null
 
+    /** While a swap is not applied yet: the checkout the editors still show, which the next request swaps from. */
+    private var inFlightFrom: Checkout? = null
+
     /** Whether the Project view and Find default were switched to a checkout of this project. */
     private var viewsApplied = false
 
@@ -103,9 +106,11 @@ class CheckoutFollower(private val project: Project) : Disposable {
         // A project that never shows a worktree keeps its own Project view and Find scope; going back to main restores them.
         val leaveViews = target.isMain && (current == null || current!!.isMain || !viewsApplied)
         if (target != shown) {
+            // The editors may still show an older checkout than `current` (a retry is waiting, or a swap is in flight).
+            val editorsFrom = pendingSwapFrom ?: inFlightFrom ?: shown
             // `claude --worktree` selects its tab before the folder exists: swap once refresh() sees the folder.
             pendingSwapFrom = null
-            if (!target.isMain && !dirExists(target.dir)) pendingSwapFrom = shown else swap(mapper, shown, target)
+            if (!target.isMain && !dirExists(target.dir)) pendingSwapFrom = editorsFrom else swap(mapper, editorsFrom, target)
         } else {
             val from = pendingSwapFrom
             if (from != null && dirExists(target.dir)) {
@@ -122,7 +127,15 @@ class CheckoutFollower(private val project: Project) : Disposable {
     /** Swaps editors without blocking the EDT; the result is applied only if no newer swap was requested and following is still on. */
     private fun swap(mapper: CheckoutMapper, from: Checkout, to: Checkout) {
         val request = ++swapRequest
-        EditorSwapper(project, mapper, swapBackground, swapOnEdt).swap(from, to) { request == swapRequest && enabled }
+        // A request still in flight has not touched the editors: they show its `from`, so chain from there (A -> B -> C is A -> C).
+        val shown = inFlightFrom ?: from
+        if (shown == to) { // back where the editors already are
+            inFlightFrom = null
+            return
+        }
+        inFlightFrom = shown
+        EditorSwapper(project, mapper, swapBackground, swapOnEdt)
+            .swap(shown, to, { request == swapRequest && enabled }, { if (request == swapRequest) inFlightFrom = null })
     }
 
     private fun applyViews(target: Checkout) {
