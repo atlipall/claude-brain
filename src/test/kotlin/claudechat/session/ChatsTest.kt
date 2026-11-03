@@ -426,4 +426,24 @@ class ChatsTest : BasePlatformTestCase() {
         awaitMessages(connections.single(), 2)
         assertEquals("second", connections.single().userMessages()[1])
     }
+
+    fun testClosingTheChatWhileASendWaitsSendsNothingAndThrowsNothing() {
+        myFixture.configureByText("calc.js", calc)
+        val release = CountDownLatch(1)
+        contextService.finder = { file, document, offset ->
+            release.await(10, TimeUnit.SECONDS)
+            claudechat.context.SymbolFinder.find(file, document, offset)
+        }
+        contextService.lookupTimeoutMs = 200
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("pending")
+        chats.close(chat)
+        release.countDown()
+        val until = System.currentTimeMillis() + 800 // past the lookup and the 200 ms timeout; a stray exception fails the test
+        while (System.currentTimeMillis() < until) {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            Thread.sleep(20)
+        }
+        assertTrue(connections.single().userMessages().isEmpty())
+    }
 }

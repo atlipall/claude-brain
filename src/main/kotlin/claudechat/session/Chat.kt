@@ -199,7 +199,7 @@ class Chat(
                 if (inline) {
                     note = formatted
                     ready = true
-                } else {
+                } else if (!disposed && outbox.firstOrNull() === next) { // a closed chat's outbox was cleared
                     resolving = false
                     outbox.removeFirst()
                     deliver(next, formatted)
