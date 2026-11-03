@@ -401,7 +401,9 @@ class Chat(
         } ?: return
         // The fork gets a new session id; a name the user gave is saved under it once claude reports it.
         if (!session.rewind(item.id)) {
-            if (filesReverted) session.notice("The conversation could not be taken back: Claude started working.")
+            session.notice(
+                if (filesReverted) "The conversation could not be taken back: Claude started working."
+                else "Couldn't take the conversation back: Claude started working.")
             return
         }
         // rewind may have added a notice (claude failing to start); only what was there before goes.

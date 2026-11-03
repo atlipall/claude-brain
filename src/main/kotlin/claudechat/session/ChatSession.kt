@@ -385,19 +385,20 @@ class ChatSession(
     /**
      * Takes the conversation back to before message [itemId]: claude restarts resumed at the answer before it, in a
      * fork (the old transcript stays as it was), or as a fresh session when it was the first message. False, changing
-     * nothing, while a turn is open or for a message this session didn't send.
+     * nothing, while a turn is open, for a message this session didn't send, or when there is no session to resume from.
      */
     fun rewind(itemId: String): Boolean = synchronized(lock) {
         if (turnOpen || itemId !in anchors) return false
         val at = anchors[itemId]
         val from = sessionId ?: fork?.from
+        if (at != null && from == null) return false
         val keys = anchors.keys.toList()
         keys.subList(keys.indexOf(itemId), keys.size).forEach(anchors::remove)
         generation++
         connection?.stop()
         forgetProcess()
         lastAnswer = at
-        fork = if (at != null && from != null) Fork(from, at) else null
+        fork = if (at != null) Fork(from!!, at) else null
         sessionId = null
         start()
         reportActivity()

@@ -172,6 +172,19 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals("wt-1", chat.title)
     }
 
+    fun testResumedChatAnchorsItsNewMessagesAtTheTranscriptsLastAnswer() {
+        File(chats.store.projectDir(root).apply { mkdirs() }, "abc.jsonl").writeText(
+            """{"type":"user","message":{"role":"user","content":"earlier"}}""" + "\n" +
+                """{"type":"assistant","uuid":"a-last","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}""")
+        val chat = chats.open(ChatSpec.resume(root, chats.store.list(root).single()))
+        chat.send("more")
+        awaitMessages(connections.single(), 1)
+        connections.single().emit(Fx.result())
+        val item = RecordingView().also(chat::attach).resets.last().filterIsInstance<ChatItem.UserText>().last()
+        assertTrue(chat.session.rewind(item.id))
+        assertEquals("a-last", launches.last().resumeAt)
+    }
+
     fun testResumedSessionKeepsItsName() {
         File(chats.store.projectDir(root).apply { mkdirs() }, "abc.jsonl")
             .writeText("""{"type":"user","message":{"role":"user","content":"earlier"}}""")

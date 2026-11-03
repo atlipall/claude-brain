@@ -806,6 +806,15 @@ class ChatSessionTest {
         assertEquals(SessionLaunch("sess-1", null, "/proj", resumeAt = "a-0", fork = true), launches.last())
     }
 
+    @Test fun anAnchoredMessageWithNoSessionToResumeIsNotRewound() {
+        val s = session(resumeAnchor = "a-0")
+        s.send("more")
+        conn.emit(Fx.result())
+        assertFalse(s.rewind(userIds()[0]))
+        assertEquals(1, launches.size)
+        assertTrue(s.canRewindTo(userIds()[0]))
+    }
+
     @Test fun aRunningTurnIsNotRewound() {
         val s = session()
         conn.emit(Fx.init("sess-1"))
