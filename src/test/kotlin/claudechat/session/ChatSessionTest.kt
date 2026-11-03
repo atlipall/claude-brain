@@ -36,6 +36,7 @@ class ChatSessionTest {
         failConnect: Boolean = false,
         cwd: String = "/proj",
         worktree: String? = null,
+        resumeAnchor: String? = null,
     ) =
         ChatSession(
             connect = { launch ->
@@ -48,6 +49,7 @@ class ChatSessionTest {
             resumeId = resumeId,
             initialMode = mode,
             worktree = worktree,
+            resumeAnchor = resumeAnchor,
         ).also { it.start() }
 
     private val writeInput = """{"file_path":"/p/a.txt","content":"hi"}"""
@@ -745,6 +747,95 @@ class ChatSessionTest {
         assertTrue(bad.stopped)
         bad.onExit!!(1, "late")
         assertEquals(1, listener.items.filterIsInstance<ChatItem.Notice>().size)
+    }
+
+    // --- rewind ---
+
+    private fun userIds() = listener.current().filterIsInstance<ChatItem.UserText>().map { it.id }
+
+    /** One finished turn: [text] goes out, claude answers with assistant message [uuid]. */
+    private fun turn(s: ChatSession, text: String, uuid: String) {
+        s.send(text)
+        conn.emit(Fx.assistantText("m-$uuid", "ok", uuid = uuid), Fx.result())
+    }
+
+    @Test fun rewindResumesForkedAtTheLastAnswerBeforeTheMessage() {
+        val s = session()
+        conn.emit(Fx.init("sess-1"))
+        turn(s, "one", "a-1")
+        turn(s, "two", "a-2")
+        val old = conn
+        assertTrue(s.rewind(userIds()[1]))
+        assertTrue(old.stopped)
+        assertEquals(SessionLaunch("sess-1", PermissionMode.DEFAULT, "/proj", resumeAt = "a-1", fork = true), launches.last())
+        assertEquals(SessionState.IDLE, s.state)
+    }
+
+    @Test fun rewindingTheFirstMessageStartsAFreshSession() {
+        val s = session()
+        conn.emit(Fx.init("sess-1"))
+        turn(s, "one", "a-1")
+        assertTrue(s.rewind(userIds()[0]))
+        assertEquals(SessionLaunch(null, PermissionMode.DEFAULT, "/proj"), launches.last())
+        assertNull(s.sessionId)
+    }
+
+    @Test fun theForkIsKeptUntilClaudeReportsItsNewSession() {
+        val s = session()
+        conn.emit(Fx.init("sess-1"))
+        turn(s, "one", "a-1")
+        turn(s, "two", "a-2")
+        s.rewind(userIds()[1])
+        // The id is unknown until system/init: nothing may be saved under the old one meanwhile.
+        assertNull(s.sessionId)
+        conn.exit(1, "")
+        s.restart()
+        assertEquals(SessionLaunch("sess-1", PermissionMode.DEFAULT, "/proj", resumeAt = "a-1", fork = true), launches.last())
+        conn.emit(Fx.init("sess-2"))
+        assertEquals("sess-2", s.sessionId)
+        conn.exit(1, "")
+        s.restart()
+        assertEquals(SessionLaunch("sess-2", PermissionMode.DEFAULT, "/proj"), launches.last())
+    }
+
+    @Test fun aResumedChatsFirstNewMessageIsAnchoredAtTheTranscriptsLastAnswer() {
+        val s = session(resumeId = "sess-1", resumeAnchor = "a-0")
+        s.send("more")
+        conn.emit(Fx.result())
+        assertTrue(s.rewind(userIds()[0]))
+        assertEquals(SessionLaunch("sess-1", null, "/proj", resumeAt = "a-0", fork = true), launches.last())
+    }
+
+    @Test fun aRunningTurnIsNotRewound() {
+        val s = session()
+        conn.emit(Fx.init("sess-1"))
+        s.send("one")
+        assertFalse(s.rewind(userIds()[0]))
+        assertEquals(1, launches.size)
+    }
+
+    @Test fun onlyMessagesThisSessionSentCanBeRewoundTo() {
+        val s = session()
+        conn.emit(Fx.init("sess-1"))
+        turn(s, "one", "a-1")
+        assertTrue(s.canRewindTo(userIds()[0]))
+        assertFalse(s.canRewindTo("h-0"))
+        assertFalse(s.rewind("h-0"))
+        // The rewound message and those after it are gone, so they can't be rewound to again.
+        s.rewind(userIds()[0])
+        assertFalse(s.canRewindTo(userIds()[0]))
+    }
+
+    @Test fun aSubagentsAnswerIsNotAnAnchor() {
+        val s = session()
+        conn.emit(Fx.init("sess-1"))
+        turn(s, "one", "a-1")
+        s.send("two")
+        conn.emit(Fx.subagentText("toolu_1", "m9", "sub"), Fx.result())
+        s.send("three")
+        conn.emit(Fx.result())
+        s.rewind(userIds()[2])
+        assertEquals("a-1", launches.last().resumeAt)
     }
 
     // --- folder ---

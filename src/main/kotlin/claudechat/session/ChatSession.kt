@@ -109,6 +109,8 @@ class ChatSession(
     private val ide: IdeHost? = null,
     /** Runs IDE work (tool calls, edit checks) off the CLI reader thread. */
     private val background: (Runnable) -> Unit = { it.run() },
+    /** The uuid of the resumed transcript's newest assistant message: where a rewind to its first new message resumes. */
+    resumeAnchor: String? = null,
 ) {
     private val lock = Any()
 
@@ -164,13 +166,21 @@ class ChatSession(
     private var mcpServer: McpServer? = null
     /** Full names (`mcp__tether__<name>`) of the current process's read-only IDE tools, allowed without asking. */
     private var readOnlyTools: Set<String> = emptySet()
+    /** The newest main-conversation assistant message's uuid: where a rewind to the next message would resume. */
+    private var lastAnswer: String? = resumeAnchor
+    /** Each message this session sent, by item id, to the answer it followed (null: it was the first), oldest first. */
+    private val anchors = LinkedHashMap<String, String?>()
+    /** Where to resume [from] until the forked session reports its id; null when not rewinding. */
+    private class Fork(val from: String, val at: String)
+    private var fork: Fork? = null
 
     fun start() {
         synchronized(lock) {
             val gen = ++generation
             var created: CliConnection? = null
             try {
-                val conn = connect(SessionLaunch(sessionId, mode, cwd, if (cwdReported) null else worktree))
+                val f = fork
+                val conn = connect(SessionLaunch(f?.from ?: sessionId, mode, cwd, if (cwdReported) null else worktree, f?.at, f != null))
                 created = conn
                 connection = conn
                 conn.start(
@@ -210,7 +220,9 @@ class ChatSession(
             val payload = listOfNotNull(prefix?.takeIf { it.isNotBlank() }, text.takeIf { it.isNotEmpty() }).joinToString("\n\n")
             val line = CliMessages.userContent(payload, images)
             if (state == SessionState.IDLE) {
-                emit(ChatItem.UserText(nextId("user"), text, thumbs))
+                val item = ChatItem.UserText(nextId("user"), text, thumbs)
+                anchors[item.id] = lastAnswer
+                emit(item)
                 connection?.send(line)
                 beginRunning(Activity.Starting)
                 reportActivity()
@@ -367,6 +379,39 @@ class ChatSession(
         }
     }
 
+    /** Whether [itemId] is a message this session sent, so the conversation can be taken back to before it. */
+    fun canRewindTo(itemId: String): Boolean = synchronized(lock) { itemId in anchors }
+
+    /**
+     * Takes the conversation back to before message [itemId]: claude restarts resumed at the answer before it, in a
+     * fork (the old transcript stays as it was), or as a fresh session when it was the first message. False, changing
+     * nothing, while a turn is open or for a message this session didn't send.
+     */
+    fun rewind(itemId: String): Boolean = synchronized(lock) {
+        if (turnOpen || itemId !in anchors) return false
+        val at = anchors[itemId]
+        val from = sessionId ?: fork?.from
+        val keys = anchors.keys.toList()
+        keys.subList(keys.indexOf(itemId), keys.size).forEach(anchors::remove)
+        generation++
+        connection?.stop()
+        connection = null
+        mcpServer = null
+        readOnlyTools = emptySet()
+        initRequestId = null
+        contextRequestId = null
+        pendingPermissions.clear()
+        runningTools.clear()
+        turnEdits.clear()
+        phase = null
+        lastAnswer = at
+        fork = if (at != null && from != null) Fork(from, at) else null
+        sessionId = null
+        start()
+        reportActivity()
+        true
+    }
+
     fun dispose() {
         synchronized(lock) {
             generation++
@@ -387,7 +432,7 @@ class ChatSession(
     private fun handle(event: CliEvent, copies: List<String>? = null) {
         when (event) {
             is CliEvent.SystemInit -> {
-                if (event.sessionId.isNotBlank()) sessionId = event.sessionId
+                if (event.sessionId.isNotBlank()) { sessionId = event.sessionId; fork = null }
                 PermissionMode.fromCli(event.permissionMode)?.let { mode = it }
                 event.cwd?.takeIf { it.isNotBlank() }?.let { cwd = it; cwdReported = true }
                 notifyState()
@@ -436,7 +481,7 @@ class ChatSession(
                 event.parentId != null -> emit(ChatItem.AssistantText(nextId("text"), event.text, false, event.parentId))
                 event.messageId !in streamedMessages -> emit(ChatItem.AssistantText(nextId("text"), event.text, false))
             }
-            is CliEvent.AssistantMessage -> {}
+            is CliEvent.AssistantMessage -> lastAnswer = event.uuid
             is CliEvent.ToolUse -> {
                 if (event.parentId != null && event.name == HANDBACK) return
                 val base = toolCalls[event.toolUseId]
@@ -597,7 +642,9 @@ class ChatSession(
         val next = queue.removeFirstOrNull()
         if (next != null) {
             notifyQueue()
-            emit(ChatItem.UserText(nextId("user"), next.shown.text, next.shown.images))
+            val item = ChatItem.UserText(nextId("user"), next.shown.text, next.shown.images)
+            anchors[item.id] = lastAnswer
+            emit(item)
             connection?.send(next.line)
             beginRunning(Activity.Starting)
         } else {
