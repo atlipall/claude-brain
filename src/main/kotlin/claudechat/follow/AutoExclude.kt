@@ -55,5 +55,5 @@ object AutoExclude {
             .notify(project)
     }
 
-    const val NOTIFICATION_GROUP = "Claude Chat"
+    const val NOTIFICATION_GROUP = "Tether"
 }

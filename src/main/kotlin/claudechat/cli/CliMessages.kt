@@ -64,6 +64,9 @@ object CliMessages {
 
     fun interrupt(requestId: String): String = controlRequest(requestId) { put("subtype", "interrupt") }
 
+    /** Asks how full the context window is; answered without calling the model. */
+    fun getContextUsage(requestId: String): String = controlRequest(requestId) { put("subtype", "get_context_usage") }
+
     fun setPermissionMode(requestId: String, mode: String): String = controlRequest(requestId) {
         put("subtype", "set_permission_mode")
         put("mode", mode)

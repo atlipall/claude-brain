@@ -1,5 +1,6 @@
 package claudechat.ui
 
+import claudechat.cli.ContextUsage
 import claudechat.cli.PermissionMode
 import claudechat.cli.arr
 import claudechat.cli.bool
@@ -37,7 +38,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /** Connects one chat page to one [Chat]: web-view messages in, chat updates out. */
@@ -288,6 +291,13 @@ class ChatBridge(
 
     override fun activity(activity: Activity?) = post(activityMessage(activity))
 
+    override fun context(usage: ContextUsage) = post(usageMessage(usage))
+
+    override fun suggestion(text: String) = post(buildJsonObject {
+        put("type", "suggestion")
+        put("text", text)
+    }.toString())
+
     override fun insert(text: String) = post(buildJsonObject {
         put("type", "insert")
         put("text", text)
@@ -357,6 +367,27 @@ class ChatBridge(
                 Activity.Waiting -> "waiting"
             })
             if (activity is Activity.Running) put("tool", ContextNotes.clean(activity.tool, MAX_TOOL_NAME).ifEmpty { "tool" })
+        }.toString()
+
+        /** Longest category name shown in the context tooltip. */
+        const val MAX_CATEGORY_NAME = 40
+
+        /** `{type:"usage", used, max, percent, autocompactAt?, categories:[{name, tokens}]}`; names are cleaned like tool names. */
+        fun usageMessage(usage: ContextUsage): String = buildJsonObject {
+            put("type", "usage")
+            put("used", usage.used)
+            put("max", usage.max)
+            put("percent", usage.percent)
+            usage.autocompactAt?.let { put("autocompactAt", it) }
+            putJsonArray("categories") {
+                for (c in usage.categories) {
+                    val name = ContextNotes.clean(c.name, MAX_CATEGORY_NAME)
+                    if (name.isNotEmpty()) addJsonObject {
+                        put("name", name)
+                        put("tokens", c.tokens)
+                    }
+                }
+            }
         }.toString()
 
         /** All image work (decoding, scaling, reading files) runs here, one task at a time. */

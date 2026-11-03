@@ -32,6 +32,10 @@ class CliMessagesTest {
         """{"type":"control_request","request_id":"x","request":{"subtype":"interrupt"}}""",
         CliMessages.interrupt("x"))
 
+    @Test fun getContextUsage() = assertEquals(
+        """{"type":"control_request","request_id":"c","request":{"subtype":"get_context_usage"}}""",
+        CliMessages.getContextUsage("c"))
+
     @Test fun setPermissionMode() = assertEquals(
         """{"type":"control_request","request_id":"m","request":{"subtype":"set_permission_mode","mode":"plan"}}""",
         CliMessages.setPermissionMode("m", "plan"))

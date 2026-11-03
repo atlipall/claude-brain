@@ -12,7 +12,7 @@ import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.panel
 
-class ClaudeChatConfigurable : BoundConfigurable("Claude Chat") {
+class ClaudeChatConfigurable : BoundConfigurable("Tether") {
     private val state get() = ClaudeChatSettings.getInstance().state
 
     override fun apply() {

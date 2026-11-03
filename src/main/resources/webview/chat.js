@@ -13,6 +13,9 @@
   const restartBtn = document.getElementById('restart');
   const statusEl = document.getElementById('status');
   const checkoutEl = document.getElementById('checkout');
+  const usageEl = document.getElementById('usage');
+  const usageRing = document.getElementById('usage-ring');
+  const usagePct = document.getElementById('usage-pct');
   const attachEl = document.getElementById('attachments');
   const attachBtn = document.getElementById('attach');
   const pending = new Map(); // attachment id -> { el, ready }
@@ -22,6 +25,8 @@
   let history = [];  // sent messages, oldest first (shared by every tab, kept by the IDE)
   let recall = -1;   // index into history while recalling, -1 otherwise
   let draft = '';    // what the box held before recall started
+  let suggestion = '';  // the predicted next prompt shown in the empty box; Tab takes it
+  let idle = false;     // the last state was IDLE: a suggestion that lands later than a new turn's state is stale
 
   const STATUS = { DEAD: 'Stopped' }; // the header says nothing else; the strip above the input shows the turn
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
@@ -80,13 +85,27 @@
         case 'theme': applyTheme(msg); break;
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
         case 'checkout': setCheckout(msg.text); break;
+        case 'usage': setUsage(msg); break;
         case 'attachment': setAttachment(msg); break;
+        case 'suggestion': setSuggestion(msg.text); break;
       }
     }
   };
 
+  const nearBottom = (height) => log.scrollHeight - log.scrollTop - height < 40;
+
+  // The log shrinks when the activity strip, the image tray or a taller message box appears; shrinking keeps scrollTop,
+  // which would slide the latest lines out of view. Whether the user was at the bottom is judged by the height before
+  // the change: a scroll event can arrive after the shrink and would misreport it.
+  let logHeight = log.clientHeight;
+  new ResizeObserver(() => {
+    const wasAtBottom = nearBottom(logHeight);
+    logHeight = log.clientHeight;
+    if (wasAtBottom) log.scrollTop = log.scrollHeight;
+  }).observe(log);
+
   function upsert(item) {
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    const atBottom = nearBottom(log.clientHeight);
     let el = items.get(item.id);
     if (!el) { el = document.createElement('div'); items.set(item.id, el); log.appendChild(el); }
     const open = [...el.querySelectorAll('details')].map((d) => d.open);
@@ -389,7 +408,6 @@
     if (r.isError) { el.textContent = r.text || 'Error'; return; }
     const parts = [];
     if (r.durationMs != null) parts.push((r.durationMs / 1000).toFixed(1) + 's');
-    if (r.costUsd != null) parts.push('$' + r.costUsd.toFixed(2));
     el.textContent = 'Done' + (parts.length ? ' · ' + parts.join(' · ') : '');
   }
 
@@ -399,6 +417,23 @@
     restartBtn.hidden = msg.state !== 'DEAD';
     input.disabled = sendBtn.disabled = attachBtn.disabled = msg.state === 'DEAD';
     if (msg.mode) modeSel.value = msg.mode;
+    idle = msg.state === 'IDLE';
+    if (!idle) setSuggestion('');
+  }
+
+  const PLACEHOLDER = input.placeholder;
+  // Only offered into an empty box while idle; typing, sending or a new turn takes it away.
+  function setSuggestion(text) {
+    suggestion = idle && !input.value ? text : '';
+    input.placeholder = suggestion ? suggestion + '   (Tab to use)' : PLACEHOLDER;
+  }
+
+  function acceptSuggestion() {
+    const text = suggestion;
+    setSuggestion('');
+    input.value = text;
+    input.setSelectionRange(text.length, text.length);
+    recall = -1;
   }
 
   // The strip above the input: phase and tool name come from the IDE, shown as text only; the seconds are counted here.
@@ -445,6 +480,35 @@
   function setCheckout(text) {
     checkoutEl.textContent = typeof text === 'string' ? text : '';
     checkoutEl.hidden = !checkoutEl.textContent;
+  }
+
+  const USAGE_WARN_POINTS = 10; // amber this many points before autocompact
+  function fmtTokens(n) {
+    if (n >= 1e6) return +(n / 1e6).toFixed(1) + 'M';
+    if (n >= 1000) return +(n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k';
+    return String(n);
+  }
+  const num = (v) => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : null);
+
+  function setUsage(msg) {
+    const used = num(msg.used), max = num(msg.max), pct = num(msg.percent);
+    if (used === null || !max || pct === null) { usageEl.hidden = true; return; }
+    const p = Math.min(100, Math.round(pct));
+    const at = num(msg.autocompactAt);
+    const limit = at || 100;
+    usageEl.classList.toggle('full', p >= limit);
+    usageEl.classList.toggle('near', p < limit && p >= limit - USAGE_WARN_POINTS);
+    usageRing.style.setProperty('--p', String(p));
+    usagePct.textContent = p + '%';
+    const parts = (Array.isArray(msg.categories) ? msg.categories : [])
+      .filter((c) => c && typeof c.name === 'string' && num(c.tokens) !== null)
+      .sort((a, b) => b.tokens - a.tokens)
+      .map((c) => c.name + ' ' + fmtTokens(c.tokens));
+    const lines = ['Context: ' + fmtTokens(used) + ' / ' + fmtTokens(max) + ' tokens (' + p + '%)'];
+    if (parts.length) lines.push(parts.join(' · '));
+    if (at !== null) lines.push('Autocompacts at ~' + at + '%');
+    usageEl.title = lines.join('\n');
+    usageEl.hidden = false;
   }
 
   function addTile(id, name) {
@@ -532,6 +596,7 @@
     input.value = '';
     recall = -1;
     draft = '';
+    setSuggestion('');
   }
 
   const caretOnFirstLine = () => !input.value.slice(0, input.selectionStart).includes('\n');
@@ -572,11 +637,12 @@
     if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); return; }
     if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'Tab' && suggestion && !input.value) { e.preventDefault(); acceptSuggestion(); return; }
     if (e.key === 'ArrowUp' && caretOnFirstLine() && recallKey('up')) e.preventDefault();
     else if (e.key === 'ArrowDown' && caretOnLastLine() && recallKey('down')) e.preventDefault();
   });
-  // Typing ends recall: the edited text becomes the new draft.
-  input.addEventListener('input', () => { recall = -1; });
+  // Typing ends recall (the edited text becomes the new draft) and dismisses the suggestion.
+  input.addEventListener('input', () => { recall = -1; if (suggestion) setSuggestion(''); });
   sendBtn.addEventListener('click', submit);
   document.getElementById('new-chat').addEventListener('click', () => send({ type: 'newChat' }));
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));

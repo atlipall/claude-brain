@@ -51,6 +51,22 @@ class WebAssetsTest {
         assertFalse(page.contains("case 'context'"))
     }
 
+    @Test fun logStaysAtTheBottomWhenItShrinks() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("const wasAtBottom = nearBottom(logHeight);"))
+        assertTrue(page.contains("}).observe(log);"))
+    }
+
+    @Test fun turnResultShowsNoCost() = assertFalse(WebAssets.page().contains("r.costUsd"))
+
+    @Test fun headerHasAContextUsageMeter() {
+        val page = WebAssets.page()
+        val header = page.substring(page.indexOf("<header id=\"bar\">"), page.indexOf("</header>"))
+        assertTrue(header.contains("id=\"usage\" hidden"))
+        assertTrue(page.contains("case 'usage': setUsage(msg)"))
+        assertFalse(page.contains("usageEl.innerHTML")) // CLI category names stay plain text (title attribute)
+    }
+
     @Test fun pageShowsWhatClaudeIsDoingAboveTheInput() {
         val page = WebAssets.page()
         val html = page.substring(page.indexOf("<main id=\"log\">"))

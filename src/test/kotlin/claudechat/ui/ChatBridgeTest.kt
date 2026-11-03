@@ -131,6 +131,26 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals("tool", parseJsonObject(ChatBridge.activityMessage(claudechat.session.Activity.Running("  ")))!!.str("tool"))
     }
 
+    fun testUsageMessage() {
+        val usage = claudechat.cli.ContextUsage(76000, 200000, 38, 83, listOf(
+            claudechat.cli.ContextCategory("Messages", 52000),
+            claudechat.cli.ContextCategory("Ski`lls\n" + "x".repeat(100), 10000),
+            claudechat.cli.ContextCategory("  ", 5),
+        ))
+        val msg = parseJsonObject(ChatBridge.usageMessage(usage))!!
+        assertEquals("usage", msg.str("type"))
+        assertEquals("76000", msg["used"].toString())
+        assertEquals("200000", msg["max"].toString())
+        assertEquals("38", msg["percent"].toString())
+        assertEquals("83", msg["autocompactAt"].toString())
+        val cats = msg.arr("categories")!!.map { it.jsonObject }
+        assertEquals(2, cats.size) // the blank name is dropped
+        assertEquals("Messages", cats[0].str("name"))
+        val cleaned = cats[1].str("name")!!
+        assertTrue(cleaned.length <= 40 && '`' !in cleaned && '\n' !in cleaned)
+        assertFalse(parseJsonObject(ChatBridge.usageMessage(usage.copy(autocompactAt = null)))!!.containsKey("autocompactAt"))
+    }
+
     fun testSetModeGoesToThisChat() {
         chats.open(ChatSpec.inProject(root))
         bridge.handle("""{"type":"setMode","mode":"plan"}""")

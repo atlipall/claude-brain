@@ -32,6 +32,10 @@ class FakeConnection : CliConnection {
     /** request_id of the most recent control_request with the given subtype. */
     fun lastRequestId(subtype: String): String =
         sentJson().last { it.str("type") == "control_request" && it.obj("request")?.str("subtype") == subtype }.str("request_id")!!
+    /** How many control requests with the given subtype were sent. */
+    fun requestCount(subtype: String): Int =
+        sentJson().count { it.str("type") == "control_request" && it.obj("request")?.str("subtype") == subtype }
+
     /** Text of every user message: the string content, or the text blocks of a content array. */
     fun userMessages(): List<String> =
         sentJson().filter { it.str("type") == "user" }.map { msg ->
@@ -53,6 +57,10 @@ class RecordingListener : ChatListener {
     override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) { states += Triple(state, sessionId, mode) }
     val activities = mutableListOf<claudechat.session.Activity?>()
     override fun onActivity(activity: claudechat.session.Activity?) { activities += activity }
+    val contexts = mutableListOf<claudechat.cli.ContextUsage>()
+    override fun onContext(usage: claudechat.cli.ContextUsage) { contexts += usage }
+    val suggestions = mutableListOf<String>()
+    override fun onSuggestion(text: String) { suggestions += text }
 
     /** Latest version of every item, in first-seen order. */
     fun current(): List<ChatItem> = items.associateBy { it.id }.values.toList()

@@ -4,6 +4,7 @@ import claudechat.cli.CliConnection
 import claudechat.cli.CliEvent
 import claudechat.cli.CliMessages
 import claudechat.cli.CliParser
+import claudechat.cli.ContextUsage
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.cli.str
@@ -33,6 +34,12 @@ interface ChatListener {
 
     /** The turn's activity, reported only when it changes; null when no turn is running. */
     fun onActivity(activity: Activity?) {}
+
+    /** How full the context window is (the latest report). */
+    fun onContext(usage: ContextUsage) {}
+
+    /** A predicted next prompt, told only while the session is idle. */
+    fun onSuggestion(text: String) {}
 }
 
 sealed interface PermissionDecision {
@@ -46,8 +53,14 @@ data class FileDiff(val filePath: String, val originalContent: String)
 /** Longest base64 string accepted for a tool-result image (about 5 MB of bytes); longer ones show as "[image]". */
 private const val MAX_TOOL_IMAGE_BASE64 = 7_000_000
 
+/** Prefix of get_context_usage request ids, so their replies are recognised even after a newer request replaced them. */
+private const val CONTEXT_PREFIX = "context"
+
 /** Most images of one tool result converted to display copies; further ones show as "[image]". */
 private const val MAX_TOOL_IMAGES = 6
+
+/** Longest prompt suggestion passed on; longer ones are dropped rather than cut, since a cut prompt is a wrong one. */
+internal const val MAX_SUGGESTION_CHARS = 2000
 
 /** One conversation with one claude process (respawned with --resume on restart). Thread-safe. */
 class ChatSession(
@@ -84,6 +97,10 @@ class ChatSession(
     private val toolCalls = HashMap<String, ChatItem.ToolCall>()
     private val streamed = HashMap<String, ChatItem.AssistantText>()
     private val streamedMessages = HashSet<String>()
+    /** The initialize request of the current process; context usage is asked for only once it has been answered. */
+    private var initRequestId: String? = null
+    /** The latest get_context_usage request; replies to older ones are stale and dropped. */
+    private var contextRequestId: String? = null
     private val pendingPermissions = LinkedHashMap<String, CliEvent.PermissionRequest>()
     private val deniedToolUses = HashSet<String>()
     private val sessionAllowedTools = HashSet<String>()
@@ -110,7 +127,9 @@ class ChatSession(
                     },
                     onExit = { code, tail -> synchronized(lock) { if (gen == generation) handleExit(code, tail) } },
                 )
-                conn.send(CliMessages.initialize(nextId("init")))
+                val initId = nextId("init")
+                initRequestId = initId
+                conn.send(CliMessages.initialize(initId))
             } catch (e: Exception) {
                 generation++
                 created?.let { runCatching { it.stop() } }
@@ -272,6 +291,18 @@ class ChatSession(
                 notifyState()
             }
             is CliEvent.ControlResponse -> {
+                // Failures are only logged: an older CLI may not know the request.
+                if (event.requestId.startsWith(CONTEXT_PREFIX)) {
+                    if (event.requestId != contextRequestId) return
+                    contextRequestId = null
+                    if (event.isSuccess) event.response?.let(ContextUsage::parse)?.let(listener::onContext)
+                    else log("Context usage request failed: ${event.error}")
+                    return
+                }
+                if (event.requestId == initRequestId) {
+                    initRequestId = null
+                    if (event.isSuccess) requestContextUsage()
+                }
                 if (!event.isSuccess) {
                     emit(ChatItem.Notice(nextId("notice"), "Claude rejected a request: ${event.error ?: "unknown error"}", isError = true))
                 } else {
@@ -305,6 +336,7 @@ class ChatSession(
             is CliEvent.ToolResult -> onToolResult(event, copies.orEmpty())
             is CliEvent.UserText -> Unit
             is CliEvent.Result -> onResult(event)
+            is CliEvent.PromptSuggestion -> onSuggestion(event.text)
             is CliEvent.Ignored -> Unit
             is CliEvent.Malformed -> log("Malformed line from claude: ${event.line.take(200)}")
         }
@@ -382,6 +414,7 @@ class ChatSession(
             val text = if (event.isError) event.text ?: event.errors.joinToString("\n") else null
             emit(ChatItem.TurnResult(nextId("result"), event.isError, text, event.durationMs, event.costUsd))
         }
+        requestContextUsage()
         val next = queue.removeFirstOrNull()
         if (next != null) {
             connection?.send(next)
@@ -393,8 +426,17 @@ class ChatSession(
         reportActivity()
     }
 
+    /** A suggestion that arrives once the next turn has begun is stale, so it is dropped. */
+    private fun onSuggestion(raw: String) {
+        val text = raw.trim()
+        if (state != SessionState.IDLE || text.isEmpty() || text.length > MAX_SUGGESTION_CHARS) return
+        listener.onSuggestion(text)
+    }
+
     private fun handleExit(code: Int, stderrTail: String) {
         connection = null
+        initRequestId = null
+        contextRequestId = null
         pendingPermissions.clear()
         runningTools.clear()
         queue.clear()
@@ -404,6 +446,13 @@ class ChatSession(
         emit(ChatItem.Notice(nextId("notice"), text, isError = true))
         setState(SessionState.DEAD)
         reportActivity()
+    }
+
+    private fun requestContextUsage() {
+        val conn = connection ?: return
+        val id = nextId(CONTEXT_PREFIX)
+        contextRequestId = id
+        conn.send(CliMessages.getContextUsage(id))
     }
 
     private fun filePathOf(input: JsonObject): String? = input.str("file_path") ?: input.str("notebook_path")

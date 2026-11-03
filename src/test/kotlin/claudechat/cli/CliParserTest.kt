@@ -27,6 +27,11 @@ class CliParserTest {
         assertEquals(CliEvent.Ignored("stream_event/message_start"), one(Fx.messageStart("m1")))
     }
 
+    @Test fun promptSuggestion() {
+        assertEquals(CliEvent.PromptSuggestion("make it a one-liner"), one(Fx.promptSuggestion("make it a one-liner")))
+        assertEquals(CliEvent.PromptSuggestion(""), one("""{"type":"prompt_suggestion"}"""))
+    }
+
     @Test fun textDeltaAndBlockStop() {
         assertEquals(CliEvent.TextDelta("m1", 1, "DO"), one(Fx.textDelta("m1", 1, "DO")))
         assertEquals(CliEvent.BlockStop("m1", 1), one(Fx.blockStop("m1", 1)))

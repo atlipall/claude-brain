@@ -42,6 +42,8 @@ class ChatsTest : BasePlatformTestCase() {
         override fun insert(text: String) { inserted += text }
         val activities = mutableListOf<Activity?>()
         override fun activity(activity: Activity?) { activities += activity }
+        val suggestions = mutableListOf<String>()
+        override fun suggestion(text: String) { suggestions += text }
     }
 
     private val settings get() = ClaudeChatSettings.getInstance().state
@@ -202,6 +204,23 @@ class ChatsTest : BasePlatformTestCase() {
         chat.showCheckout("IDE: main")
         chat.showCheckout("IDE: main")
         assertEquals(listOf("IDE: wt1", "IDE: main"), view.checkouts)
+    }
+
+    fun testContextUsageReachesTheViewAndIsReplayedOnAttach() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        val conn = connections.single()
+        conn.emit(Fx.initResponse(conn.lastRequestId("initialize")))
+        conn.emit(Fx.contextResponse(conn.lastRequestId("get_context_usage"), used = 76000, max = 200000, percent = 38))
+        val view = object : SessionView by RecordingView() {
+            val contexts = mutableListOf<claudechat.cli.ContextUsage>()
+            override fun context(usage: claudechat.cli.ContextUsage) { contexts += usage }
+        }
+        chat.attach(view)
+        assertEquals(listOf(38), view.contexts.map { it.percent })
+        chat.send("go")
+        conn.emit(Fx.result())
+        conn.emit(Fx.contextResponse(conn.lastRequestId("get_context_usage"), used = 90000, max = 200000, percent = 45))
+        assertEquals(listOf(38, 45), view.contexts.map { it.percent })
     }
 
     fun testDeadChatIgnoresSend() {
@@ -402,6 +421,33 @@ class ChatsTest : BasePlatformTestCase() {
         val view = RecordingView()
         chat.attach(view)
         assertEquals(listOf<Activity?>(Activity.Thinking), view.activities)
+    }
+
+    fun testSuggestionReachesTheViewAndIsReplayedOnAttachUntilTheNextTurn() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        val first = RecordingView()
+        chat.attach(first)
+        chat.send("go")
+        connections.single().emit(Fx.result(), Fx.promptSuggestion("run the tests"))
+        assertEquals(listOf("run the tests"), first.suggestions)
+        chat.detach(first)
+        val second = RecordingView()
+        chat.attach(second)
+        assertEquals(listOf("run the tests"), second.suggestions)
+        chat.send("again")
+        val third = RecordingView()
+        chat.attach(third)
+        assertTrue(third.suggestions.isEmpty())
+    }
+
+    fun testSuggestionIsNotReplayedAfterTheProcessDies() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("go")
+        connections.single().emit(Fx.result(), Fx.promptSuggestion("run the tests"))
+        connections.single().exit(1, "boom")
+        val view = RecordingView()
+        chat.attach(view)
+        assertTrue(view.suggestions.isEmpty())
     }
 
     fun testBusyFollowsTheTurn() {
