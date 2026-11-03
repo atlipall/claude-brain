@@ -36,6 +36,11 @@ class CheckoutsTest {
         assertEquals(Placement.Outside("/p/.claude/worktrees/has space"), mapper.place("/p/.claude/worktrees/has space"))
     }
 
+    @Test fun worktreeNamedMainIsOutsideNotMain() {
+        assertEquals(Placement.Outside("/p/.claude/worktrees/main"), mapper.place("/p/.claude/worktrees/main"))
+        assertEquals(Placement.Outside("/p/.claude/worktrees/MAIN"), mapper.place("/p/.claude/worktrees/MAIN"))
+    }
+
     @Test fun placementComparesCanonicalPaths() {
         val project = tmp.newFolder("proj")
         val link = File(tmp.root, "link")

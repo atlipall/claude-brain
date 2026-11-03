@@ -12,6 +12,8 @@ object WorktreeNames {
         name.startsWith("-") -> "The name cannot start with '-'."
         // git refuses these in the branch name worktree-<name> (and '.'/'..' are not folders we can create).
         name.contains("..") || name.endsWith(".") || name.endsWith(".lock") -> "Git cannot use this name for a branch."
+        // "main" names the project's own checkout, so no worktree may take it (any case).
+        name.equals("main", ignoreCase = true) -> "\"main\" is reserved for the project itself."
         name in existing -> "A worktree named '$name' already exists."
         else -> null
     }

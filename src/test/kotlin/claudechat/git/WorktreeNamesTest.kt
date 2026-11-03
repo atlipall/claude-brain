@@ -20,6 +20,17 @@ class WorktreeNamesTest {
     @Test fun rejectsExistingName() =
         assertEquals("A worktree named 'wt-1' already exists.", WorktreeNames.error("wt-1", setOf("wt-1")))
 
+    @Test fun rejectsMainInAnyCase() {
+        for (name in listOf("main", "MAIN", "Main")) {
+            assertEquals("\"main\" is reserved for the project itself.", WorktreeNames.error(name, emptySet()))
+        }
+    }
+
+    @Test fun suggestionsNeverReserved() {
+        assertNull(WorktreeNames.error(WorktreeNames.suggest(emptySet()), emptySet()))
+        assertNull(WorktreeNames.error(WorktreeNames.suggest(setOf("wt-1")), setOf("wt-1")))
+    }
+
     @Test fun suggestsFirstFreeWtName() {
         assertEquals("wt-1", WorktreeNames.suggest(emptySet()))
         assertEquals("wt-3", WorktreeNames.suggest(setOf("wt-1", "wt-2", "other")))

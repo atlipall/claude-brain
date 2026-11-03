@@ -38,7 +38,10 @@ class CheckoutMapper(projectDir: String) {
         val dir = canonicalPath(cwd)
         if (dir == project) return Placement.Followable(main)
         val name = dir.removePrefix(worktrees)
-        return if (dir.startsWith(worktrees) && name.isNotEmpty() && '/' !in name && VALID_NAME.matches(name)) {
+        // "main" names the project itself, so a worktree folder with that name is not followable.
+        return if (dir.startsWith(worktrees) && name.isNotEmpty() && '/' !in name && VALID_NAME.matches(name) &&
+            !name.equals(Checkout.MAIN, ignoreCase = true)
+        ) {
             Placement.Followable(Checkout(name, dir))
         } else {
             Placement.Outside(dir)
