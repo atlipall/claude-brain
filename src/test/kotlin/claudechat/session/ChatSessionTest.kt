@@ -288,6 +288,72 @@ class ChatSessionTest {
         assertEquals(listOf(emptyList(), listOf(TestImages.RED_PNG_BASE64)), conn.userImages())
     }
 
+    private fun userTexts() = listener.current().filterIsInstance<ChatItem.UserText>().map { it.text }
+
+    @Test fun aQueuedMessageIsShownQueuedAndEntersTheLogWhenItGoesOut() {
+        val s = session()
+        s.send("first")
+        s.send("second", images = listOf(red), thumbs = listOf("data:image/png;base64,T"))
+        assertEquals(listOf("first"), userTexts())
+        assertEquals(listOf("second"), listener.queuedTexts())
+        assertEquals(listOf("data:image/png;base64,T"), listener.queues.last().single().images)
+        conn.emit(Fx.result())
+        assertEquals(emptyList<String>(), listener.queuedTexts())
+        val current = listener.current()
+        assertTrue(current.indexOfFirst { it is ChatItem.TurnResult } < current.indexOfLast { it is ChatItem.UserText })
+        assertEquals(listOf("first", "second"), userTexts())
+        assertEquals(listOf("data:image/png;base64,T"), listener.latest<ChatItem.UserText>().images)
+    }
+
+    @Test fun unqueueTakesAMessageOutWithoutSendingIt() {
+        val s = session()
+        s.send("first")
+        s.send("second")
+        s.send("third")
+        val id = listener.queues.last().first().id
+        assertEquals("second", s.unqueue(id)?.text)
+        assertNull(s.unqueue(id))
+        assertEquals(listOf("third"), listener.queuedTexts())
+        conn.emit(Fx.result())
+        assertEquals(listOf("first", "third"), conn.userMessages())
+    }
+
+    @Test fun sendNowStopsTheTurnAndSendsThatMessageFirst() {
+        val s = session()
+        s.send("first")
+        s.send("second")
+        s.send("third")
+        s.sendNow(listener.queues.last().last().id)
+        assertEquals(listOf("third", "second"), listener.queuedTexts())
+        assertEquals("interrupt", conn.sentJson().last().obj("request")!!.str("subtype"))
+        assertTrue(listener.dropped.isEmpty())
+        conn.emit(Fx.interruptedUser(), Fx.errorResult())
+        assertEquals(listOf("first", "third"), conn.userMessages())
+        assertEquals(listOf("second"), listener.queuedTexts())
+        assertEquals(SessionState.RUNNING, s.state)
+        conn.emit(Fx.result())
+        assertEquals(listOf("first", "third", "second"), conn.userMessages())
+    }
+
+    @Test fun interruptDropsTheQueueAndReportsIt() {
+        val s = session()
+        s.send("first")
+        s.send("second", images = listOf(red), thumbs = listOf(""))
+        s.interrupt()
+        assertEquals(emptyList<String>(), listener.queuedTexts())
+        assertEquals(listOf("second"), listener.dropped.single().map { it.text })
+        assertEquals("1 queued image was not sent.", listener.latest<ChatItem.Notice>().text)
+    }
+
+    @Test fun theQueueIsDroppedWhenTheProcessDies() {
+        val s = session()
+        s.send("first")
+        s.send("second")
+        conn.exit(1, "boom")
+        assertEquals(emptyList<String>(), listener.queuedTexts())
+        assertEquals(listOf("second"), listener.dropped.single().map { it.text })
+    }
+
     @Test fun noticeIsShownInTheChat() {
         val s = session()
         s.notice("Couldn't attach a.bmp: not a PNG, JPEG, GIF or WebP image.")

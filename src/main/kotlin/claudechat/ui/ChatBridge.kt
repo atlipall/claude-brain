@@ -19,6 +19,7 @@ import claudechat.session.Chat
 import claudechat.session.ChatItem
 import claudechat.session.PermissionDecision
 import claudechat.session.QuestionAnswer
+import claudechat.session.QueuedMessage
 import claudechat.session.PromptHistory
 import claudechat.session.SessionState
 import claudechat.session.SessionView
@@ -152,6 +153,9 @@ class ChatBridge(
             }
             "setMode" -> PermissionMode.fromCli(msg.str("mode"))?.let(session::setPermissionMode)
             "interrupt" -> chat.interrupt()
+            "queueSendNow" -> msg.str("id")?.let(session::sendNow)
+            "queueEdit" -> msg.str("id")?.let(chat::editQueued)
+            "queueRemove" -> msg.str("id")?.let(session::unqueue)
             "newChat" -> onNewChat()
             "restart" -> session.restart()
             "openFile" -> msg.str("target")?.let { linker.open(it, msg.long("line")?.toInt()) }
@@ -296,6 +300,11 @@ class ChatBridge(
     override fun suggestion(text: String) = post(buildJsonObject {
         put("type", "suggestion")
         put("text", text)
+    }.toString())
+
+    override fun queue(messages: List<QueuedMessage>) = post(buildJsonObject {
+        put("type", "queue")
+        put("items", JsonArray(messages.map { ChatItem.UserText(it.id, it.text, it.images).toJson() }))
     }.toString())
 
     override fun insert(text: String) = post(buildJsonObject {

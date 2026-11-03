@@ -81,6 +81,12 @@ pre.del { background: var(--del); }
 details summary { cursor: pointer; color: var(--muted); }
 
 
+#queue { margin: 0 8px 6px; max-height: 40%; overflow-y: auto; }
+#queue[hidden] { display: none; }
+.msg.user.queued { margin: 4px 0; opacity: .75; border: 1px dashed var(--border); }
+.queued-bar { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; white-space: normal; }
+.queued-label { color: var(--muted); font-size: .85em; margin-right: auto; }
+
 #attachments { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 8px 0; }
 #attachments[hidden] { display: none; }
 .tile { position: relative; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; }
