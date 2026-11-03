@@ -14,6 +14,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import java.io.IOException
@@ -48,7 +49,7 @@ class FileLinker(private val project: Project) {
         val file = findFile(raw, cwd) ?: return null
         if (!resolvesInside(file, cwd)) return null
         if (file.length > Images.MAX_BYTES) return null
-        val bytes = try { file.contentsToByteArray() } catch (e: IOException) { return null }
+        val bytes = try { VfsUtilCore.loadBytes(file) } catch (e: IOException) { return null }
         if (bytes.size > Images.MAX_BYTES) return null
         return Images.preview(bytes)?.dataUrl()
     }

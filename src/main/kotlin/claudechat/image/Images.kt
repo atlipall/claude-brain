@@ -9,6 +9,8 @@ import java.util.Base64
 import javax.imageio.IIOImage
 import javax.imageio.ImageIO
 import javax.imageio.ImageWriteParam
+import javax.imageio.stream.MemoryCacheImageInputStream
+import javax.imageio.stream.MemoryCacheImageOutputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -71,7 +73,7 @@ object Images {
     /** Width and height from the header, without decoding pixels; null when the header can't be read. */
     fun dimensions(bytes: ByteArray, type: ImageType): Pair<Int, Int>? =
         if (type == ImageType.WEBP) webpDimensions(bytes) else try {
-            ImageIO.createImageInputStream(ByteArrayInputStream(bytes))?.use { stream ->
+            MemoryCacheImageInputStream(ByteArrayInputStream(bytes)).use { stream ->
                 val reader = ImageIO.getImageReaders(stream).asSequence().firstOrNull() ?: return null
                 try {
                     reader.input = stream
@@ -120,7 +122,9 @@ object Images {
     private fun decode(bytes: ByteArray): BufferedImage? {
         // The JPEG reader accepts a cut-off file with only a warning; it must end with the end-of-image marker.
         if (ImageType.sniff(bytes) == ImageType.JPEG && !endsWithJpegEoi(bytes)) return null
-        return try { ImageIO.read(ByteArrayInputStream(bytes)) } catch (e: Exception) { null }
+        return try {
+            ImageIO.read(MemoryCacheImageInputStream(ByteArrayInputStream(bytes))) // ImageIO closes the stream
+        } catch (e: Exception) { null }
     }
 
     private fun endsWithJpegEoi(b: ByteArray): Boolean {
@@ -167,8 +171,12 @@ object Images {
         return out
     }
 
-    private fun png(img: BufferedImage): ByteArray =
-        ByteArrayOutputStream().also { ImageIO.write(img, "png", it) }.toByteArray()
+    private fun png(img: BufferedImage): ByteArray {
+        val out = ByteArrayOutputStream()
+        // Memory-cached streams: ImageIO's own default would buffer through a temp file on disk.
+        MemoryCacheImageOutputStream(out).use { stream -> check(ImageIO.write(img, "png", stream)) }
+        return out.toByteArray()
+    }
 
     /** JPEG has no alpha: transparent parts become white. */
     private fun jpeg(img: BufferedImage): ByteArray {
@@ -176,7 +184,7 @@ object Images {
         val writer = ImageIO.getImageWritersByFormatName("jpeg").next()
         val out = ByteArrayOutputStream()
         try {
-            ImageIO.createImageOutputStream(out).use { stream ->
+            MemoryCacheImageOutputStream(out).use { stream ->
                 writer.output = stream
                 val param = writer.defaultWriteParam.apply {
                     compressionMode = ImageWriteParam.MODE_EXPLICIT

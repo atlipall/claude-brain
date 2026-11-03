@@ -25,6 +25,7 @@ import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -173,7 +174,7 @@ class ChatBridge(
             put("name", name)
             put("loading", true)
         }.toString())
-        prepare(id, name) { if (file.length > Images.MAX_INPUT_BYTES) null else file.contentsToByteArray() }
+        prepare(id, name) { if (file.length > Images.MAX_INPUT_BYTES) null else VfsUtilCore.loadBytes(file) }
     }
 
     /**

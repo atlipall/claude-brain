@@ -26,6 +26,7 @@
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
   const PATH_RE = /^[\w@.\/~-]*[\w-]\.[A-Za-z0-9]{1,10}(?:(?::|#L)\d+(?:[:-]\d+)?)?$/;
   const MAX_PRE = 6000;
+  const MAX_ATTACH = 10;                 // images per message; the IDE enforces it too
   const CHUNK = 262144;                  // base64 characters per bridge message (a multiple of 4)
   const MAX_INPUT = 20 * 1024 * 1024;    // the IDE refuses larger files without reading them
   const DATA_IMG = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+\/]+=*$/;
@@ -316,6 +317,9 @@
     addTile(id, name);
     send({ type: 'attachStart', id, name, size: file.size });
     if (file.size > MAX_INPUT) return; // the IDE refuses it and says why
+    if (pending.size > MAX_ATTACH) return; // already full (this tile included): the IDE refuses it and says why
+    // Not an image by its reported type: send no bytes; the IDE sees an empty file and says it is not an image.
+    if (file.type && !/^image\//.test(file.type)) { send({ type: 'attachEnd', id }); return; }
     const reader = new FileReader();
     reader.onload = () => {
       if (!pending.has(id)) return; // removed meanwhile
