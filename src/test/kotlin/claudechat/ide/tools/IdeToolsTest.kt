@@ -52,7 +52,7 @@ class IdeToolsTest : BasePlatformTestCase() {
     fun testFindUsagesFollowsImportsAcrossFiles() {
         val a = myFixture.addFileToProject("lib.ts", "export function greet(name: string) {\n  return name;\n}\nconst greeting = 1;\n").virtualFile
         val b = myFixture.addFileToProject("app.ts", "import { greet } from './lib';\n\ngreet('x');\ngreet('y');\n").virtualFile
-        val found = offEdt { Usages.find(project, b, 3, "greet", null, GlobalSearchScope.projectScope(project), Deadline(30_000)) }
+        val found = offEdt { Usages.find(project, SymbolRef(b, 3, "greet", null), GlobalSearchScope.projectScope(project), Deadline(30_000)) }
         assertEquals("greet", found.name)
         assertEquals(listOf(a to 1), found.definitions.map { it.file to it.line })
         val lines = found.usages.filter { it.file == b }.map { it.line }
@@ -63,7 +63,7 @@ class IdeToolsTest : BasePlatformTestCase() {
     fun testFindUsagesFromTheDeclarationItself() {
         val a = myFixture.addFileToProject("lib2.ts", "export function wave() {}\n").virtualFile
         val b = myFixture.addFileToProject("app2.ts", "import { wave } from './lib2';\nwave();\n").virtualFile
-        val found = offEdt { Usages.find(project, a, 1, "wave", null, GlobalSearchScope.projectScope(project), Deadline(30_000)) }
+        val found = offEdt { Usages.find(project, SymbolRef(a, 1, "wave", null), GlobalSearchScope.projectScope(project), Deadline(30_000)) }
         assertTrue("expected the call in app2.ts, got ${found.usages}", found.usages.any { it.file == b && it.line == 2 })
     }
 
@@ -84,13 +84,13 @@ class IdeToolsTest : BasePlatformTestCase() {
         val a = myFixture.addFileToProject("in/lib4.ts", "export function solo() {}\n").virtualFile
         myFixture.addFileToProject("out/app4.ts", "import { solo } from '../in/lib4';\nsolo();\n")
         val inside = GlobalSearchScopesCore.directoryScope(project, a.parent, true)
-        val found = offEdt { Usages.find(project, a, 1, "solo", null, inside, Deadline(30_000)) }
+        val found = offEdt { Usages.find(project, SymbolRef(a, 1, "solo", null), inside, Deadline(30_000)) }
         assertEquals(emptyList<Spot>(), found.usages)
     }
 
     fun testFindUsagesExplainsAMissingSymbol() {
         val a = myFixture.addFileToProject("lib3.ts", "export const x = 1;\n").virtualFile
-        val e = runCatching { offEdt { Usages.find(project, a, 1, "nope", null, GlobalSearchScope.projectScope(project), Deadline(30_000)) } }.exceptionOrNull()
+        val e = runCatching { offEdt { Usages.find(project, SymbolRef(a, 1, "nope", null), GlobalSearchScope.projectScope(project), Deadline(30_000)) } }.exceptionOrNull()
         assertTrue("got $e", e is ToolUnavailable && e.message!!.contains("not on line 1"))
     }
 }

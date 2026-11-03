@@ -19,6 +19,8 @@ interface McpTool {
     val description: String
     /** JSON Schema of the arguments. */
     val inputSchema: JsonObject
+    /** True when the tool changes nothing: it is then allowed without asking. */
+    val readOnly: Boolean get() = false
     fun call(args: JsonObject): ToolOutput
 }
 
@@ -46,6 +48,7 @@ class McpServer(private val name: String, private val tools: List<McpTool>) {
                         put("name", tool.name)
                         put("description", tool.description)
                         put("inputSchema", tool.inputSchema)
+                        putJsonObject("annotations") { put("readOnlyHint", tool.readOnly) }
                     }
                 }
             }

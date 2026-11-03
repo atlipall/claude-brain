@@ -1,6 +1,7 @@
 package claudechat.ide
 
 import claudechat.git.canonicalPath
+import claudechat.git.isUnder
 import claudechat.image.Images
 import claudechat.session.FileDiff
 import com.intellij.diff.DiffContentFactory
@@ -114,9 +115,6 @@ class FileLinker(private val project: Project) {
 
     private fun accepts(file: VirtualFile, cwd: String?): Boolean =
         !file.isDirectory && (ProjectFileIndex.getInstance(project).isInContent(file) || isUnder(file.path, cwd))
-
-    private fun isUnder(path: String, dir: String?): Boolean =
-        dir != null && canonicalPath(path).startsWith(canonicalPath(dir).trimEnd('/') + "/")
 
     /** [target] is a VFS URL or an absolute local path; [line] is 1-based. */
     fun open(target: String, line: Int?) {

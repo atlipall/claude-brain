@@ -8,7 +8,7 @@ import claudechat.cli.McpTool
  * lock, and may block.
  */
 interface IdeHost {
-    /** Read-only tools: they are allowed without asking. Empty lends none. */
+    /** Empty lends none. Read-only ones ([McpTool.readOnly]) are allowed without asking; the rest ask as usual. */
     val tools: List<McpTool>
 
     /** False registers no after-edit hook. */

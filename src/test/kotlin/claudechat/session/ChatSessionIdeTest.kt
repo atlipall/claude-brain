@@ -30,7 +30,14 @@ class ChatSessionIdeTest {
         override val name = "ping"
         override val description = "Pings"
         override val inputSchema = buildJsonObject { put("type", "object") }
+        override val readOnly = true
         override fun call(args: JsonObject) = ToolOutput("pong")
+    }
+    private val poke = object : McpTool {
+        override val name = "poke"
+        override val description = "Changes things"
+        override val inputSchema = buildJsonObject { put("type", "object") }
+        override fun call(args: JsonObject) = ToolOutput("poked")
     }
 
     private fun host(tools: List<McpTool> = listOf(ping), checks: Boolean = true, note: String? = "1 error") = object : IdeHost {
@@ -102,6 +109,12 @@ class ChatSessionIdeTest {
         conn.emit(Fx.canUseTool("p1", "t1", "mcp__tether__ping", "{}"))
         assertEquals("allow", responseTo("p1").obj("response")!!.str("behavior"))
         assertEquals(SessionState.IDLE, listener.lastState())
+    }
+
+    @Test fun theIdesWritingToolsAsk() {
+        session(host(tools = listOf(ping, poke)))
+        conn.emit(Fx.canUseTool("p1", "t1", "mcp__tether__poke", "{}"))
+        assertEquals(SessionState.AWAITING_PERMISSION, listener.lastState())
     }
 
     @Test fun withoutToolsAToolOfThatNameStillAsks() {

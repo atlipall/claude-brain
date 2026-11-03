@@ -58,27 +58,32 @@ object Usages {
      * @throws ToolUnavailable (with a message for Claude) when the symbol can't be found or resolved, while
      * indexing, or when the search did not finish by [deadline].
      */
-    fun find(project: Project, file: VirtualFile, line: Int, symbol: String, column: Int?, scope: GlobalSearchScope, deadline: Deadline): FoundUsages {
+    fun find(project: Project, ref: SymbolRef, scope: GlobalSearchScope, deadline: Deadline): FoundUsages {
         requireIndexes(project)
-        VfsUtil.markDirtyAndRefresh(false, false, false, file)
-        return deadline.run("The search") {
-            // Non-blocking: a long search must not hold up the user's typing; it restarts after their edits.
-            // The platform logs exceptions thrown inside as errors, so "not found" comes out as a Result.
-            ReadAction.nonBlocking(Callable {
-                try { Result.success(search(project, file, line, symbol, column, scope)) } catch (e: ToolUnavailable) { Result.failure(e) }
-            }).executeSynchronously()
-        }.getOrThrow()
+        VfsUtil.markDirtyAndRefresh(false, false, false, ref.file)
+        return deadline.read("The search") { search(project, ref, scope) }
     }
 
-    private fun search(project: Project, file: VirtualFile, line: Int, symbol: String, column: Int?, scope: GlobalSearchScope): FoundUsages {
+    /**
+     * The declaration [ref] names: what the reference there resolves to, or the declaration whose name it is. Read action.
+     *
+     * @throws ToolUnavailable when the name is not on the line or does not resolve.
+     */
+    fun resolve(project: Project, ref: SymbolRef): PsiElement {
+        val (file, line, symbol, column) = ref
         val psiFile = PsiManager.getInstance(project).findFile(file) ?: throw ToolUnavailable("The IDE can't read ${file.name}.")
         val document = PsiDocumentManager.getInstance(project).getDocument(psiFile)
             ?: throw ToolUnavailable("The IDE can't read ${file.name}.")
-        if (line < 1 || line > document.lineCount) throw ToolUnavailable("${file.name} has ${document.lineCount} lines; there is no line $line.")
+        document.requireLine(file, line)
         val index = locate(document.lineText(line - 1), symbol, column)
             ?: throw ToolUnavailable("`$symbol` is not on line $line of ${file.name}.")
-        val target = targetAt(psiFile, document.getLineStartOffset(line - 1) + index)
+        return targetAt(psiFile, document.getLineStartOffset(line - 1) + index)
             ?: throw ToolUnavailable("The IDE does not resolve `$symbol` on line $line to a declaration.")
+    }
+
+    private fun search(project: Project, ref: SymbolRef, scope: GlobalSearchScope): FoundUsages {
+        val target = resolve(project, ref)
+        val symbol = ref.symbol
         val declaration = target.navigationElement.takeIf { it.isValid } ?: target
         val definitions = listOfNotNull(spotOf(declaration, null)).filter { scope.contains(it.file) }
         var total = 0

@@ -153,6 +153,8 @@ class ChatSession(
     private var backgroundTasks = 0
     /** Serves [IdeHost.tools] to the current process; null when it was started without them. */
     private var mcpServer: McpServer? = null
+    /** Full names (`mcp__tether__<name>`) of the current process's read-only IDE tools, allowed without asking. */
+    private var readOnlyTools: Set<String> = emptySet()
 
     fun start() {
         synchronized(lock) {
@@ -174,6 +176,7 @@ class ChatSession(
                 initRequestId = initId
                 val tools = ide?.tools.orEmpty()
                 mcpServer = if (tools.isEmpty()) null else McpServer(IDE_SERVER, tools)
+                readOnlyTools = tools.filter { it.readOnly }.mapTo(HashSet()) { IDE_TOOL_PREFIX + it.name }
                 val hooks = if (ide?.checksEdits == true) mapOf(POST_TOOL_USE to listOf(EDIT_TOOLS)) else emptyMap()
                 conn.send(CliMessages.initialize(initId, listOfNotNull(mcpServer?.let { IDE_SERVER }), hooks))
             } catch (e: Exception) {
@@ -470,8 +473,7 @@ class ChatSession(
             emit(ChatItem.Notice(nextId("notice"), "Claude asked a question that could not be shown.", isError = true))
             return
         }
-        // The IDE's tools only read; they need no permission.
-        if (!isQuestion && (event.toolName in sessionAllowedTools || (mcpServer != null && event.toolName.startsWith(IDE_TOOL_PREFIX)))) {
+        if (!isQuestion && (event.toolName in sessionAllowedTools || event.toolName in readOnlyTools)) {
             connection?.send(CliMessages.allow(event.requestId, event.input))
             return
         }
@@ -595,6 +597,7 @@ class ChatSession(
     private fun handleExit(code: Int, stderrTail: String) {
         connection = null
         mcpServer = null
+        readOnlyTools = emptySet()
         initRequestId = null
         contextRequestId = null
         pendingPermissions.clear()

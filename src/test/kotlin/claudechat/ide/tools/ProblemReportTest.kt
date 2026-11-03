@@ -43,7 +43,7 @@ class ProblemReportTest {
     }
 
     @Test fun afterEditReportsOnlyErrors() = assertEquals(
-        "The IDE reports 1 error in src/a.ts after this edit:\n  3:7 error: Type 'string' is not assignable to type 'number'.",
+        "The IDE reports 1 error in src/a.ts after this edit:\n  3:7 error: Type 'string' is not assignable to type 'number'.\n" + ProblemReport.FIXES_HINT,
         ProblemReport.afterEdit("src/a.ts", listOf(warn, err)))
 
     @Test fun afterEditIsSilentWithoutErrors() = assertNull(ProblemReport.afterEdit("a.ts", listOf(warn)))

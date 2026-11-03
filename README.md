@@ -36,6 +36,12 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   plus the TypeScript service), and `mcp__tether__find_usages` returns where a symbol is declared and every
   reference to it, from the IDE's index (only in the chat's own checkout). They are served in-process over the
   CLI's stdin/stdout, with no separate MCP server.
+- **Claude can use the IDE's fixes and refactorings.** `mcp__tether__fixes` lists the quick fixes the IDE offers
+  for the problems on a line (what Alt+Enter shows, including the TypeScript service's, e.g. missing imports), and
+  `mcp__tether__apply_fix` applies one. `mcp__tether__rename_symbol` and `mcp__tether__move_file` run the IDE's
+  rename and move refactorings, updating every reference and import in the chat's checkout. These change files, so
+  they ask for permission like Claude's own edits; they run without dialogs (conflicts are reported to Claude), save
+  what they changed, report the errors left, and can be undone in the IDE.
 - **Claude's edits are checked.** After each `Edit`/`Write`, the IDE checks the file and tells Claude about any
   errors in the same turn, so it fixes them without being asked. Clean files add nothing.
 - **Images.** Paste, drop or 📎-pick images to send with a message (PNG/JPEG/GIF/WebP, up to 10,

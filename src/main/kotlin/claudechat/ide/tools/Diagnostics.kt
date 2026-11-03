@@ -38,10 +38,7 @@ object Diagnostics {
         }
         try {
             commit(project, files, deadline)
-            val byDocument = deadline.run("The IDE's check") {
-                val profile = InspectionProjectProfileManager.getInstance(project).currentProfile
-                MainPassesRunner(project, "Tether: checking files", profile).runMainPasses(files, minSeverity)
-            }
+            val byDocument = runPasses(project, files, minSeverity, deadline)
             val main = ReadAction.compute<Map<VirtualFile, List<Problem>>, RuntimeException> {
                 byDocument.entries.mapNotNull { (document, infos) ->
                     FileDocumentManager.getInstance().getFile(document)?.let { it to problems(document, infos, minSeverity) }
@@ -59,18 +56,41 @@ object Diagnostics {
         }
     }
 
+    /**
+     * The main passes' highlights at [minSeverity] or worse, by document, after loading the files' text from disk.
+     * Pooled thread.
+     */
+    internal fun highlights(project: Project, files: List<VirtualFile>, minSeverity: HighlightSeverity, deadline: Deadline): Map<Document, List<HighlightInfo>> {
+        requireIndexes(project)
+        VfsUtil.markDirtyAndRefresh(false, false, false, *files.toTypedArray())
+        commit(project, files, deadline)
+        return runPasses(project, files, minSeverity, deadline)
+    }
+
+    private fun runPasses(project: Project, files: List<VirtualFile>, minSeverity: HighlightSeverity, deadline: Deadline) =
+        deadline.run("The IDE's check") {
+            val profile = InspectionProjectProfileManager.getInstance(project).currentProfile
+            MainPassesRunner(project, "Tether: checking files", profile).runMainPasses(files, minSeverity)
+        }
+
+    /** A highlight as a [Problem]; null for those without a message or below weak warnings. Read action. */
+    internal fun problemOf(document: Document, info: HighlightInfo): Problem? {
+        val message = info.description?.takeIf { it.isNotBlank() } ?: return null
+        val severity = Severity.of(info.severity) ?: return null
+        val offset = info.startOffset.coerceIn(0, document.textLength)
+        val line = document.getLineNumber(offset)
+        return Problem(line + 1, offset - document.getLineStartOffset(line) + 1, severity, message)
+    }
+
     /** The sources' problems, and a note when some of them failed or ran out of time. */
     private fun await(futures: List<Pair<String, CompletableFuture<List<Problem>>>>, deadline: Deadline): Pair<List<Problem>, String?> {
         val notes = mutableListOf<String>()
         val problems = futures.flatMap { (name, future) ->
             try {
-                future.get(deadline.remainingMs(), TimeUnit.MILLISECONDS)
-            } catch (_: TimeoutException) {
-                notes += "$name did not answer within ${deadline.seconds} seconds; its problems are missing"
-                emptyList()
-            } catch (e: ExecutionException) {
-                LOG.info("Problem source failed: $name", e.cause)
-                notes += "$name failed (${e.cause?.message ?: e.message}); its problems are missing"
+                deadline.await(future, name)
+            } catch (e: ToolUnavailable) {
+                LOG.info("Problem source: ${e.message}")
+                notes += "${e.message}; its problems are missing"
                 emptyList()
             }
         }
@@ -82,27 +102,11 @@ object Diagnostics {
         val psiDocuments = PsiDocumentManager.getInstance(project)
         val documents = files.mapNotNull { FileDocumentManager.getInstance().getCachedDocument(it) }.filterNot(psiDocuments::isCommitted)
         if (documents.isEmpty()) return
-        val done = CompletableFuture<Unit>()
-        ApplicationManager.getApplication().invokeLater({
-            documents.forEach(psiDocuments::commitDocument)
-            done.complete(Unit)
-        }, ModalityState.nonModal(), project.disposed)
-        try {
-            done.get(deadline.remainingMs(), TimeUnit.MILLISECONDS)
-        } catch (_: TimeoutException) {
-            throw ToolUnavailable("The IDE is busy (is a dialog open?); try again in a moment.")
-        }
+        deadline.onEdt(project) { documents.forEach(psiDocuments::commitDocument) }
     }
 
     private fun problems(document: Document, infos: List<HighlightInfo>, minSeverity: HighlightSeverity): List<Problem> =
-        infos.mapNotNull { info ->
-            val message = info.description?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            if (info.severity < minSeverity) return@mapNotNull null
-            val severity = Severity.of(info.severity) ?: return@mapNotNull null
-            val offset = info.startOffset.coerceIn(0, document.textLength)
-            val line = document.getLineNumber(offset)
-            Problem(line + 1, offset - document.getLineStartOffset(line) + 1, severity, message)
-        }.distinct()
+        infos.filter { it.severity >= minSeverity }.mapNotNull { problemOf(document, it) }.distinct()
 
     private val LOG = logger<Diagnostics>()
 }

@@ -43,6 +43,7 @@ class McpServerTest {
         assertEquals(listOf("echo", "broken"), tools.map { it.str("name") })
         assertEquals("Echoes", tools[0].str("description"))
         assertEquals("object", tools[0].obj("inputSchema")!!.str("type"))
+        assertEquals(false, tools[0].obj("annotations")!!.bool("readOnlyHint"))
     }
 
     @Test fun toolsCallRunsTheToolWithItsArguments() {
