@@ -55,7 +55,7 @@ object Symbols {
 object ContextNotes {
     /** The paragraph prepended to the user's message. Location only, never file contents. */
     fun note(c: EditorContext): String = buildString {
-        append("[IDE] The user is looking at ${clean(c.path)}, caret at line ${c.line}:${c.column}")
+        append("[IDE] The user is looking at ${clean(c.path, PATH_MAX)}, caret at line ${c.line}:${c.column}")
         c.symbol?.let { append(", inside ").append(describe(it)) }
         c.container?.let { append(", within ").append(describe(it)) }
         append('.')
@@ -79,6 +79,9 @@ object ContextNotes {
         val flat = s.replace(CONTROL_RUN, " ").trim().replace('`', '\'')
         return if (flat.length > max) flat.take(max - 1) + "…" else flat
     }
+
+    /** Paths keep their full length (Claude opens files by them); the cap only guards against pathological input. */
+    private const val PATH_MAX = 400
 
     private val CONTROL_RUN = Regex("[\\s\\p{Cntrl}\\u2028\\u2029]+")
 

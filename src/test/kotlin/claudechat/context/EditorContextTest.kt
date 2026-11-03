@@ -91,4 +91,10 @@ class EditorContextTest {
         assertEquals("a.ts › f x · L1", ContextNotes.chip(EditorContext("a.ts", 1, 1, null, Symbol("f\nx", "function", Lines(1, 1)))))
 
     @Test fun cleanCollapsesControlRuns() = assertEquals("a b c", ContextNotes.clean("  a\u2028b\tc\r\n "))
+
+    @Test fun longRelativePathsAreKeptWhole() {
+        val path = "src/" + "d/".repeat(69) + "file.tsx"
+        assertEquals(150, path.length)
+        assertEquals("[IDE] The user is looking at $path, caret at line 1:1.", ContextNotes.note(EditorContext(path, 1, 1)))
+    }
 }
