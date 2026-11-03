@@ -53,6 +53,9 @@ interface Checkpoints {
      * if that is chosen. Null when nothing more is to happen (cancelled, refused, or the file revert failed). EDT.
      */
     fun revert(chat: Chat, item: ChatItem.UserText, conversation: Boolean): RevertChoice?
+
+    /** The conversation was taken back to before [item] after [revert] chose it; [filesReverted]: the files were too. EDT. */
+    fun conversationRewound(chat: Chat, item: ChatItem.UserText, filesReverted: Boolean)
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -386,21 +389,29 @@ class Chat(
         val item = synchronized(lock) { items[itemId] } as? ChatItem.UserText ?: return
         if (!item.revertable) return
         val choice = checkpoints?.revert(this, item, session.canRewindTo(itemId)) ?: return
-        if (choice.conversation) rewindTo(item)
+        if (choice.conversation) rewindTo(item, choice.files)
     }
 
     /** Claude forgets [item] and what followed; the panel drops them and the message goes back into the input box. */
-    private fun rewindTo(item: ChatItem.UserText) {
-        if (!session.canRewindTo(item.id)) return
-        val kept = synchronized(lock) {
+    private fun rewindTo(item: ChatItem.UserText, filesReverted: Boolean) {
+        val dropped = synchronized(lock) {
             val ids = items.keys.toList()
-            ids.subList(ids.indexOf(item.id), ids.size).forEach(items::remove)
+            val at = ids.indexOf(item.id)
+            if (at < 0) null else ids.subList(at, ids.size)
+        } ?: return
+        // The fork gets a new session id; a name the user gave is saved under it once claude reports it.
+        if (!session.rewind(item.id)) {
+            if (filesReverted) session.notice("The conversation could not be taken back: Claude started working.")
+            return
+        }
+        // rewind may have added a notice (claude failing to start); only what was there before goes.
+        val kept = synchronized(lock) {
+            dropped.forEach(items::remove)
             items.values.toList()
         }
         view?.reset(kept)
-        // The fork gets a new session id; a name the user gave is saved under it once claude reports it.
         if (customTitle != null) titleUnsaved.set(true)
-        session.rewind(item.id)
+        checkpoints?.conversationRewound(this, item, filesReverted)
         item.text.takeIf { it.isNotBlank() }?.let(::insert)
     }
 

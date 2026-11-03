@@ -75,10 +75,7 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
             return null
         }
         // A turn's edits in flight would land after the revert; the user stops it (and sees what it did) first.
-        if (chat.busy) {
-            Messages.showInfoMessage(project, "Claude is still working. Stop it, or wait for it to finish, then revert.", title)
-            return null
-        }
+        if (chat.busy) return stillWorking()
         val dir = checkpoint?.let { LocalFileSystem.getInstance().refreshAndFindFileByPath(it.dir) }
         val choices = RevertChoice.entries.filter { (!it.files || dir != null) && (!it.conversation || conversation) }
         val message = shorten(item.text)
@@ -88,21 +85,32 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
                 append("Files: every file in ${dir.presentableUrl} goes back to how it was then. This undoes Claude's ")
                 append("changes from that message on, and your own changes since then too. You can undo it from Local History.\n\n")
             } else {
-                append("The files can't be reverted: their folder isn't tracked by Local History, or the message is too old.\n\n")
+                append("The files can't be reverted: their folder isn't tracked by Local History, the message is too old, or its checkpoint isn't ready yet.\n\n")
             }
             if (conversation) append("Conversation: Claude forgets this message and everything after it, and the message goes back into the input box.")
         }
         val answer = Messages.showDialog(project, text, title, (choices.map { it.label } + "Cancel").toTypedArray(), 0, Messages.getWarningIcon())
         val choice = choices.getOrNull(answer) ?: return null
+        // A turn can open while the dialog is up (a background agent finishing); it would outrun the revert.
+        if (chat.busy) return stillWorking()
         if (choice.files && !revertFiles(chat, checkpoint!!, dir!!)) return null
-        when (choice) {
-            RevertChoice.FILES -> notes[chat.id] = "The user reverted the files in this checkout to how they were before their message " +
-                "“$message”. Changes made since then are gone; re-read files before relying on what you remember of them."
-            RevertChoice.CONVERSATION -> notes[chat.id] = "The user took the conversation back to before their message “$message”. " +
-                "The files may still hold changes made after that point; re-read files before relying on what you remember of them."
-            RevertChoice.FILES_AND_CONVERSATION -> notes.remove(chat.id)
-        }
+        if (choice.files) notes[chat.id] = "The user reverted the files in this checkout to how they were before their message " +
+            "“$message”. Changes made since then are gone; re-read files before relying on what you remember of them."
         return choice
+    }
+
+    override fun conversationRewound(chat: Chat, item: ChatItem.UserText, filesReverted: Boolean) {
+        if (filesReverted) {
+            notes.remove(chat.id) // Claude's memory and the files agree again
+        } else {
+            notes[chat.id] = "The user took the conversation back to before their message “${shorten(item.text)}”. " +
+                "The files may still hold changes made after that point; re-read files before relying on what you remember of them."
+        }
+    }
+
+    private fun stillWorking(): RevertChoice? {
+        Messages.showInfoMessage(project, "Claude is still working. Stop it, or wait for it to finish, then revert.", "Revert to Before This Message")
+        return null
     }
 
     /** Reverts [dir] to [checkpoint]'s label; false (with a notice in the chat) when Local History can't. */

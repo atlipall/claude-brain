@@ -188,4 +188,18 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         assertTrue(asked!!.contains("can't be reverted"))
         assertTrue(sent(chat).isEmpty())
     }
+
+    fun testATurnOpeningWhileTheQuestionIsUpChangesNothing() {
+        write("h.txt", "before")
+        val chat = chats.open(ChatSpec.inProject(root.path))
+        conn.emit(Fx.init("sess-1", cwd = root.path))
+        val item = turn(chat, "change it")
+        write("h.txt", "after")
+        TestDialogManager.setTestDialog { _ -> chat.send("meanwhile"); 0 } // Files and Conversation
+        chat.revertTo(item.id)
+        assertEquals("after", read("h.txt"))
+        assertEquals(listOf("change it", "meanwhile"), sent(chat).map { it.text })
+        assertTrue(inserted.isEmpty())
+        assertNull(TurnCheckpoints.getInstance(project).consumeNote(chat.id))
+    }
 }
