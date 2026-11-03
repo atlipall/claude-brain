@@ -65,16 +65,7 @@ object CliParser {
                 when (obj.str("subtype")) {
                     "init" -> listOf(CliEvent.SystemInit(obj.str("session_id") ?: "", obj.str("permissionMode"), obj.str("cwd")))
                     "background_tasks_changed" -> listOf(CliEvent.BackgroundTasks(obj.arr("tasks")?.size ?: 0))
-                    "task_started" -> listOf(CliEvent.TaskStarted(
-                        obj.str("tool_use_id") ?: "", obj.str("subagent_type"), obj.bool("is_backgrounded") == true, obj.str("prompt"),
-                    ))
-                    "task_progress" -> listOf(CliEvent.TaskProgress(
-                        obj.str("tool_use_id") ?: "", toolUsesOf(obj), obj.obj("usage")?.long("duration_ms"), obj.str("last_tool_name"),
-                    ))
-                    "task_notification" -> listOf(CliEvent.TaskDone(
-                        obj.str("tool_use_id") ?: "", obj.str("status") ?: "", toolUsesOf(obj), obj.obj("usage")?.long("duration_ms"),
-                        obj.obj("handback_report")?.str("text"),
-                    ))
+                    "task_started", "task_progress", "task_notification" -> listOf(task(obj))
                     else -> listOf(CliEvent.Ignored("system/${obj.str("subtype")}"))
                 }
             "stream_event" -> listOf(streamEvent(obj))
@@ -88,7 +79,19 @@ object CliParser {
         }
     }
 
-    private fun toolUsesOf(task: JsonObject): Int? = task.obj("usage")?.long("tool_uses")?.toInt()
+    /** A task event; without the Agent call's id it can't be tied to a card, so it is ignored. */
+    private fun task(obj: JsonObject): CliEvent {
+        val subtype = obj.str("subtype")
+        val id = obj.str("tool_use_id")?.takeIf { it.isNotEmpty() } ?: return CliEvent.Ignored("system/$subtype")
+        val usage = obj.obj("usage")
+        val toolUses = usage?.long("tool_uses")?.toInt()
+        val durationMs = usage?.long("duration_ms")
+        return when (subtype) {
+            "task_started" -> CliEvent.TaskStarted(id, obj.str("subagent_type"), obj.bool("is_backgrounded") == true, obj.str("prompt"))
+            "task_progress" -> CliEvent.TaskProgress(id, toolUses, durationMs, obj.str("last_tool_name"))
+            else -> CliEvent.TaskDone(id, obj.str("status") ?: "", toolUses, durationMs, obj.obj("handback_report")?.str("text"))
+        }
+    }
 
     private fun streamEvent(obj: JsonObject): CliEvent {
         if (obj.str("parent_tool_use_id") != null) return CliEvent.Ignored("stream_event/subagent")

@@ -53,6 +53,7 @@ class CliParserTest {
         assertEquals(CliEvent.TaskProgress("t1", 7, 42000, "Bash"), one(Fx.taskProgress("t1", 7, 42000, "Bash")))
         assertEquals(CliEvent.TaskDone("t1", "completed", 3, 4063, "DONE"), one(Fx.taskNotification("t1")))
         assertEquals(CliEvent.TaskDone("t1", "failed", 3, 4063, null), one(Fx.taskNotification("t1", "failed", null)))
+        assertEquals(CliEvent.Ignored("system/task_started"), one(Fx.taskStarted("t1").replace(""""tool_use_id":"t1",""", "")))
     }
 
     @Test fun aTopLevelMessageStartIsParsed() {

@@ -202,7 +202,8 @@ class ChatSession(
             val status = if (decision is PermissionDecision.Deny) ToolStatus.DENIED else ToolStatus.RUNNING
             toolCalls[toolId]?.let { upsertTool(it.copy(status = status, permissionRequestId = null)) }
             if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) {
-                beginRunning(if (decision is PermissionDecision.Deny) Activity.Thinking else Activity.Running(req.toolName))
+                val subagent = toolCalls[toolId]?.parentId != null
+                beginRunning(if (decision is PermissionDecision.Deny || subagent) toolPhase() else Activity.Running(req.toolName))
             }
             reportActivity()
         }
@@ -351,7 +352,7 @@ class ChatSession(
                     ?: ChatItem.ToolCall(event.toolUseId, event.name, event.input, null, ToolStatus.RUNNING, null, null, false)
                 upsertTool(base.copy(
                     name = event.name, input = event.input, filePath = filePathOf(event.input),
-                    parentId = event.parentId ?: base.parentId, agent = agents[event.toolUseId] ?: base.agent,
+                    parentId = event.parentId ?: base.parentId, agent = agents[event.toolUseId],
                 ))
                 // The strip follows the main conversation; a subagent's tools show in its card.
                 if (event.parentId == null) {
@@ -412,7 +413,7 @@ class ChatSession(
     private fun onToolResult(event: CliEvent.ToolResult, copies: List<String>) {
         if (event.parentId == null) {
             runningTools.remove(event.toolUseId)
-            phase = runningTools.entries.lastOrNull()?.let { Activity.Running(it.value) } ?: Activity.Thinking
+            phase = toolPhase()
             reportActivity()
         }
         val tool = toolCalls[event.toolUseId] ?: return
@@ -447,6 +448,8 @@ class ChatSession(
     }
 
     private fun onResult(event: CliEvent.Result) {
+        // A foreground agent ends within its turn; one still running now was cut off (e.g. interrupted).
+        endAgents { !it.background }
         pendingPermissions.clear()
         runningTools.clear()
         phase = null
@@ -483,6 +486,7 @@ class ChatSession(
         runningTools.clear()
         queue.clear()
         backgroundTasks = 0
+        endAgents { true }
         phase = null
         val detail = stderrTail.trim().takeLast(2000)
         val text = if (detail.isEmpty()) "Claude exited (code $code)." else "Claude exited (code $code).\n$detail"
@@ -492,10 +496,22 @@ class ChatSession(
     }
 
     private fun updateAgent(toolUseId: String, change: (AgentInfo) -> AgentInfo) {
-        val info = change(agents[toolUseId] ?: AgentInfo(null, false, null, AgentState.RUNNING))
+        val old = agents[toolUseId] ?: AgentInfo(null, false, null, AgentState.RUNNING)
+        val info = change(old)
+        if (info == old && toolUseId in agents) return
         agents[toolUseId] = info
         toolCalls[toolUseId]?.let { upsertTool(it.copy(agent = info)) }
     }
+
+    /** Marks running agents that [cutOff] picks as failed: no task_notification will come for them. */
+    private fun endAgents(cutOff: (AgentInfo) -> Boolean) {
+        for ((id, info) in agents.entries.toList()) {
+            if (info.state == AgentState.RUNNING && cutOff(info)) updateAgent(id) { it.copy(state = AgentState.FAILED, lastTool = null) }
+        }
+    }
+
+    /** The phase while the main conversation's tools run: the newest running tool, or thinking when none is. */
+    private fun toolPhase(): Activity = runningTools.entries.lastOrNull()?.let { Activity.Running(it.value) } ?: Activity.Thinking
 
     private fun requestContextUsage() {
         val conn = connection ?: return

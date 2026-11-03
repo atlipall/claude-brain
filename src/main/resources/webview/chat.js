@@ -74,7 +74,11 @@
   window.chat = {
     receive(msg) {
       switch (msg.type) {
-        case 'reset': items.clear(); log.textContent = ''; msg.items.forEach(upsert); break;
+        case 'reset':
+          items.clear(); childBoxes.clear(); waitingFor.clear(); waitingOn.clear(); parentOf.clear(); reports.clear();
+          log.textContent = '';
+          msg.items.forEach(upsert);
+          break;
         case 'items': msg.items.forEach(upsert); break;
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
@@ -104,20 +108,65 @@
     if (wasAtBottom) log.scrollTop = log.scrollHeight;
   }).observe(log);
 
+  // Subagent cards: an Agent/Task call is a card whose container of items survives the card's re-renders. An item with
+  // a parentId goes in its card's container, or waits until the card is shown.
+  const childBoxes = new Map();   // card id -> container of its items
+  const waitingFor = new Map();   // card id -> elements waiting for it
+  const waitingOn = new Map();    // element -> the card id it waits for
+  const parentOf = new Map();     // item id -> its card id
+  const reports = new Map();      // card id -> { text, node }: a report is rendered once, not on every progress update
+  const isAgentCall = (item) => item.kind === 'tool' && (item.name === 'Agent' || item.name === 'Task');
+
+  function childBox(id) {
+    let box = childBoxes.get(id);
+    if (!box) { box = h('div', { class: 'agent-children' }); childBoxes.set(id, box); }
+    return box;
+  }
+
+  function place(el, parentId) {
+    const waited = waitingOn.get(el);
+    if (waited !== undefined && waited !== parentId) {
+      waitingOn.delete(el);
+      const list = (waitingFor.get(waited) || []).filter((x) => x !== el);
+      if (list.length) waitingFor.set(waited, list); else waitingFor.delete(waited);
+    }
+    const box = parentId ? childBoxes.get(parentId) : log;
+    if (!box) {
+      el.remove();
+      if (waitingOn.get(el) !== parentId) {
+        waitingOn.set(el, parentId);
+        waitingFor.set(parentId, (waitingFor.get(parentId) || []).concat(el));
+      }
+      return;
+    }
+    if (el.parentNode !== box) box.appendChild(el);
+  }
+
+  // The <details> of el itself: a card's own are only its Prompt; those in its container belong to the items there.
+  const ownDetails = (el) => el.classList.contains('agent') ? el.querySelectorAll(':scope > .agent-body > details') : el.querySelectorAll('details');
+
   function upsert(item) {
     const atBottom = nearBottom(log.clientHeight);
     let el = items.get(item.id);
-    if (!el) { el = document.createElement('div'); items.set(item.id, el); log.appendChild(el); }
-    const open = [...el.querySelectorAll('details')].map((d) => d.open);
+    if (!el) { el = document.createElement('div'); items.set(item.id, el); }
+    const parentId = typeof item.parentId === 'string' && item.parentId ? item.parentId : null;
+    if (parentId) parentOf.set(item.id, parentId); else parentOf.delete(item.id);
+    place(el, parentId);
+    const wasWaiting = el.classList.contains('status-awaiting_permission');
+    const open = [...ownDetails(el)].map((d) => d.open);
     el.textContent = '';
     switch (item.kind) {
       case 'user': renderUser(el, item); break;
       case 'assistant': renderAssistant(el, item); break;
-      case 'tool': renderTool(el, item); break;
+      case 'tool': if (isAgentCall(item)) renderAgent(el, item); else renderTool(el, item); break;
       case 'result': renderResult(el, item); break;
       case 'notice': el.className = 'msg notice' + (item.isError ? ' error' : ''); el.textContent = item.text; break;
     }
-    el.querySelectorAll('details').forEach((d, i) => { if (open[i] !== undefined) d.open = open[i]; });
+    ownDetails(el).forEach((d, i) => { if (open[i] !== undefined) d.open = open[i]; });
+    // A subagent that starts waiting for an answer opens its card (and the cards around it), once.
+    if (item.kind === 'tool' && item.status === 'awaiting_permission' && !wasWaiting) {
+      for (let p = parentId; p; p = parentOf.get(p)) expandAgent(p);
+    }
     if (atBottom) log.scrollTop = log.scrollHeight;
   }
 
@@ -128,14 +177,19 @@
     if (item.text) el.append(document.createTextNode(item.text)); // plain text only
   }
 
-  function renderAssistant(el, item) {
-    el.className = 'msg assistant';
+  // Model markdown into el: parsed, sanitized, with images as markers until the IDE resolves them.
+  function renderMarkdown(el, text, streaming) {
     imgSlots = [];
     let html, slots;
-    try { html = marked.parse(item.text || ''); } finally { slots = imgSlots; imgSlots = null; }
+    try { html = marked.parse(text || ''); } finally { slots = imgSlots; imgSlots = null; }
     el.innerHTML = DOMPurify.sanitize(html, SANITIZE);
     const images = placeImages(el, slots);
-    if (!item.streaming) { linkify(el); resolveImages(images); }
+    if (!streaming) { linkify(el); resolveImages(images); }
+  }
+
+  function renderAssistant(el, item) {
+    el.className = 'msg assistant';
+    renderMarkdown(el, item.text, item.streaming);
   }
 
   // Replaces each image marker with its alt text in a trusted span; returns { span, href, alt } for each.
@@ -265,12 +319,13 @@
   const expandedTools = new Set();
   const STATUS_ICON = { done: '\u2713', error: '\u2717', denied: '\u2298' };
 
+  // A row and the details right after it: a tool row's .tool-detail, or an agent card's .agent-body.
   function setRowExpanded(row, open) {
     row.setAttribute('aria-expanded', open ? 'true' : 'false');
     const side = row.querySelector('.tool-toggle');
     if (side) side.textContent = open ? '\u25BE' : '\u25B8';
     const detail = row.nextElementSibling;
-    if (detail && detail.classList.contains('tool-detail')) detail.hidden = !open;
+    if (detail && (detail.classList.contains('tool-detail') || detail.classList.contains('agent-body'))) detail.hidden = !open;
   }
 
   function toggleRow(row) {
@@ -401,6 +456,71 @@
     if (details) el.append(details);
     if (t.status === 'awaiting_permission' && t.permissionRequestId) el.append(permissionCard(t));
     if (t.resultPreview) el.append(h('details', {}, h('summary', {}, 'Result'), h('pre', {}, clip(t.resultPreview))));
+  }
+
+  // running | done | failed: from the task events, else (an older CLI) from the call's own status.
+  function agentState(t) {
+    const s = t.agent && t.agent.state;
+    if (s === 'running' || s === 'done' || s === 'failed') return s;
+    if (t.status === 'done') return 'done';
+    return t.status === 'running' || t.status === 'awaiting_permission' ? 'running' : 'failed';
+  }
+
+  function agentSide(a, state) {
+    if (!a) return '';
+    const parts = [];
+    if (state === 'running' && typeof a.lastTool === 'string' && a.lastTool) parts.push(a.lastTool.slice(0, 40));
+    if (Number.isInteger(a.toolUses)) parts.push(a.toolUses + (a.toolUses === 1 ? ' tool' : ' tools'));
+    if (Number.isFinite(a.durationMs)) parts.push(Math.round(a.durationMs / 1000) + 's');
+    return parts.join(' \u00b7 ');
+  }
+
+  function reportNode(id, text) {
+    const cached = reports.get(id);
+    if (cached && cached.text === text) return cached.node;
+    const node = h('div');
+    renderMarkdown(node, text, false);
+    reports.set(id, { text, node });
+    return node;
+  }
+
+  function renderAgent(el, t) {
+    const a = t.agent && typeof t.agent === 'object' ? t.agent : null;
+    const state = agentState(t);
+    el.className = 'msg agent agent-' + state;
+    const desc = toolDescription(t);
+    const head = h('div', { class: 'tool-row agent-head', role: 'button', tabindex: '0', 'data-id': t.id },
+      h('span', { class: 'tool-icon' }, state === 'running' ? h('span', { class: 'spin' }) : STATUS_ICON[state === 'failed' ? 'error' : state]),
+      h('span', { class: 'tool-name' }, t.name),
+      h('span', { class: 'tool-desc', title: desc || null }, desc),
+      a && typeof a.subagentType === 'string' && a.subagentType ? h('span', { class: 'agent-tag' }, a.subagentType.slice(0, 40)) : null,
+      a && a.background === true ? h('span', { class: 'agent-tag' }, 'background') : null,
+      h('span', { class: 'tool-side' }, agentSide(a, state), ' ', h('span', { class: 'tool-toggle' })));
+    const body = h('div', { class: 'agent-body' });
+    if (a && typeof a.prompt === 'string' && a.prompt) body.append(h('details', {}, h('summary', {}, 'Prompt'), h('pre', {}, clip(a.prompt))));
+    const box = childBox(t.id);
+    body.append(box);
+    if (a && typeof a.report === 'string' && a.report) {
+      body.append(h('div', { class: 'agent-report' }, h('div', { class: 'tool-label' }, 'Report'), reportNode(t.id, a.report)));
+    } else if (!a && t.resultPreview) {
+      // An older CLI sends no report; the call's result is the best there is.
+      body.append(h('details', {}, h('summary', {}, 'Result'), h('pre', {}, clip(t.resultPreview))));
+    }
+    el.append(head, body);
+    setRowExpanded(head, expandedTools.has(t.id));
+    if (t.status === 'awaiting_permission' && t.permissionRequestId) el.append(permissionCard(t));
+    const waiting = waitingFor.get(t.id);
+    if (waiting) {
+      waitingFor.delete(t.id);
+      waiting.forEach((c) => { waitingOn.delete(c); box.appendChild(c); });
+    }
+  }
+
+  function expandAgent(id) {
+    expandedTools.add(id);
+    const el = items.get(id);
+    const head = el && el.querySelector(':scope > .agent-head');
+    if (head) setRowExpanded(head, true);
   }
 
   function renderResult(el, r) {
