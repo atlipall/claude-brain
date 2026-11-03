@@ -8,9 +8,12 @@
     and tells Claude about files you edited between turns.
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationConfigurable parentId="tools" id="claudechat.settings" displayName="Claude Chat"
                                  instance="claudechat.settings.ClaudeChatConfigurable"/>
+        <toolWindow id="Claude Chat" anchor="right" icon="AllIcons.Toolwindows.ToolWindowMessages"
+                    factoryClass="claudechat.ui.ChatToolWindowFactory"/>
     </extensions>
 </idea-plugin>

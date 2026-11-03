@@ -22,6 +22,7 @@ repositories {
 dependencies {
     intellijPlatform {
         local("/Applications/WebStorm.app")
+        bundledPlugin("com.intellij.modules.jcef")
         testFramework(TestFrameworkType.Platform)
     }
     testImplementation("junit:junit:4.13.2")
