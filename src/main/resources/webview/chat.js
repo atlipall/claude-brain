@@ -16,6 +16,7 @@
   const usageEl = document.getElementById('usage');
   const usageRing = document.getElementById('usage-ring');
   const usagePct = document.getElementById('usage-pct');
+  const queueEl = document.getElementById('queue');
   const attachEl = document.getElementById('attachments');
   const attachBtn = document.getElementById('attach');
   const pending = new Map(); // attachment id -> { el, ready }
@@ -88,6 +89,7 @@
         case 'usage': setUsage(msg); break;
         case 'attachment': setAttachment(msg); break;
         case 'suggestion': setSuggestion(msg.text); break;
+        case 'queue': setQueue(msg.items); break;
       }
     }
   };
@@ -126,6 +128,27 @@
     const images = Array.isArray(item.images) ? item.images : [];
     if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
     if (item.text) el.append(document.createTextNode(item.text)); // plain text only
+  }
+
+  // Messages sent while Claude works wait here, under the log, until their turn starts; then they enter the log.
+  function setQueue(list) {
+    const queued = Array.isArray(list) ? list : [];
+    queueEl.textContent = '';
+    for (const m of queued) {
+      if (!m || typeof m.id !== 'string') continue;
+      const images = Array.isArray(m.images) ? m.images : [];
+      const el = h('div');
+      renderUser(el, m);
+      el.classList.add('queued');
+      el.prepend(h('div', { class: 'queued-bar' },
+          h('span', { class: 'queued-label' }, 'Queued'),
+          h('button', { class: 'link', 'data-action': 'queueSendNow', 'data-id': m.id, title: 'Stop Claude and send this now' }, 'Send now'),
+          // the images could not go back to the tray, so only a text message can be edited
+          images.length ? null : h('button', { class: 'link', 'data-action': 'queueEdit', 'data-id': m.id, title: 'Move back into the message box' }, 'Edit'),
+          h('button', { class: 'link', 'data-action': 'queueRemove', 'data-id': m.id, title: 'Don’t send this' }, 'Remove')));
+      queueEl.append(el);
+    }
+    queueEl.hidden = !queueEl.childElementCount;
   }
 
   function renderAssistant(el, item) {
@@ -701,6 +724,7 @@
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
     else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
+    else if (action === 'queueSendNow' || action === 'queueEdit' || action === 'queueRemove') send({ type: action, id: b.dataset.id });
     else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });
     else if (action === 'deny') {
       const reason = b.parentElement.querySelector('.deny-reason').value.trim();

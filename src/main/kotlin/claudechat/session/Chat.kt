@@ -30,6 +30,9 @@ interface SessionView {
 
     /** A predicted next prompt for the empty message box, valid until the next state other than IDLE. */
     fun suggestion(text: String) {}
+
+    /** The messages waiting for the running turn to end, oldest first; empty hides them. */
+    fun queue(messages: List<QueuedMessage>) {}
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -89,6 +92,8 @@ class Chat(
     @Volatile private var contextUsage: ContextUsage? = null
     /** The latest prompt suggestion, kept while the session stays idle (replayed on attach). */
     @Volatile private var suggestion: String? = null
+    /** The session's queued messages (replayed on attach). */
+    @Volatile private var queued: List<QueuedMessage> = emptyList()
 
     private val activityLock = Any()
     private var sessionActivity: Activity? = null
@@ -121,6 +126,17 @@ class Chat(
         override fun onSuggestion(text: String) {
             suggestion = text
             view?.suggestion(text)
+        }
+
+        override fun onQueue(messages: List<QueuedMessage>) {
+            queued = messages
+            view?.queue(messages)
+        }
+
+        /** Their text goes back into the message box, so a stopped turn loses nothing the user typed (images aside). */
+        override fun onDropped(messages: List<QueuedMessage>) {
+            val text = messages.map { it.text }.filter { it.isNotBlank() }.joinToString("\n\n")
+            if (text.isNotEmpty()) insert(text)
         }
 
         override fun onItem(item: ChatItem) {
@@ -170,6 +186,7 @@ class Chat(
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         contextUsage?.let(view::context)
         suggestion?.let(view::suggestion)
+        queued.takeIf { it.isNotEmpty() }?.let(view::queue)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)
     }
 
@@ -291,6 +308,11 @@ class Chat(
             message.images.map { it.image },
             message.images.map { it.thumb },
         )
+    }
+
+    /** Puts queued message [id] back into the message box instead of sending it. */
+    fun editQueued(id: String) {
+        session.unqueue(id)?.text?.takeIf { it.isNotBlank() }?.let(::insert)
     }
 
     /** Stops the turn, and drops messages still waiting for their editor context. EDT only. */

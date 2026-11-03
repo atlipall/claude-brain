@@ -44,6 +44,8 @@ class ChatsTest : BasePlatformTestCase() {
         override fun activity(activity: Activity?) { activities += activity }
         val suggestions = mutableListOf<String>()
         override fun suggestion(text: String) { suggestions += text }
+        val queues = mutableListOf<List<QueuedMessage>>()
+        override fun queue(messages: List<QueuedMessage>) { queues += messages }
     }
 
     private val settings get() = ClaudeChatSettings.getInstance().state
@@ -414,6 +416,22 @@ class ChatsTest : BasePlatformTestCase() {
         assertTrue(connections.single().userMessages().isEmpty())
     }
 
+    fun testQueuedMessagesAreReplayedAndGoBackToTheBoxOnEditOrStop() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("go")
+        chat.send("second")
+        chat.send("third")
+        chat.send("fourth")
+        val view = RecordingView().also(chat::attach)
+        assertEquals(listOf("second", "third", "fourth"), view.queues.single().map { it.text })
+        chat.editQueued(view.queues.last()[1].id)
+        assertEquals(listOf("third"), view.inserted)
+        assertEquals(listOf("second", "fourth"), view.queues.last().map { it.text })
+        chat.interrupt()
+        assertEquals(listOf("third", "second\n\nfourth"), view.inserted)
+        assertTrue(view.queues.last().isEmpty())
+    }
+
     fun testActivityIsReplayedOnAttach() {
         val chat = chats.open(ChatSpec.inProject(root))
         chat.send("go")
@@ -504,12 +522,16 @@ class ChatsTest : BasePlatformTestCase() {
         assertTrue(view.items.none { it is ChatItem.UserText })
         release.countDown()
         fun texts() = view.items.filterIsInstance<ChatItem.UserText>().map { it.text }
-        PlatformTestUtil.waitWithEventsDispatching("Not all sent: ${texts()}", { texts().size >= 3 }, 10)
-        assertEquals(listOf("first", "second", "third"), texts()) // one claude turn at a time: the rest queue in the session
+        fun queued() = view.queues.lastOrNull().orEmpty().map { it.text }
+        PlatformTestUtil.waitWithEventsDispatching("Not all sent", { queued().size >= 2 }, 10)
+        assertEquals(listOf("first"), texts()) // one claude turn at a time: the rest queue in the session
+        assertEquals(listOf("second", "third"), queued())
         assertEquals(listOf(inTotal + "first"), connections.single().userMessages())
         connections.single().emit(Fx.result())
         awaitMessages(connections.single(), 2)
         assertTrue(connections.single().userMessages()[1].endsWith("second"))
+        assertEquals(listOf("first", "second"), texts())
+        assertEquals(listOf("third"), queued())
     }
 
     fun testClosingTheChatWhileASendWaitsSendsNothingAndThrowsNothing() {
