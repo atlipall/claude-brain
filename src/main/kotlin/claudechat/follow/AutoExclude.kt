@@ -4,6 +4,7 @@ import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import java.util.concurrent.ConcurrentHashMap
@@ -48,7 +49,8 @@ object AutoExclude {
             )
             .addAction(NotificationAction.createSimpleExpiring("Include and restart") {
                 registry.setValue(withoutWorktrees(registry.asString()))
-                ApplicationManager.getApplication().restart()
+                // Outside the action: shutting down from inside it blames this plugin for other plugins' dispose errors.
+                ApplicationManager.getApplication().invokeLater { ApplicationManagerEx.getApplicationEx().restart(true) }
             })
             .addAction(NotificationAction.createSimpleExpiring("Not now") {})
             .notify(project)
