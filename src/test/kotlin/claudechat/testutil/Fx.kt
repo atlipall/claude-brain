@@ -31,6 +31,14 @@ object Fx {
     fun messageStart(msg: String) =
         """{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[]}},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"u2","api_message_id":"$msg"}"""
 
+    /** A message_start from inside a subagent (parent_tool_use_id set). */
+    fun subagentMessageStart(msg: String, parent: String) =
+        """{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[]}},"session_id":"sess-1","parent_tool_use_id":"$parent","uuid":"u2","api_message_id":"$msg"}"""
+
+    /** The CLI's list of background tasks (e.g. agents started with run_in_background) after it changed. */
+    fun backgroundTasks(vararg descriptions: String) =
+        """{"type":"system","subtype":"background_tasks_changed","tasks":[${descriptions.mapIndexed { i, d -> """{"task_id":"a$i","run_id":"r$i","task_type":"local_agent","subagent_type":"general-purpose","description":${q(d)}}""" }.joinToString(",")}],"uuid":"u13","session_id":"sess-1"}"""
+
     fun textDelta(msg: String, index: Int, text: String) =
         """{"type":"stream_event","event":{"type":"content_block_delta","index":$index,"delta":{"type":"text_delta","text":${q(text)}}},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"u3","api_message_id":"$msg"}"""
 

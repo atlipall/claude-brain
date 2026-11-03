@@ -79,9 +79,8 @@ class Chat(
     @Volatile var checkoutText: String = ""
         private set
 
-    /** True while a turn is running or waiting for the user. */
-    @Volatile var busy = false
-        private set
+    /** True while a turn is running or waiting for the user, or background agents are working. */
+    val busy: Boolean get() = synchronized(activityLock) { sessionActivity != null }
 
     /** Called on the CLI reader thread (or the EDT) when [busy] changes. */
     @Volatile var onBusyChanged: (() -> Unit)? = null
@@ -99,7 +98,8 @@ class Chat(
     /** Tells the view the activity if it changed: the session's, or Starting while a send waits for its context. */
     private fun publishActivity() {
         synchronized(activityLock) {
-            val now = sessionActivity ?: if (sendPending) Activity.Starting else null
+            val session = sessionActivity
+            val now = if (sendPending && (session == null || session is Activity.Agents)) Activity.Starting else session
             if (now == shownActivity) return
             shownActivity = now
             view?.activity(now)
@@ -108,8 +108,9 @@ class Chat(
 
     private val listener = object : ChatListener {
         override fun onActivity(activity: Activity?) {
-            synchronized(activityLock) { sessionActivity = activity }
+            val wasBusy = synchronized(activityLock) { (sessionActivity != null).also { sessionActivity = activity } }
             publishActivity()
+            if (wasBusy != (activity != null)) onBusyChanged?.invoke()
         }
 
         override fun onContext(usage: ContextUsage) {
@@ -129,12 +130,7 @@ class Chat(
         }
 
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
-            val nowBusy = state == SessionState.RUNNING || state == SessionState.AWAITING_PERMISSION
             if (state != SessionState.IDLE) suggestion = null
-            if (nowBusy != busy) {
-                busy = nowBusy
-                onBusyChanged?.invoke()
-            }
             view?.state(state, sessionId, mode)
             val now = cwd
             if (now != knownCwd) {

@@ -437,8 +437,19 @@
   }
 
   // The strip above the input: phase and tool name come from the IDE, shown as text only; the seconds are counted here.
-  const PHASE_LABEL = { starting: 'Starting…', thinking: 'Thinking…', writing: 'Writing…', waiting: 'Waiting for your answer' };
-  let activityKey = null;
+  const PHASE_LABEL = {
+    starting: () => 'Starting…',
+    thinking: () => 'Thinking…',
+    running: (msg) => 'Running ' + (typeof msg.tool === 'string' ? msg.tool.slice(0, 40) : 'tool') + '…',
+    writing: () => 'Writing…',
+    waiting: () => 'Waiting for your answer',
+    agents: (msg) => {
+      const n = Number.isInteger(msg.count) && msg.count > 0 ? msg.count : 1;
+      return n === 1 ? '1 background agent working…' : n + ' background agents working…';
+    },
+  };
+  let activityPhase = null;
+  let activityLabelText = null;
   let activityStart = 0;
   let activityTimer = null;
 
@@ -451,23 +462,27 @@
   }
 
   function setActivity(msg) {
-    const phase = typeof msg.phase === 'string' && (msg.phase === 'running' || Object.prototype.hasOwnProperty.call(PHASE_LABEL, msg.phase)) ? msg.phase : null;
+    const phase = typeof msg.phase === 'string' && Object.prototype.hasOwnProperty.call(PHASE_LABEL, msg.phase) ? msg.phase : null;
     if (!phase) {
-      activityKey = null;
+      activityPhase = activityLabelText = null;
       stopActivityTimer();
       activityEl.hidden = true;
       return;
     }
-    const tool = phase === 'running' ? (typeof msg.tool === 'string' ? msg.tool.slice(0, 40) : 'tool') : '';
-    const key = phase + ':' + tool;
-    if (key === activityKey && !activityEl.hidden) return;
-    activityKey = key;
-    activityLabel.textContent = phase === 'running' ? 'Running ' + tool + '…' : PHASE_LABEL[phase];
+    const label = PHASE_LABEL[phase](msg);
+    if (phase === activityPhase && label === activityLabelText) return;
+    // When one of several background agents finishes, only the count changes: the clock keeps going.
+    const keepTimer = phase === 'agents' && activityPhase === 'agents';
+    activityPhase = phase;
+    activityLabelText = label;
+    activityLabel.textContent = label;
+    activityStop.hidden = phase === 'agents'; // no turn to interrupt
     const waiting = phase === 'waiting';
     activityDots.hidden = waiting;
     activityLabel.classList.toggle('shimmer', !waiting);
     activitySecs.hidden = waiting;
     activityEl.hidden = false;
+    if (keepTimer) return;
     stopActivityTimer();
     if (!waiting) {
       activityStart = Date.now();

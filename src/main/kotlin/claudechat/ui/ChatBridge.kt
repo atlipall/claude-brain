@@ -355,7 +355,7 @@ class ChatBridge(
         /** Longest tool name shown in the strip. */
         const val MAX_TOOL_NAME = 40
 
-        /** `{type:"activity", phase, tool?}`; a null phase hides the strip. The tool name is cleaned like the editor-context names. */
+        /** `{type:"activity", phase, tool?, count?}`; a null phase hides the strip. The tool name is cleaned like the editor-context names. */
         fun activityMessage(activity: Activity?): String = buildJsonObject {
             put("type", "activity")
             put("phase", when (activity) {
@@ -365,7 +365,9 @@ class ChatBridge(
                 is Activity.Running -> "running"
                 Activity.Writing -> "writing"
                 Activity.Waiting -> "waiting"
+                is Activity.Agents -> "agents"
             })
+            if (activity is Activity.Agents) put("count", activity.count)
             if (activity is Activity.Running) put("tool", ContextNotes.clean(activity.tool, MAX_TOOL_NAME).ifEmpty { "tool" })
         }.toString()
 

@@ -25,6 +25,8 @@ sealed interface Activity {
     data object Writing : Activity
     /** A permission request or question is open. */
     data object Waiting : Activity
+    /** No turn is running, but [count] background agents are still working. */
+    data class Agents(val count: Int) : Activity
 }
 
 /** Called while the session lock is held: do not call back into the session synchronously. */
@@ -32,7 +34,7 @@ interface ChatListener {
     fun onItem(item: ChatItem)
     fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?)
 
-    /** The turn's activity, reported only when it changes; null when no turn is running. */
+    /** The turn's activity, reported only when it changes; null when nothing is running (no turn, no background agent). */
     fun onActivity(activity: Activity?) {}
 
     /** How full the context window is (the latest report). */
@@ -110,6 +112,8 @@ class ChatSession(
     /** The phase of the running turn, null between turns; [Activity.Waiting] is derived from the open requests. */
     private var phase: Activity? = null
     private var reported: Activity? = null
+    /** Background tasks the CLI reports running; they outlive the turn that started them. */
+    private var backgroundTasks = 0
 
     fun start() {
         synchronized(lock) {
@@ -154,8 +158,7 @@ class ChatSession(
             val line = CliMessages.userContent(payload, images)
             if (state == SessionState.IDLE) {
                 connection?.send(line)
-                phase = Activity.Starting
-                setState(SessionState.RUNNING)
+                beginRunning(Activity.Starting)
                 reportActivity()
             } else {
                 queue.addLast(line)
@@ -189,8 +192,7 @@ class ChatSession(
             val status = if (decision is PermissionDecision.Deny) ToolStatus.DENIED else ToolStatus.RUNNING
             toolCalls[toolId]?.let { upsertTool(it.copy(status = status, permissionRequestId = null)) }
             if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) {
-                phase = if (decision is PermissionDecision.Deny) Activity.Thinking else Activity.Running(req.toolName)
-                setState(SessionState.RUNNING)
+                beginRunning(if (decision is PermissionDecision.Deny) Activity.Thinking else Activity.Running(req.toolName))
             }
             reportActivity()
         }
@@ -211,8 +213,7 @@ class ChatSession(
             connection?.send(CliMessages.allow(requestId, Questions.withAnswers(req.input, texts)))
             toolCalls[toolId]?.let { upsertTool(it.copy(status = ToolStatus.RUNNING, permissionRequestId = null, question = card.copy(answers = texts))) }
             if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) {
-                phase = Activity.Thinking
-                setState(SessionState.RUNNING)
+                beginRunning(Activity.Thinking)
             }
             reportActivity()
             return true
@@ -320,6 +321,13 @@ class ChatSession(
                 phase = Activity.Writing
                 reportActivity()
             }
+            is CliEvent.MessageStart ->
+                // The CLI starts a turn by itself, e.g. to read a finished background agent's report.
+                if (state == SessionState.IDLE) {
+                    beginRunning(Activity.Thinking)
+                    reportActivity()
+                }
+            is CliEvent.BackgroundTasks -> { backgroundTasks = event.count; reportActivity() }
             is CliEvent.ThinkingStart -> { phase = Activity.Thinking; reportActivity() }
             is CliEvent.BlockStop -> streamed.remove("${event.messageId}:${event.index}")?.let { emit(it.copy(streaming = false)) }
             is CliEvent.AssistantText ->
@@ -418,8 +426,7 @@ class ChatSession(
         val next = queue.removeFirstOrNull()
         if (next != null) {
             connection?.send(next)
-            phase = Activity.Starting
-            setState(SessionState.RUNNING)
+            beginRunning(Activity.Starting)
         } else {
             setState(SessionState.IDLE)
         }
@@ -440,6 +447,7 @@ class ChatSession(
         pendingPermissions.clear()
         runningTools.clear()
         queue.clear()
+        backgroundTasks = 0
         phase = null
         val detail = stderrTail.trim().takeLast(2000)
         val text = if (detail.isEmpty()) "Claude exited (code $code)." else "Claude exited (code $code).\n$detail"
@@ -460,11 +468,13 @@ class ChatSession(
     private fun upsertTool(tool: ChatItem.ToolCall) { toolCalls[tool.id] = tool; emit(tool) }
     private fun emit(item: ChatItem) = listener.onItem(item)
     private fun setState(newState: SessionState) { state = newState; notifyState() }
+    /** Enters RUNNING with [phase] set first: a running session always has an activity (Chat.busy relies on it). */
+    private fun beginRunning(phase: Activity) { this.phase = phase; setState(SessionState.RUNNING) }
     /** Tells the listener the current activity if it differs from the last one told. */
     private fun reportActivity() {
         val now = if (state == SessionState.RUNNING || state == SessionState.AWAITING_PERMISSION) {
             if (pendingPermissions.isNotEmpty()) Activity.Waiting else phase
-        } else null
+        } else if (state == SessionState.IDLE && backgroundTasks > 0) Activity.Agents(backgroundTasks) else null
         if (now == reported) return
         reported = now
         listener.onActivity(now)

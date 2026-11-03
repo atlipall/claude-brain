@@ -91,6 +91,36 @@ class ChatSessionTest {
         assertNull(listener.activities.last())
     }
 
+    @Test fun backgroundAgentsKeepTheActivityAfterTheTurnEnds() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.toolUse("m1", "t1", "Agent", "{}"), Fx.backgroundTasks("Count"), Fx.toolResult("t1", "started"))
+        conn.emit(Fx.result())
+        assertEquals(SessionState.IDLE, s.state)
+        assertEquals(Activity.Agents(1), listener.activities.last())
+        conn.emit(Fx.backgroundTasks())
+        assertNull(listener.activities.last())
+    }
+
+    @Test fun aTurnTheCliStartsByItselfShowsAsRunning() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.result())
+        conn.emit(Fx.messageStart("m2")) // e.g. a background agent finished and Claude reads its report
+        assertEquals(SessionState.RUNNING, s.state)
+        assertEquals(Activity.Thinking, listener.activities.last())
+        s.send("queued meanwhile")
+        assertEquals(1, conn.userMessages().size)
+        conn.emit(Fx.result())
+        assertEquals(2, conn.userMessages().size)
+    }
+
+    @Test fun aSubagentMessageDoesNotStartATurn() {
+        val s = session()
+        conn.emit(Fx.subagentMessageStart("m2", "t1"))
+        assertEquals(SessionState.IDLE, s.state)
+    }
+
     // --- lifecycle and turns ---
 
     @Test fun startSendsInitializeAndIsIdle() {

@@ -24,7 +24,7 @@ class CliParserTest {
     @Test fun otherSystemMessagesAreIgnored() {
         assertEquals(CliEvent.Ignored("system/hook_started"), one(Fx.hookStarted()))
         assertEquals(CliEvent.Ignored("rate_limit_event"), one(Fx.rateLimit()))
-        assertEquals(CliEvent.Ignored("stream_event/message_start"), one(Fx.messageStart("m1")))
+        assertEquals(CliEvent.Ignored("stream_event/message_start"), one(Fx.subagentMessageStart("m1", "toolu_1")))
     }
 
     @Test fun promptSuggestion() {
@@ -35,6 +35,15 @@ class CliParserTest {
     @Test fun textDeltaAndBlockStop() {
         assertEquals(CliEvent.TextDelta("m1", 1, "DO"), one(Fx.textDelta("m1", 1, "DO")))
         assertEquals(CliEvent.BlockStop("m1", 1), one(Fx.blockStop("m1", 1)))
+    }
+
+    @Test fun aTopLevelMessageStartIsParsed() {
+        assertEquals(CliEvent.MessageStart("m1"), one(Fx.messageStart("m1")))
+    }
+
+    @Test fun backgroundTasksAreCounted() {
+        assertEquals(CliEvent.BackgroundTasks(2), one(Fx.backgroundTasks("Count", "Search")))
+        assertEquals(CliEvent.BackgroundTasks(0), one(Fx.backgroundTasks()))
     }
 
     @Test fun thinkingStartIsParsedAndItsDeltasAreIgnored() {

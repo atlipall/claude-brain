@@ -131,6 +131,12 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals("tool", parseJsonObject(ChatBridge.activityMessage(claudechat.session.Activity.Running("  ")))!!.str("tool"))
     }
 
+    fun testAgentsActivityMessage() {
+        val msg = parseJsonObject(ChatBridge.activityMessage(claudechat.session.Activity.Agents(2)))!!
+        assertEquals("agents", msg.str("phase"))
+        assertEquals("2", msg["count"].toString())
+    }
+
     fun testUsageMessage() {
         val usage = claudechat.cli.ContextUsage(76000, 200000, 38, 83, listOf(
             claudechat.cli.ContextCategory("Messages", 52000),
