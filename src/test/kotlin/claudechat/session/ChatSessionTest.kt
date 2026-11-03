@@ -521,6 +521,30 @@ class ChatSessionTest {
         assertFalse(s.answer("q1", blue()))
     }
 
+    @Test fun rejectedAnswerPostsNoticeAndReemitsPendingItem() {
+        val s = session()
+        s.send("x")
+        ask()
+        val items = listener.items.size
+        assertFalse(s.answer("q1", mapOf("Which colour do you prefer?" to QuestionAnswer(listOf("Purple"), null))))
+        val added = listener.items.drop(items)
+        assertEquals(2, added.size)
+        assertTrue((added[0] as ChatItem.Notice).isError)
+        assertEquals("Couldn't send the answer \u2014 please try again or Skip.", (added[0] as ChatItem.Notice).text)
+        val tool = added[1] as ChatItem.ToolCall
+        assertEquals(ToolStatus.AWAITING_PERMISSION, tool.status)
+        assertEquals("q1", tool.permissionRequestId)
+    }
+
+    @Test fun malformedQuestionResultShowsDenied() {
+        val s = session()
+        s.send("x")
+        val bad = """{"questions":[{"question":"Q?","header":"H","options":[],"multiSelect":false}]}"""
+        conn.emit(Fx.toolUse("m1", "tq1", "AskUserQuestion", bad), Fx.askQuestion("q1", "tq1", bad))
+        conn.emit(Fx.toolResult("tq1", "The question was malformed.", isError = true))
+        assertEquals(ToolStatus.DENIED, listener.latest<ChatItem.ToolCall>().status)
+    }
+
     @Test fun malformedQuestionIsDeniedWithANotice() {
         val s = session()
         s.send("x")

@@ -134,7 +134,7 @@ class ChatBridge(
             }
             "answer" -> {
                 val requestId = msg.str("requestId") ?: return
-                val answers = questionAnswers(msg["answers"]) ?: return
+                val answers = questionAnswers(msg["answers"]) ?: return session.answerFailed(requestId)
                 session.answer(requestId, answers)
             }
             "skipQuestion" -> {

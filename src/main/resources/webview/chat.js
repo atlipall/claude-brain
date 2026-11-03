@@ -275,7 +275,7 @@
     });
     submitBtn.addEventListener('click', () => {
       if (submitBtn.hasAttribute('disabled') || !picks.every((_, i) => answered(i))) return;
-      const answers = {};
+      const answers = Object.create(null); // keeps a question text like __proto__ as an ordinary key
       qs.forEach((q, i) => {
         const other = picks[i].other.trim();
         answers[q.question] = { labels: q.options.map((o) => o.label).filter((l) => picks[i].labels.has(l)), other: other || null };

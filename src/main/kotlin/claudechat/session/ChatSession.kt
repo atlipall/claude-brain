@@ -161,12 +161,22 @@ class ChatSession(
             val req = pendingPermissions[requestId]?.takeIf { it.toolName == ASK_USER_QUESTION } ?: return false
             val toolId = req.toolUseId ?: "perm-$requestId"
             val card = toolCalls[toolId]?.question ?: return false
-            val texts = Questions.answerTexts(card.questions, answers) ?: return false
+            val texts = Questions.answerTexts(card.questions, answers)
+            if (texts == null) { answerFailed(requestId); return false }
             pendingPermissions.remove(requestId)
             connection?.send(CliMessages.allow(requestId, Questions.withAnswers(req.input, texts)))
             toolCalls[toolId]?.let { upsertTool(it.copy(status = ToolStatus.RUNNING, permissionRequestId = null, question = card.copy(answers = texts))) }
             if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) setState(SessionState.RUNNING)
             return true
+        }
+    }
+
+    /** Tells the user an answer was refused and re-sends the pending question item so the page re-enables its Submit. */
+    fun answerFailed(requestId: String) {
+        synchronized(lock) {
+            val req = pendingPermissions[requestId]?.takeIf { it.toolName == ASK_USER_QUESTION } ?: return
+            emit(ChatItem.Notice(nextId("notice"), "Couldn't send the answer \u2014 please try again or Skip.", isError = true))
+            toolCalls[req.toolUseId ?: "perm-$requestId"]?.let { emit(it) }
         }
     }
 
@@ -268,6 +278,7 @@ class ChatSession(
         val questions = if (isQuestion) Questions.parse(event.input) else null
         if (isQuestion && questions == null) {
             connection?.send(CliMessages.deny(event.requestId, "The question was malformed."))
+            deniedToolUses += event.toolUseId ?: "perm-${event.requestId}"
             emit(ChatItem.Notice(nextId("notice"), "Claude asked a question that could not be shown.", isError = true))
             return
         }

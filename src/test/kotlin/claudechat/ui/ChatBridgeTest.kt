@@ -538,6 +538,13 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(before, connections[0].sent.size)
     }
 
+    fun testMalformedAnswerShapeReemitsPendingQuestion() {
+        askTwo()
+        bridge.handle("""{"type":"answer","requestId":"q1","answers":[]}""")
+        assertTrue(posted.any { it.obj("item")?.str("kind") == "notice" })
+        assertEquals("awaiting_permission", posted.last { it.str("type") == "item" }.obj("item")!!.str("status"))
+    }
+
     fun testAnswerForAnOrdinaryPermissionRequestIsRejected() {
         bridge.handle("""{"type":"ready"}""")
         bridge.handle("""{"type":"send","text":"x"}""")
