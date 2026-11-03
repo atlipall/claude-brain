@@ -230,6 +230,69 @@
       h('button', { 'data-action': 'deny', 'data-req': id }, 'Deny'));
   }
 
+  // Claude's question (AskUserQuestion). Every string here is model text and goes in through h() children, which are
+  // text nodes; the controls are page-created, so only they can send an answer.
+  function questionCard(t) {
+    const id = t.permissionRequestId;
+    const qs = t.question.questions;
+    const picks = qs.map(() => ({ labels: new Set(), other: '' }));
+    const submitBtn = h('button', { class: 'q-submit', disabled: true }, 'Submit');
+    const answered = (i) => picks[i].labels.size > 0 || picks[i].other.trim() !== '';
+    const refresh = () => { if (picks.every((_, i) => answered(i))) submitBtn.removeAttribute('disabled'); else submitBtn.setAttribute('disabled', ''); };
+    const blocks = qs.map((q, i) => {
+      const multi = q.multiSelect === true;
+      const preview = h('pre', { class: 'q-preview', hidden: true });
+      const showPreview = (o) => { preview.textContent = o.preview ? clip(o.preview) : ''; preview.hidden = !o.preview; };
+      const other = h('input', { class: 'q-other', placeholder: 'Other…', maxlength: 2000 });
+      const buttons = [];
+      const paint = () => buttons.forEach(({ b, label }) => b.setAttribute('aria-checked', picks[i].labels.has(label) ? 'true' : 'false'));
+      for (const o of q.options) {
+        const b = h('button', { type: 'button', class: 'q-opt', role: multi ? 'checkbox' : 'radio', 'aria-checked': 'false' },
+          h('span', { class: 'q-label' }, o.label),
+          o.description ? h('span', { class: 'q-desc' }, o.description) : null);
+        buttons.push({ b, label: o.label });
+        b.addEventListener('focus', () => showPreview(o));
+        b.addEventListener('mouseenter', () => showPreview(o));
+        b.addEventListener('click', () => {
+          const set = picks[i].labels;
+          if (multi) { if (set.has(o.label)) set.delete(o.label); else set.add(o.label); }
+          else { set.clear(); set.add(o.label); picks[i].other = ''; other.value = ''; }
+          showPreview(o);
+          paint();
+          refresh();
+        });
+      }
+      other.addEventListener('input', () => {
+        picks[i].other = other.value;
+        if (!multi && other.value.trim() !== '') { picks[i].labels.clear(); paint(); }
+        refresh();
+      });
+      return h('div', { class: 'q-block' },
+        q.header ? h('div', { class: 'q-header' }, q.header) : null,
+        h('div', { class: 'q-text' }, q.question),
+        h('div', { class: 'q-options', role: multi ? 'group' : 'radiogroup' }, ...buttons.map((x) => x.b)),
+        other, preview);
+    });
+    submitBtn.addEventListener('click', () => {
+      if (submitBtn.hasAttribute('disabled') || !picks.every((_, i) => answered(i))) return;
+      const answers = {};
+      qs.forEach((q, i) => {
+        const other = picks[i].other.trim();
+        answers[q.question] = { labels: q.options.map((o) => o.label).filter((l) => picks[i].labels.has(l)), other: other || null };
+      });
+      submitBtn.setAttribute('disabled', '');
+      send({ type: 'answer', requestId: id, answers });
+    });
+    return h('div', { class: 'question' }, ...blocks,
+      h('div', { class: 'perm' }, submitBtn, h('button', { 'data-action': 'skipQuestion', 'data-req': id }, 'Skip')));
+  }
+
+  function answerSummary(q) {
+    const answers = q.answers || {};
+    return h('div', { class: 'q-answers' }, ...q.questions.map((x) =>
+      h('div', {}, (x.header || x.question) + ': ' + (answers[x.question] !== undefined ? answers[x.question] : ''))));
+  }
+
   function renderTool(el, t) {
     el.className = 'msg tool status-' + t.status;
     const head = h('div', { class: 'tool-head' }, h('span', { class: 'tool-name' }, t.name));
@@ -240,6 +303,12 @@
     el.append(head);
     const images = Array.isArray(t.images) ? t.images : [];
     if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
+    if (t.question && t.question.questions) {
+      if (t.status === 'awaiting_permission' && t.permissionRequestId) el.append(questionCard(t));
+      else if (t.question.answers) el.append(answerSummary(t.question));
+      else el.append(h('div', { class: 'q-answers' }, 'Skipped'));
+      return;
+    }
     const details = inputDetails(t);
     if (details) el.append(details);
     if (t.status === 'awaiting_permission' && t.permissionRequestId) el.append(permissionCard(t));
@@ -464,6 +533,7 @@
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
     else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
+    else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });
     else if (action === 'deny') {
       const reason = b.parentElement.querySelector('.deny-reason').value.trim();
       send({ type: 'permission', requestId: b.dataset.req, decision: 'deny', message: reason || 'The user denied this action.' });

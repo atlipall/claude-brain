@@ -14,6 +14,7 @@ import claudechat.image.Uploads
 import claudechat.session.Chat
 import claudechat.session.ChatItem
 import claudechat.session.PermissionDecision
+import claudechat.session.QuestionAnswer
 import claudechat.session.PromptHistory
 import claudechat.session.SessionState
 import claudechat.session.SessionView
@@ -29,6 +30,7 @@ import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -129,6 +131,15 @@ class ChatBridge(
                     else -> PermissionDecision.Deny(msg.str("message") ?: "The user denied this action.")
                 }
                 session.respond(requestId, decision)
+            }
+            "answer" -> {
+                val requestId = msg.str("requestId") ?: return
+                val answers = questionAnswers(msg["answers"]) ?: return
+                session.answer(requestId, answers)
+            }
+            "skipQuestion" -> {
+                val requestId = msg.str("requestId") ?: return
+                if (session.pendingQuestions(requestId) != null) session.respond(requestId, PermissionDecision.Deny("The user skipped the question."))
             }
             "setMode" -> PermissionMode.fromCli(msg.str("mode"))?.let(session::setPermissionMode)
             "interrupt" -> session.interrupt()
@@ -284,6 +295,22 @@ class ChatBridge(
         put("text", text)
         put("off", off)
     }.toString())
+
+    /** `{ "<question>": { "labels": [..], "other": ".." } }`, or null if the shape is wrong anywhere (the session checks the content). */
+    private fun questionAnswers(element: JsonElement?): Map<String, QuestionAnswer>? {
+        val map = element as? JsonObject ?: return null
+        val out = LinkedHashMap<String, QuestionAnswer>()
+        for ((question, value) in map) {
+            val a = value as? JsonObject ?: return null
+            val labelsRaw = a["labels"] as? JsonArray ?: return null
+            val labels = strings(labelsRaw)
+            if (labels.size != labelsRaw.size) return null
+            val otherRaw = a["other"]
+            if (otherRaw != null && otherRaw !is JsonNull && a.str("other") == null) return null
+            out[question] = QuestionAnswer(labels, a.str("other"))
+        }
+        return out
+    }
 
     private fun strings(element: JsonElement?): List<String> =
         (element as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }

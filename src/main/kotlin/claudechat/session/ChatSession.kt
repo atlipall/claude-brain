@@ -130,6 +130,9 @@ class ChatSession(
 
     fun respond(requestId: String, decision: PermissionDecision) {
         synchronized(lock) {
+            val pending = pendingPermissions[requestId] ?: return
+            // A question is answered with answer() or declined; it can't be allowed without answers.
+            if (pending.toolName == ASK_USER_QUESTION && decision !is PermissionDecision.Deny) return
             val req = pendingPermissions.remove(requestId) ?: return
             val toolId = req.toolUseId ?: "perm-$requestId"
             when (decision) {
@@ -147,6 +150,30 @@ class ChatSession(
             toolCalls[toolId]?.let { upsertTool(it.copy(status = status, permissionRequestId = null)) }
             if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) setState(SessionState.RUNNING)
         }
+    }
+
+    /**
+     * Answers a pending AskUserQuestion request. False (and nothing sent) when [requestId] is not a pending question
+     * or [answers] don't match its questions and options (see [Questions.answerTexts]).
+     */
+    fun answer(requestId: String, answers: Map<String, QuestionAnswer>): Boolean {
+        synchronized(lock) {
+            val req = pendingPermissions[requestId]?.takeIf { it.toolName == ASK_USER_QUESTION } ?: return false
+            val toolId = req.toolUseId ?: "perm-$requestId"
+            val card = toolCalls[toolId]?.question ?: return false
+            val texts = Questions.answerTexts(card.questions, answers) ?: return false
+            pendingPermissions.remove(requestId)
+            connection?.send(CliMessages.allow(requestId, Questions.withAnswers(req.input, texts)))
+            toolCalls[toolId]?.let { upsertTool(it.copy(status = ToolStatus.RUNNING, permissionRequestId = null, question = card.copy(answers = texts))) }
+            if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) setState(SessionState.RUNNING)
+            return true
+        }
+    }
+
+    /** The questions of the pending AskUserQuestion request [requestId], or null when there is none. */
+    fun pendingQuestions(requestId: String): List<Question>? = synchronized(lock) {
+        val req = pendingPermissions[requestId]?.takeIf { it.toolName == ASK_USER_QUESTION } ?: return null
+        toolCalls[req.toolUseId ?: "perm-$requestId"]?.question?.questions
     }
 
     fun setPermissionMode(newMode: PermissionMode) {
@@ -237,7 +264,14 @@ class ChatSession(
     }
 
     private fun onPermissionRequest(event: CliEvent.PermissionRequest) {
-        if (event.toolName in sessionAllowedTools) {
+        val isQuestion = event.toolName == ASK_USER_QUESTION
+        val questions = if (isQuestion) Questions.parse(event.input) else null
+        if (isQuestion && questions == null) {
+            connection?.send(CliMessages.deny(event.requestId, "The question was malformed."))
+            emit(ChatItem.Notice(nextId("notice"), "Claude asked a question that could not be shown.", isError = true))
+            return
+        }
+        if (!isQuestion && event.toolName in sessionAllowedTools) {
             connection?.send(CliMessages.allow(event.requestId, event.input))
             return
         }
@@ -245,7 +279,11 @@ class ChatSession(
         val id = event.toolUseId ?: "perm-${event.requestId}"
         val base = toolCalls[id]
             ?: ChatItem.ToolCall(id, event.toolName, event.input, filePathOf(event.input), ToolStatus.RUNNING, null, null, false)
-        upsertTool(base.copy(status = ToolStatus.AWAITING_PERMISSION, permissionRequestId = event.requestId))
+        upsertTool(base.copy(
+            status = ToolStatus.AWAITING_PERMISSION,
+            permissionRequestId = event.requestId,
+            question = questions?.let { QuestionCard(it) },
+        ))
         setState(SessionState.AWAITING_PERMISSION)
     }
 

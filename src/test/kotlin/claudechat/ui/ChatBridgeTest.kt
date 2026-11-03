@@ -1,5 +1,7 @@
 package claudechat.ui
 
+import kotlinx.serialization.json.jsonObject
+import claudechat.testutil.Fx
 import claudechat.cli.arr
 import claudechat.cli.bool
 import claudechat.cli.obj
@@ -454,5 +456,118 @@ class ChatBridgeTest : BasePlatformTestCase() {
         bridge.handle("""{"type":"resolveImages","reqId":1,"paths":["a.png"]}""")
         assertTrue(posted.isEmpty())
         assertEquals(1, tasks.size)
+    }
+
+    // --- answering Claude's questions ---
+
+    private fun askTwo() {
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"send","text":"ask"}""")
+        connections[0].emit(Fx.toolUse("m1", "tq", "AskUserQuestion", Fx.TWO_QUESTIONS), Fx.askQuestion("q1", "tq", Fx.TWO_QUESTIONS))
+    }
+
+    private fun answerMsg(requestId: String, answers: String) = """{"type":"answer","requestId":"$requestId","answers":$answers}"""
+    private val validAnswers = """{"Which colour?":{"labels":["Red"]},"Which extras?":{"labels":["A, B","C"],"other":"D"}}"""
+    private fun responses() = connections[0].sentJson().filter { it.str("type") == "control_response" }
+
+    fun testQuestionItemReachesThePage() {
+        askTwo()
+        val item = posted.last { it.str("type") == "item" }.obj("item")!!
+        assertEquals("awaiting_permission", item.str("status"))
+        val q = item.obj("question")!!.arr("questions")!!
+        assertEquals(2, q.size)
+        assertEquals("Extras", q[1].jsonObject.str("header"))
+        assertEquals(true, q[1].jsonObject.bool("multiSelect"))
+    }
+
+    fun testValidAnswerIsSentAsAllow() {
+        askTwo()
+        bridge.handle(answerMsg("q1", validAnswers))
+        val resp = responses().single().obj("response")!!.obj("response")!!
+        assertEquals("allow", resp.str("behavior"))
+        val answers = resp.obj("updatedInput")!!.obj("answers")!!
+        assertEquals("Red", answers.str("Which colour?"))
+        assertEquals("A, B, C, D", answers.str("Which extras?"))
+        assertEquals("running", posted.last { it.str("type") == "item" }.obj("item")!!.str("status"))
+    }
+
+    fun testFreeTextForSingleSelectIsAccepted() {
+        askTwo()
+        bridge.handle(answerMsg("q1", """{"Which colour?":{"labels":[],"other":"Teal"},"Which extras?":{"labels":["C"]}}"""))
+        assertEquals("Teal", responses().single().obj("response")!!.obj("response")!!.obj("updatedInput")!!.obj("answers")!!.str("Which colour?"))
+    }
+
+    private fun assertRejected(message: String) {
+        askTwo()
+        val before = connections[0].sent.size
+        bridge.handle(message)
+        assertEquals(before, connections[0].sent.size)
+        assertEquals("awaiting_permission", posted.last { it.str("type") == "item" }.obj("item")!!.str("status"))
+    }
+
+    fun testAnswerForUnknownRequestIsRejected() = assertRejected(answerMsg("zzz", validAnswers))
+
+    fun testAnswerWithWrongQuestionKeysIsRejected() {
+        assertRejected(answerMsg("q1", """{"Which colour?":{"labels":["Red"]},"Something else?":{"labels":["C"]}}"""))
+    }
+
+    fun testAnswerMissingAQuestionIsRejected() = assertRejected(answerMsg("q1", """{"Which colour?":{"labels":["Red"]}}"""))
+
+    fun testAnswerWithLabelNotInOptionsIsRejected() {
+        assertRejected(answerMsg("q1", """{"Which colour?":{"labels":["Purple"]},"Which extras?":{"labels":["C"]}}"""))
+    }
+
+    fun testSingleSelectWithTwoLabelsIsRejected() {
+        assertRejected(answerMsg("q1", """{"Which colour?":{"labels":["Red","Blue"]},"Which extras?":{"labels":["C"]}}"""))
+    }
+
+    fun testOversizeFreeTextIsRejected() {
+        val big = "x".repeat(2001)
+        assertRejected(answerMsg("q1", """{"Which colour?":{"labels":[],"other":"$big"},"Which extras?":{"labels":["C"]}}"""))
+    }
+
+    fun testMalformedAnswerShapesAreRejected() {
+        askTwo()
+        val before = connections[0].sent.size
+        bridge.handle("""{"type":"answer","requestId":"q1"}""")
+        bridge.handle(answerMsg("q1", "[]"))
+        bridge.handle(answerMsg("q1", """{"Which colour?":"Red","Which extras?":"C"}"""))
+        bridge.handle(answerMsg("q1", """{"Which colour?":{"labels":"Red"},"Which extras?":{"labels":["C"]}}"""))
+        bridge.handle(answerMsg("q1", """{"Which colour?":{"labels":[1]},"Which extras?":{"labels":["C"]}}"""))
+        bridge.handle(answerMsg("q1", """{"Which colour?":{"labels":["Red"],"other":5},"Which extras?":{"labels":["C"]}}"""))
+        assertEquals(before, connections[0].sent.size)
+    }
+
+    fun testAnswerForAnOrdinaryPermissionRequestIsRejected() {
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"send","text":"x"}""")
+        val input = """{"file_path":"/p/a.txt","content":"hi"}"""
+        connections[0].emit(Fx.toolUse("m1", "t1", "Write", input), Fx.canUseTool("r1", "t1", "Write", input))
+        bridge.handle(answerMsg("r1", "{}"))
+        assertTrue(responses().isEmpty())
+    }
+
+    fun testSkipDeniesTheQuestion() {
+        askTwo()
+        bridge.handle("""{"type":"skipQuestion","requestId":"q1"}""")
+        val resp = responses().single().obj("response")!!.obj("response")!!
+        assertEquals("deny", resp.str("behavior"))
+        assertEquals("The user skipped the question.", resp.str("message"))
+    }
+
+    fun testSkipOfAnOrdinaryPermissionRequestIsIgnored() {
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"send","text":"x"}""")
+        val input = """{"file_path":"/p/a.txt","content":"hi"}"""
+        connections[0].emit(Fx.toolUse("m1", "t1", "Write", input), Fx.canUseTool("r1", "t1", "Write", input))
+        bridge.handle("""{"type":"skipQuestion","requestId":"r1"}""")
+        assertTrue(responses().isEmpty())
+    }
+
+    fun testPermissionAllowCannotAnswerAQuestion() {
+        askTwo()
+        bridge.handle("""{"type":"permission","requestId":"q1","decision":"allow"}""")
+        bridge.handle("""{"type":"permission","requestId":"q1","decision":"allowSession"}""")
+        assertTrue(responses().isEmpty())
     }
 }

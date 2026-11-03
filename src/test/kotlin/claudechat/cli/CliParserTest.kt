@@ -1,5 +1,6 @@
 package claudechat.cli
 
+import kotlinx.serialization.json.jsonObject
 import claudechat.testutil.Fx
 import claudechat.testutil.TestImages
 import org.junit.Assert.assertEquals
@@ -49,6 +50,13 @@ class CliParserTest {
         assertEquals("Write", ev.toolName)
         assertEquals("t1", ev.toolUseId)
         assertEquals("hi", ev.input.str("content"))
+    }
+
+    @Test fun askUserQuestionRequestIsAPermissionRequestCarryingTheQuestions() {
+        val ev = one(Fx.askQuestion("r1", "t1")) as CliEvent.PermissionRequest
+        assertEquals("AskUserQuestion", ev.toolName)
+        assertEquals("t1", ev.toolUseId)
+        assertEquals("Which colour do you prefer?", ev.input.arr("questions")!!.first().jsonObject.str("question"))
     }
 
     @Test fun toolResultWithOriginalFile() {

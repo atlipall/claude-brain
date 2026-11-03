@@ -33,6 +33,18 @@ pre.add { background: var(--add); }
 pre.del { background: var(--del); }
 .perm { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
 .perm input { flex: 1; min-width: 8em; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font: inherit; }
+.question { margin: 6px 0; }
+.q-block { margin-bottom: 10px; }
+.q-header { color: var(--muted); font-size: .85em; text-transform: uppercase; letter-spacing: .04em; }
+.q-text { font-weight: 600; margin: 2px 0 4px; }
+.q-options { display: flex; flex-direction: column; gap: 4px; }
+.q-opt { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 1px; }
+.q-opt[aria-checked="true"] { border-color: var(--accent, currentColor); outline: 1px solid var(--accent, currentColor); }
+.q-desc { color: var(--muted); font-size: .9em; }
+.q-other { width: 100%; box-sizing: border-box; margin-top: 4px; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font: inherit; }
+.q-preview { white-space: pre; overflow-x: auto; font-family: ui-monospace, Menlo, monospace; }
+.q-preview[hidden] { display: none; }
+.q-answers { color: var(--muted); }
 .result { color: var(--muted); font-size: .9em; }
 .result.error, .notice.error { color: var(--danger); white-space: pre-wrap; }
 .notice { color: var(--muted); font-style: italic; white-space: pre-wrap; }

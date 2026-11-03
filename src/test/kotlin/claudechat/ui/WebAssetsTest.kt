@@ -101,4 +101,29 @@ class WebAssetsTest {
         // remote and other URL schemes are never requested
         assertTrue(page.contains("""!/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(x.href.trim())"""))
     }
+
+    @Test fun questionCardShowsModelTextAsTextOnly() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("function questionCard(t)"))
+        assertTrue(page.contains("h('div', { class: 'q-text' }, q.question)"))
+        assertTrue(page.contains("h('div', { class: 'q-header' }, q.header)"))
+        assertTrue(page.contains("h('span', { class: 'q-label' }, o.label)"))
+        assertTrue(page.contains("h('span', { class: 'q-desc' }, o.description)"))
+        assertTrue(page.contains("preview.textContent = o.preview ? clip(o.preview) : '';"))
+        assertTrue(page.contains("(x.header || x.question) + ': ' +"))
+        val js = page.substring(page.indexOf("function questionCard(t)"), page.indexOf("function renderTool(el, t)"))
+        assertFalse(js.contains("innerHTML"))
+        assertFalse(js.contains("insertAdjacentHTML"))
+        assertFalse(js.contains("marked.parse"))
+        assertFalse(js.contains("setAttribute('on"))
+        assertFalse(js.contains("allowSession"))
+    }
+
+    @Test fun questionAnswersGoThroughPageCreatedControls() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("send({ type: 'answer', requestId: id, answers });"))
+        assertTrue(page.contains("else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });"))
+        assertTrue(page.contains("if (!b || !trusted.has(b)) return;"))
+        assertTrue(page.contains("h('button', { 'data-action': 'skipQuestion', 'data-req': id }, 'Skip')"))
+    }
 }

@@ -26,6 +26,8 @@ sealed interface ChatItem {
         val hasDiff: Boolean,
         /** Images in the tool's result as `data:` URLs of display copies ("" for one that can't be shown). */
         val images: List<String> = emptyList(),
+        /** Set for an AskUserQuestion call that is waiting for (or has received) the user's answers. */
+        val question: QuestionCard? = null,
     ) : ChatItem
     data class TurnResult(override val id: String, val isError: Boolean, val text: String?, val durationMs: Long?, val costUsd: Double?) : ChatItem
     data class Notice(override val id: String, val text: String, val isError: Boolean) : ChatItem
@@ -50,6 +52,7 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
             put("resultPreview", item.resultPreview)
             put("hasDiff", item.hasDiff)
             if (item.images.isNotEmpty()) put("images", JsonArray(item.images.map(::JsonPrimitive)))
+            item.question?.let { put("question", it.toJson()) }
         }
         is ChatItem.TurnResult -> {
             put("kind", "result")

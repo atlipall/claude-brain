@@ -45,6 +45,18 @@ object Fx {
     fun canUseTool(requestId: String, toolUseId: String, name: String, inputJson: String) =
         """{"type":"control_request","request_id":"$requestId","request":{"subtype":"can_use_tool","tool_name":"$name","display_name":"$name","input":$inputJson,"description":"x","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"$toolUseId"}}"""
 
+    /** The input of the AskUserQuestion call claude 2.1.317 made in the v6 probe (one single-select question). */
+    const val COLOUR_QUESTION =
+        """{"questions":[{"question":"Which colour do you prefer?","header":"Colour","options":[{"label":"Red","description":"The colour red"},{"label":"Blue","description":"The colour blue"}],"multiSelect":false}]}"""
+
+    /** A single-select and a multi-select question, the second with a preview on one option and a comma in a label. */
+    const val TWO_QUESTIONS =
+        """{"questions":[{"question":"Which colour?","header":"Colour","options":[{"label":"Red","description":"r"},{"label":"Blue","description":"b"}],"multiSelect":false},""" +
+            """{"question":"Which extras?","header":"Extras","options":[{"label":"A, B","description":"ab","preview":"+--+\n|AB|\n+--+"},{"label":"C","description":"c"}],"multiSelect":true}]}"""
+
+    fun askQuestion(requestId: String, toolUseId: String, inputJson: String = COLOUR_QUESTION) =
+        """{"type":"control_request","request_id":"$requestId","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","display_name":"AskUserQuestion","input":$inputJson,"tool_use_id":"$toolUseId","requires_user_interaction":true}}"""
+
     fun toolResult(toolUseId: String, content: String, isError: Boolean = false, toolUseResultJson: String? = null): String {
         val err = if (isError) ""","is_error":true""" else ""
         val tur = if (toolUseResultJson != null) ""","tool_use_result":$toolUseResultJson""" else ""
