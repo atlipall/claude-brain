@@ -39,8 +39,11 @@ Rejected alternatives:
 
 ## Tech stack
 
-- Kotlin, Gradle, IntelliJ Platform Gradle Plugin 2.x, Gradle JDK toolchain (no system Java on the machine; toolchain downloads one).
-- Target platform: WebStorm, current release; `sinceBuild` set to that release's branch.
+- Kotlin 2.4.21, Gradle 9.8.2 (wrapper), IntelliJ Platform Gradle Plugin 2.19.0.
+- JDK: WebStorm's bundled JBR 25 (`/Applications/WebStorm.app/Contents/jbr/Contents/Home`); no system Java is installed.
+- Target platform: the locally installed WebStorm 2026.2.3 (build 262.10968.77), referenced with `local(...)`; `sinceBuild = 262`.
+- JSON: the platform-bundled `kotlinx.serialization.json` element API (`Json.parseToJsonElement`, `buildJsonObject`); no extra dependency, no serialization compiler plugin.
+- Web view libraries vendored into resources at pinned versions: `marked@15.0.12` (markdown), `dompurify@3.2.6` (sanitising model output before it touches the DOM, since the page has a bridge that can open files and answer permission prompts).
 - Chat UI: JCEF browser (`JBCefBrowser`) loading bundled HTML/CSS/JS from plugin resources. Plain JS (or a pre-built Preact bundle checked into resources); no frontend build step in the Gradle build.
 - Kotlin ↔ JS bridge: `JBCefJSQuery` for JS→Kotlin, `executeJavaScript` for Kotlin→JS; all messages are JSON objects with a `type` field.
 
@@ -50,8 +53,9 @@ Rejected alternatives:
 |---|---|---|
 | `ClaudeProcess` | Spawn/kill one CLI process in the project root. Write NDJSON to stdin; read stdout lines and parse into typed `CliEvent`s; capture stderr tail. No UI knowledge. | `claude` binary path (setting, default: resolve from PATH via login shell) |
 | `ChatSession` | One conversation: session id, ordered chat items, state (`Idle`, `Running`, `AwaitingPermission`, `Dead`). Maps `CliEvent`s to `ChatItem`s; queues user messages sent while running; answers permission requests. | `ClaudeProcess` |
-| `SessionManager` (project service) | Active session, "New chat", list of past sessions for the project, resume via `--resume <id>`. | `ChatSession` |
-| `EditTracker` (project service) | Records project files the user changed/saved since the last user turn (document and VFS listeners). Ignores writes performed by the CLI (detected by matching paths from Claude's Edit/Write tool calls within the current turn). Produces a note prepended to the next user message, then resets. | IntelliJ document/VFS events |
+| `SessionManager` (project service) | Active session, "New chat", resume via `--resume <id>`. | `ChatSession`, `SessionStore` |
+| `SessionStore` | Lists past sessions for the project from `~/.claude/projects/<cwd with every non-alphanumeric char replaced by '-'>/<id>.jsonl` (newest first, title = first user text), and loads a transcript's user/assistant text for display on resume (the CLI does not replay history on stdout). | Filesystem |
+| `EditTracker` (project service) | Records project files the user saved from the IDE since the last user turn (`FileDocumentManagerListener.beforeDocumentSaving`). Before each send it calls `saveAllDocuments()` so unsaved editor changes reach disk and are recorded. Claude's own writes are disk changes reloaded into the editor, never saved by the IDE, so they are not recorded. Produces a note prepended to the next user message, then resets. | IntelliJ document-save events |
 | `ChatToolWindow` | Right-side tool window: JCEF chat view, header with New chat, session dropdown, permission-mode dropdown, Stop button. Bridges `ChatSession` state to the web view. | `SessionManager`, JCEF |
 | `FileLinker` | Produces links for tool-call `file_path`s and `path` / `path:line` mentions in assistant text (only paths that resolve inside the project). Click → open in editor at line. Edit/Write tool calls get "View diff" → IntelliJ diff viewer, before vs. after. | Editor, `DiffManager` |
 | `AddToChatAction` | Editor action (Cmd+Shift+Option+K and context menu) inserting `@relative/path#Lstart-end` for the current selection into the chat input. | `ChatToolWindow` |
@@ -69,7 +73,7 @@ Only sent when the list is non-empty.
 
 ### Diff "before" contents
 
-When an Edit/Write tool call is seen, `FileLinker` snapshots the file's current on-disk contents before the tool result arrives (the tool-call event precedes execution). For permission-gated edits the snapshot is taken when the permission request arrives. If no snapshot exists, "View diff" is hidden.
+Verified by probe: the `user` message carrying an Edit/Write tool result has a `tool_use_result` object with `filePath` and `originalFile` (`null` when Write created a new file). `ChatSession` stores `originalFile` per tool-use id; "View diff" compares it with the file's current contents. If the result has no `originalFile` key, "View diff" is hidden.
 
 ## Data flow (one turn)
 
@@ -84,9 +88,11 @@ When an Edit/Write tool call is seen, `FileLinker` snapshots the file's current 
 ## Permissions
 
 - A `can_use_tool` control request renders as a card: tool name, input (diff preview for Edit/Write/MultiEdit, command for Bash), buttons **Allow**, **Allow for session**, **Deny** (with optional reason).
-- The answer is written back as a `control_response`.
-- Header dropdown sets the permission mode (`manual`, `acceptEdits`, `plan`, `auto`); default is unset (CLI settings decide). Changing it mid-session uses the corresponding control request if supported, otherwise applies at next session.
-- **The stream-json and control-protocol message shapes are not trusted from memory.** Plan task 1 is a throwaway probe that records real traffic from the installed CLI (text turn, tool call, permission request, interrupt, resume) into fixture files. Kotlin event types are written against those fixtures, which also serve as test data.
+- The answer is written back as a `control_response` (`behavior: allow` with `updatedInput` = the original input, or `behavior: deny` with `message`).
+- **Allow for session** is implemented in the plugin: the tool name is added to a per-session set and later requests for that tool are answered `allow` automatically.
+- Header dropdown sets the permission mode (`default`, `acceptEdits`, `plan`, `auto`); default is the CLI's own setting. Mid-session changes use the `set_permission_mode` control request.
+- A resumed process starts in `default` mode (verified), so restart/resume passes the session's current mode as `--permission-mode`.
+- Message shapes were verified against the installed CLI 2.1.317 during planning (probe scripts, not kept). Test fixtures reproduce those shapes.
 
 ## Errors
 
