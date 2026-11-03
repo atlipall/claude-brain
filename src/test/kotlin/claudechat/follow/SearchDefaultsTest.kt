@@ -9,6 +9,7 @@ class SearchDefaultsTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
+        SearchDefaults.forgetSaved()
         savedScopeName = FindSettings.getInstance().defaultScopeName // application-wide
     }
 
@@ -26,5 +27,24 @@ class SearchDefaultsTest : BasePlatformTestCase() {
         assertNull(model.directoryName)
         assertNull(model.moduleName)
         assertEquals("Claude: wt1", model.customScopeName)
+    }
+
+    fun testRestoreBringsBackTheUsersDefaultOnce() {
+        FindSettings.getInstance().defaultScopeName = "Mine"
+        SearchDefaults.use(project, "Claude: wt1")
+        SearchDefaults.use(project, "Claude: wt2") // the second switch must not overwrite the remembered value
+        SearchDefaults.restore()
+        assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
+        FindSettings.getInstance().defaultScopeName = "Other"
+        SearchDefaults.restore()
+        assertEquals("Other", FindSettings.getInstance().defaultScopeName)
+    }
+
+    fun testRestoreLeavesAScopeTheUserPickedLater() {
+        FindSettings.getInstance().defaultScopeName = "Mine"
+        SearchDefaults.use(project, "Claude: wt1")
+        FindSettings.getInstance().defaultScopeName = "Changed"
+        SearchDefaults.restore()
+        assertEquals("Changed", FindSettings.getInstance().defaultScopeName)
     }
 }

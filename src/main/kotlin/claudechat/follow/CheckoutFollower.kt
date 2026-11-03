@@ -3,11 +3,13 @@ package claudechat.follow
 import claudechat.session.Chat
 import claudechat.session.Chats
 import claudechat.settings.ClaudeChatSettings
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 object Indicator {
     /** The chat header's text: empty when following is off, otherwise `IDE: <checkout>` plus a note for a chat outside this window. */
@@ -26,7 +28,11 @@ object Indicator {
  * switches the Project view and the Find in Files scope, and tells every chat page what the IDE shows. EDT only.
  */
 @Service(Service.Level.PROJECT)
-class CheckoutFollower(private val project: Project) {
+class CheckoutFollower(private val project: Project) : Disposable {
+    init {
+        live.incrementAndGet()
+    }
+
     private val chats = Chats.getInstance(project)
 
     /** The main checkout's folder: the project folder (tests point it at the light project's content root). */
@@ -73,7 +79,10 @@ class CheckoutFollower(private val project: Project) {
         if (on) {
             CheckoutScopes(project).sync(listOf(mapper.main) + chats.all().mapNotNull { followable(mapper, it) }.filterNot { it.isMain })
             val target = selected?.let { followable(mapper, it) }
-            if (target != null && (selecting || target != (current ?: mapper.main) || pendingSwapFrom != null)) show(mapper, target)
+            if (target != null && (selecting || target != (current ?: mapper.main) || pendingSwapFrom != null || (current?.isMain == false && !viewsApplied))) show(mapper, target)
+        } else if (viewsApplied) {
+            SearchDefaults.restore() // following stopped: the user's own Find default comes back
+            viewsApplied = false
         }
         val ide = current ?: mapper.main
         val noScopes = excluded()
@@ -114,7 +123,13 @@ class CheckoutFollower(private val project: Project) {
 
     private fun followable(mapper: CheckoutMapper, chat: Chat): Checkout? = (mapper.place(chat.cwd) as? Placement.Followable)?.checkout
 
+    override fun dispose() {
+        if (live.decrementAndGet() <= 0) SearchDefaults.restore()
+    }
+
     companion object {
+        private val live = AtomicInteger()
+
         fun getInstance(project: Project): CheckoutFollower = project.service()
     }
 }

@@ -29,6 +29,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         connections.clear()
         chats.connector = { FakeConnection().also { connections += it } }
         holder.scopes = emptyArray()
+        SearchDefaults.forgetSaved()
         savedScopeName = FindSettings.getInstance().defaultScopeName
         savedFollow = settings.followCheckout
         settings.followCheckout = true
@@ -199,5 +200,19 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
         follower.follow(main)
         assertEquals("Claude: main", FindSettings.getInstance().defaultScopeName)
+    }
+
+    fun testTurningFollowingOffRestoresTheUsersFindDefault() {
+        FindSettings.getInstance().defaultScopeName = "Mine"
+        val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        follower.follow(wt)
+        assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
+        settings.followCheckout = false
+        follower.refresh()
+        assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
+        assertEquals("", wt.checkoutText)
+        settings.followCheckout = true
+        follower.refresh()
+        assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
     }
 }

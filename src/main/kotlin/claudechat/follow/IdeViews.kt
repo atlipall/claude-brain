@@ -44,8 +44,19 @@ class ProjectViewSwitcher(private val project: Project) {
  * so there the plugin's scopes are only offered in the scope dropdown.
  */
 object SearchDefaults {
+    private var saved: String? = null
+    private var hasSaved = false
+
     fun use(project: Project, scopeName: String) {
-        FindSettings.getInstance().defaultScopeName = scopeName // preselected in the popup's Scope dropdown (application-wide)
+        val settings = FindSettings.getInstance()
+        if (!hasSaved) {
+            val previous = settings.defaultScopeName
+            if (previous?.startsWith(Checkout.SCOPE_PREFIX) != true) {
+                saved = previous
+                hasSaved = true
+            }
+        }
+        settings.defaultScopeName = scopeName // preselected in the popup's Scope dropdown (application-wide)
         FindManager.getInstance(project).findInProjectModel.apply {
             isProjectScope = false
             moduleName = null
@@ -53,5 +64,19 @@ object SearchDefaults {
             isCustomScope = true
             customScopeName = scopeName
         }
+    }
+
+    /** Puts back the user's own Find default if the plugin changed it and it still shows one of the plugin's scopes. */
+    fun restore() {
+        if (!hasSaved) return
+        val settings = FindSettings.getInstance()
+        if (settings.defaultScopeName?.startsWith(Checkout.SCOPE_PREFIX) == true) settings.defaultScopeName = saved
+        hasSaved = false
+        saved = null
+    }
+
+    internal fun forgetSaved() {
+        hasSaved = false
+        saved = null
     }
 }
