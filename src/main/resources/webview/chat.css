@@ -88,7 +88,8 @@ img.md-img { display: block; max-width: 100%; max-height: 400px; margin: 4px 0; 
 #activity .dots span:nth-child(3) { animation-delay: .3s; }
 #activity .dots[hidden] { display: none; }
 #activity .label.shimmer { background: linear-gradient(90deg, var(--muted) 0%, var(--fg) 50%, var(--muted) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: act-shimmer 1.8s linear infinite; }
-#activity-stop { margin-left: auto; border-color: var(--danger); color: #f0a4a2; }
+#activity-stop { margin-left: auto; background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+#activity-stop:hover { filter: brightness(1.1); }
 @keyframes act-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .4; } 40% { transform: translateY(-4px); opacity: 1; } }
 @keyframes act-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { #activity * { animation: none !important; } #activity .label.shimmer { background: none; color: var(--fg); } }
