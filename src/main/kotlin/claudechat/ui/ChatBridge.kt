@@ -7,6 +7,10 @@ import claudechat.cli.long
 import claudechat.cli.parseJsonObject
 import claudechat.cli.str
 import claudechat.ide.FileLinker
+import claudechat.image.Attachment
+import claudechat.image.Images
+import claudechat.image.Prepared
+import claudechat.image.Uploads
 import claudechat.session.Chat
 import claudechat.session.ChatItem
 import claudechat.session.PermissionDecision
@@ -15,8 +19,13 @@ import claudechat.session.SessionState
 import claudechat.session.SessionView
 import claudechat.session.toJson
 import com.intellij.ide.BrowserUtil
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -34,6 +43,25 @@ class ChatBridge(
     private val history get() = PromptHistory.getInstance(project)
     @Volatile private var unsubscribe: (() -> Unit)? = null
 
+    /** Runs image work (decoding, scaling, reading files) off the EDT. Tests make it synchronous. */
+    internal var offEdt: (() -> Unit) -> Unit = { task -> ApplicationManager.getApplication().executeOnPooledThread { task() } }
+
+    /** Brings results back to the EDT. Tests make it synchronous. */
+    internal var onEdt: (() -> Unit) -> Unit = { task -> ApplicationManager.getApplication().invokeLater({ task() }, project.disposed) }
+
+    /** Shows the IDE file chooser for images and calls back with the chosen files (EDT). Tests replace it. */
+    internal var chooseImages: ((List<VirtualFile>) -> Unit) -> Unit = { done ->
+        val descriptor = FileChooserDescriptorFactory.createMultipleFilesNoJarsDescriptor()
+            .withExtensionFilter("Images", "png", "jpg", "jpeg", "gif", "webp")
+            .withTitle("Attach Images")
+        FileChooser.chooseFiles(descriptor, project, null) { files -> done(files) }
+    }
+
+    private val uploads = Uploads()
+    /** Ids whose bytes are being prepared off the EDT; a `detach` removes one so its result is dropped. EDT only. */
+    private val preparing = HashSet<String>()
+    private var pickSeq = 0
+
     /** EDT only. */
     fun handle(json: String) {
         val msg = parseJsonObject(json) ?: return
@@ -42,12 +70,47 @@ class ChatBridge(
                 post(Theme.message())
                 post(historyMessage(history.entries()))
                 if (unsubscribe == null) unsubscribe = history.subscribe { post(historyMessage(it)) }
+                // A (re)loaded page shows no attachments: forget the ones the old page had.
+                uploads.clear()
+                preparing.clear()
+                chat.attachments.clear()
                 chat.attach(this)
             }
-            "send" -> msg.str("text")?.takeIf { it.isNotBlank() }?.let { text ->
-                if (session.state != SessionState.DEAD) history.add(text) // Chat.send ignores a dead chat
-                chat.send(text)
+            "send" -> {
+                val text = msg.str("text").orEmpty()
+                val images = chat.attachments.take(strings(msg["attachments"]))
+                if (text.isBlank() && images.isEmpty()) return
+                // Chat.send ignores a dead chat; history keeps text only
+                if (session.state != SessionState.DEAD && text.isNotBlank()) history.add(text)
+                chat.send(text, images)
             }
+            "attachStart" -> {
+                val id = msg.str("id")?.takeIf(ID::matches) ?: return
+                val name = displayName(msg.str("name"))
+                val size = msg.long("size") ?: 0
+                when {
+                    slotsUsed() >= Images.MAX_PER_MESSAGE -> refuse(id, "Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
+                    size > Images.MAX_INPUT_BYTES -> refuse(id, "Couldn't attach $name: it is larger than 20 MB.")
+                    else -> uploads.start(id, name)
+                }
+            }
+            "attachChunk" -> {
+                val id = msg.str("id") ?: return
+                if (uploads.has(id) && !uploads.chunk(id, msg.str("data").orEmpty())) {
+                    refuse(id, "Couldn't attach the image: it is larger than 20 MB or could not be read.")
+                }
+            }
+            "attachEnd" -> {
+                val id = msg.str("id") ?: return
+                val (name, bytes) = uploads.finish(id) ?: return
+                prepare(id, name) { bytes }
+            }
+            "detach" -> msg.str("id")?.let { id ->
+                uploads.cancel(id)
+                preparing.remove(id)
+                chat.attachments.remove(id)
+            }
+            "pickImages" -> chooseImages { files -> files.forEach(::attachFile) }
             "permission" -> {
                 val requestId = msg.str("requestId") ?: return
                 val decision = when (msg.str("decision")) {
@@ -69,10 +132,68 @@ class ChatBridge(
         }
     }
 
+    private fun slotsUsed() = chat.attachments.size + uploads.count + preparing.size
+
+    private fun attachFile(file: VirtualFile) {
+        val id = "k${++pickSeq}"
+        val name = displayName(file.name)
+        if (slotsUsed() >= Images.MAX_PER_MESSAGE) {
+            session.notice("Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
+            return
+        }
+        prepare(id, name) { if (file.length > Images.MAX_INPUT_BYTES) null else file.contentsToByteArray() }
+    }
+
+    /**
+     * Validates and (if needed) downscales the bytes off the EDT, then adds the attachment and shows its thumbnail,
+     * or refuses it with a notice. [read] runs off the EDT; null means the file is larger than 20 MB.
+     */
+    private fun prepare(id: String, name: String, read: () -> ByteArray?) {
+        preparing += id
+        offEdt {
+            val outcome = try {
+                val bytes = read()
+                if (bytes == null) Prepared.Rejected("it is larger than 20 MB") else Images.prepare(bytes)
+            } catch (e: Exception) {
+                Prepared.Rejected(Images.UNREADABLE)
+            }
+            val thumb = (outcome as? Prepared.Ok)?.let { Images.preview(it.image.bytes, Images.THUMB_EDGE, Images.THUMB_BYTES)?.dataUrl() }.orEmpty()
+            onEdt {
+                if (!preparing.remove(id)) return@onEdt // removed (×) or the page reloaded meanwhile
+                when (outcome) {
+                    is Prepared.Rejected -> refuse(id, "Couldn't attach $name: ${outcome.reason}.")
+                    is Prepared.Ok ->
+                        if (chat.attachments.add(Attachment(id, name, outcome.image, thumb))) post(attachmentMessage(id, name, thumb))
+                        else refuse(id, "Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
+                }
+            }
+        }
+    }
+
+    /** Tells the page the attachment is gone and the chat why. */
+    private fun refuse(id: String, notice: String) {
+        uploads.cancel(id)
+        session.notice(notice)
+        post(buildJsonObject {
+            put("type", "attachment")
+            put("id", id)
+            put("failed", true)
+        }.toString())
+    }
+
+    private fun attachmentMessage(id: String, name: String, thumb: String) = buildJsonObject {
+        put("type", "attachment")
+        put("id", id)
+        put("name", name)
+        put("thumb", thumb)
+    }.toString()
+
     /** Stops history updates. Called when the page goes away. */
     fun dispose() {
         unsubscribe?.invoke()
         unsubscribe = null
+        uploads.clear() // abandoned uploads and in-flight preparations go with the page
+        preparing.clear()
     }
 
     override fun reset(items: List<ChatItem>) = post(buildJsonObject {
@@ -108,6 +229,9 @@ class ChatBridge(
         put("off", off)
     }.toString())
 
+    private fun strings(element: JsonElement?): List<String> =
+        (element as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+
     private fun historyMessage(entries: List<String>) = buildJsonObject {
         put("type", "history")
         put("entries", JsonArray(entries.map(::JsonPrimitive)))
@@ -123,4 +247,12 @@ class ChatBridge(
             }
         }
     }.toString()
+
+    internal companion object {
+        private val ID = Regex("[A-Za-z0-9_-]{1,32}")
+
+        /** A file name for notices: plain text, one line, at most 80 characters. */
+        private fun displayName(raw: String?): String =
+            raw?.replace(Regex("\\s+"), " ")?.trim()?.take(80)?.takeIf { it.isNotEmpty() } ?: "image"
+    }
 }

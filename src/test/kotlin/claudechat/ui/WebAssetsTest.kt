@@ -53,4 +53,32 @@ class WebAssetsTest {
         assertTrue(page.contains("send({ type: 'contextOff', off: false })"))
         assertTrue(page.contains("#context[hidden] { display: none; }"))
     }
+
+    @Test fun pageSendsImagesToTheIdeInChunks() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("<div id=\"attachments\" hidden></div>"))
+        assertTrue(page.contains("<button id=\"attach\" title=\"Attach images\">📎</button>"))
+        assertTrue(page.contains("const CHUNK = 262144;"))
+        assertTrue(page.contains("send({ type: 'attachChunk', id, data: data.slice(i, i + CHUNK) });"))
+        assertTrue(page.contains("send({ type: 'pickImages' })"))
+        assertTrue(page.contains("case 'attachment': setAttachment(msg); break;"))
+        assertTrue(page.contains("#attachments[hidden] { display: none; }"))
+    }
+
+    @Test fun droppedFilesNeverReachTheBrowser() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("document.addEventListener('dragover', (e) => {"))
+        assertTrue(page.contains("document.addEventListener('drop', (e) => {"))
+        assertTrue(page.contains("    if (files && !input.disabled) [...e.dataTransfer.files].forEach(upload);\n  }, true);"))
+        assertTrue(page.contains("document.addEventListener('paste', (e) => {"))
+    }
+
+    @Test fun imagesAreOnlyPageCreatedDataUrls() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("""const DATA_IMG = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+\/]+=*$/;"""))
+        assertTrue(page.contains("DATA_IMG.test(src) ? h('img', { src, alt })"))
+        assertTrue(page.contains("'base', 'img', 'picture'")) // model markup still may not contain images
+        assertTrue(page.contains("img-src data:;"))
+        assertTrue(page.contains("if (item.text) el.append(document.createTextNode(item.text));"))
+    }
 }

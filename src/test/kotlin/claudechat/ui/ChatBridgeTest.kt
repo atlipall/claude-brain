@@ -13,6 +13,10 @@ import claudechat.session.PromptHistory
 import claudechat.session.SessionState
 import claudechat.settings.ClaudeChatSettings
 import claudechat.testutil.FakeConnection
+import claudechat.testutil.TestImages
+import com.intellij.openapi.application.WriteAction
+import java.io.IOException
+import java.util.Base64
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.testFramework.PlatformTestUtil
@@ -47,6 +51,8 @@ class ChatBridgeTest : BasePlatformTestCase() {
         chats.connector = { FakeConnection().also { connections += it } }
         chat = chats.open(ChatSpec.inProject(root))
         bridge = ChatBridge(project, chat, { newChatRequests++ }) { posted += parseJsonObject(it)!! }
+        bridge.offEdt = { it() }
+        bridge.onEdt = { it() }
     }
 
     override fun tearDown() {
@@ -235,5 +241,119 @@ class ChatBridgeTest : BasePlatformTestCase() {
         chat.refreshContext()
         assertEquals("context", posted.last().str("type"))
         assertEquals("", posted.last().str("text"))
+    }
+
+    // --- attachments ---
+
+    private fun upload(id: String, base64: String, name: String = "$id.png") {
+        bridge.handle("""{"type":"attachStart","id":"$id","name":"$name","size":${base64.length / 4 * 3}}""")
+        for (part in base64.chunked(64)) bridge.handle("""{"type":"attachChunk","id":"$id","data":"$part"}""")
+        bridge.handle("""{"type":"attachEnd","id":"$id"}""")
+    }
+
+    private fun lastAttachment() = posted.last { it.str("type") == "attachment" }
+    private fun notices() = posted.filter { it.str("type") == "item" }.map { it.obj("item")!! }.filter { it.str("kind") == "notice" }.map { it.str("text") }
+
+    fun testUploadedImageIsShownAndSentWithTheMessage() {
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", TestImages.RED_PNG_BASE64)
+        val shown = lastAttachment()
+        assertEquals("p1", shown.str("id"))
+        assertEquals("p1.png", shown.str("name"))
+        assertEquals("data:image/png;base64,${TestImages.RED_PNG_BASE64}", shown.str("thumb"))
+        bridge.handle("""{"type":"send","text":"what color?","attachments":["p1"]}""")
+        assertTrue(connections[0].userMessages().single().endsWith("what color?"))
+        assertEquals(listOf(listOf(TestImages.RED_PNG_BASE64)), connections[0].userImages())
+        val bubble = posted.last { it.str("type") == "item" && it.obj("item")!!.str("kind") == "user" }.obj("item")!!
+        assertEquals(listOf(JsonPrimitive("data:image/png;base64,${TestImages.RED_PNG_BASE64}")), bubble.arr("images")!!.toList())
+        assertEquals(0, chat.attachments.size)
+        assertEquals(listOf("what color?"), PromptHistory.getInstance(project).entries())
+    }
+
+    fun testImageOnlyMessageIsSentButNotRemembered() {
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", TestImages.BLUE_PNG_BASE64)
+        bridge.handle("""{"type":"send","text":"","attachments":["p1"]}""")
+        assertEquals(listOf(listOf(TestImages.BLUE_PNG_BASE64)), connections[0].userImages())
+        assertTrue(PromptHistory.getInstance(project).entries().isEmpty())
+    }
+
+    fun testBlankMessageWithUnknownAttachmentsIsIgnored() {
+        bridge.handle("""{"type":"send","text":"  ","attachments":["nope", 3]}""")
+        assertTrue(connections[0].userMessages().isEmpty())
+    }
+
+    fun testMagicBytesDecideTheType() {
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", Base64.getEncoder().encodeToString(TestImages.solid(8, 8, "jpeg")), name = "looks-like.png")
+        assertTrue(lastAttachment().str("thumb")!!.startsWith("data:image/jpeg;base64,"))
+    }
+
+    fun testNonImageIsRefusedWithANotice() {
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", Base64.getEncoder().encodeToString("hello world!".toByteArray()), name = "notes.txt")
+        assertEquals(true, lastAttachment().bool("failed"))
+        assertEquals("Couldn't attach notes.txt: not a PNG, JPEG, GIF or WebP image.", notices().last())
+        assertEquals(0, chat.attachments.size)
+    }
+
+    fun testFileOver20MbIsRefusedBeforeItsBytesArrive() {
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"attachStart","id":"p1","name":"huge.png","size":20971521}""")
+        assertEquals(true, lastAttachment().bool("failed"))
+        assertEquals("Couldn't attach huge.png: it is larger than 20 MB.", notices().last())
+        bridge.handle("""{"type":"attachChunk","id":"p1","data":"${TestImages.BLUE_PNG_BASE64}"}""")
+        bridge.handle("""{"type":"attachEnd","id":"p1"}""")
+        assertEquals(0, chat.attachments.size)
+    }
+
+    fun testEleventhImageIsRefused() {
+        bridge.handle("""{"type":"ready"}""")
+        for (i in 1..10) upload("p$i", TestImages.BLUE_PNG_BASE64)
+        assertEquals(10, chat.attachments.size)
+        upload("p11", TestImages.BLUE_PNG_BASE64)
+        assertEquals("p11", lastAttachment().str("id"))
+        assertEquals(true, lastAttachment().bool("failed"))
+        assertEquals("Couldn't attach p11.png: at most 10 images per message.", notices().last())
+        assertEquals(10, chat.attachments.size)
+    }
+
+    fun testRemovedAttachmentIsNotSent() {
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", TestImages.BLUE_PNG_BASE64)
+        bridge.handle("""{"type":"detach","id":"p1"}""")
+        bridge.handle("""{"type":"send","text":"x","attachments":["p1"]}""")
+        assertEquals(listOf(emptyList<String>()), connections[0].userImages())
+    }
+
+    fun testAttachmentRemovedWhilePreparingIsDropped() {
+        val tasks = mutableListOf<() -> Unit>()
+        bridge.offEdt = { tasks += it }
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", TestImages.BLUE_PNG_BASE64)
+        bridge.handle("""{"type":"detach","id":"p1"}""")
+        tasks.forEach { it() }
+        assertTrue(posted.none { it.str("type") == "attachment" })
+        assertEquals(0, chat.attachments.size)
+    }
+
+    fun testReloadedPageForgetsTheOldPagesAttachments() {
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", TestImages.BLUE_PNG_BASE64)
+        bridge.handle("""{"type":"ready"}""")
+        assertEquals(0, chat.attachments.size)
+    }
+
+    fun testPickedFilesBecomeAttachments() {
+        val file = myFixture.addFileToProject("pics/blue.png", "").virtualFile
+        WriteAction.runAndWait<IOException> { file.setBinaryContent(TestImages.bytes(TestImages.BLUE_PNG_BASE64)) }
+        bridge.chooseImages = { done -> done(listOf(file)) }
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"pickImages"}""")
+        val shown = lastAttachment()
+        assertEquals("k1", shown.str("id"))
+        assertEquals("blue.png", shown.str("name"))
+        assertEquals("data:image/png;base64,${TestImages.BLUE_PNG_BASE64}", shown.str("thumb"))
+        assertEquals(1, chat.attachments.size)
     }
 }

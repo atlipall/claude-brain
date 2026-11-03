@@ -44,3 +44,13 @@ details summary { cursor: pointer; color: var(--muted); }
 #context.off { cursor: pointer; font-style: italic; opacity: .75; padding-right: 8px; }
 #context-off { background: none; border: none; color: var(--muted); padding: 0 4px; line-height: 1; }
 #context-off:hover { color: var(--fg); }
+
+#attachments { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 8px 0; }
+#attachments[hidden] { display: none; }
+.tile { position: relative; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; }
+.tile img { max-width: 100%; max-height: 100%; }
+.tile.loading { opacity: .6; }
+.tile-x { position: absolute; top: 0; right: 0; padding: 0 4px; line-height: 1.2; border: none; border-radius: 0 0 0 4px; background: var(--bg); }
+.thumbs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+.thumbs img { max-width: 160px; max-height: 80px; border-radius: 3px; }
+.img-alt { color: var(--muted); font-style: italic; }

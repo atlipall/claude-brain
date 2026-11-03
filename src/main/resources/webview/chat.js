@@ -12,6 +12,10 @@
   const contextEl = document.getElementById('context');
   const contextText = document.getElementById('context-text');
   const contextOffBtn = document.getElementById('context-off');
+  const attachEl = document.getElementById('attachments');
+  const attachBtn = document.getElementById('attach');
+  const pending = new Map(); // attachment id -> { el, ready }
+  let attachSeq = 0;
   const pendingResolve = new Map();
   let reqSeq = 0;
   let history = [];  // sent messages, oldest first (shared by every tab, kept by the IDE)
@@ -22,6 +26,9 @@
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
   const PATH_RE = /^[\w@.\/~-]*[\w-]\.[A-Za-z0-9]{1,10}(?:(?::|#L)\d+(?:[:-]\d+)?)?$/;
   const MAX_PRE = 6000;
+  const CHUNK = 262144;                  // base64 characters per bridge message (a multiple of 4)
+  const MAX_INPUT = 20 * 1024 * 1024;    // the IDE refuses larger files without reading them
+  const DATA_IMG = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+\/]+=*$/;
   const SANITIZE = {
     FORBID_TAGS: ['style', 'form', 'button', 'input', 'textarea', 'select', 'option', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'img', 'picture', 'source', 'video', 'audio', 'track', 'svg', 'math'],
     FORBID_ATTR: ['style', 'class', 'id'],
@@ -44,6 +51,8 @@
   }
   const clip = (s) => (s && s.length > MAX_PRE ? s.slice(0, MAX_PRE) + '\n…' : s || '');
   const shortPath = (p) => p.split('/').slice(-2).join('/');
+  // Images are page-created elements whose src is a data: URL the IDE built from validated bytes; anything else is alt text.
+  const imageOrAlt = (src, alt) => (typeof src === 'string' && DATA_IMG.test(src) ? h('img', { src, alt }) : h('span', { class: 'img-alt' }, alt));
 
   window.chat = {
     receive(msg) {
@@ -57,6 +66,7 @@
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
         case 'checkout': setCheckout(msg.text); break;
         case 'context': setContext(msg.text, msg.off); break;
+        case 'attachment': setAttachment(msg); break;
       }
     }
   };
@@ -68,7 +78,7 @@
     const open = [...el.querySelectorAll('details')].map((d) => d.open);
     el.textContent = '';
     switch (item.kind) {
-      case 'user': el.className = 'msg user'; el.textContent = item.text; break;
+      case 'user': renderUser(el, item); break;
       case 'assistant': renderAssistant(el, item); break;
       case 'tool': renderTool(el, item); break;
       case 'result': renderResult(el, item); break;
@@ -76,6 +86,13 @@
     }
     el.querySelectorAll('details').forEach((d, i) => { if (open[i] !== undefined) d.open = open[i]; });
     if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+
+  function renderUser(el, item) {
+    el.className = 'msg user';
+    const images = Array.isArray(item.images) ? item.images : [];
+    if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
+    if (item.text) el.append(document.createTextNode(item.text)); // plain text only
   }
 
   function renderAssistant(el, item) {
@@ -170,7 +187,7 @@
     const busy = msg.state === 'RUNNING' || msg.state === 'AWAITING_PERMISSION';
     stopBtn.hidden = !busy;
     restartBtn.hidden = msg.state !== 'DEAD';
-    input.disabled = sendBtn.disabled = msg.state === 'DEAD';
+    input.disabled = sendBtn.disabled = attachBtn.disabled = msg.state === 'DEAD';
     if (msg.mode) modeSel.value = msg.mode;
   }
 
@@ -190,6 +207,55 @@
     contextText.textContent = muted ? 'context off for next message — click to restore' : t;
     contextOffBtn.hidden = muted;
   }
+
+  function addTile(id, name) {
+    const tile = h('div', { class: 'tile loading', title: name },
+      h('span', { class: 'img-alt' }, '…'),
+      h('button', { class: 'tile-x', 'data-action': 'detach', 'data-id': id, title: 'Remove' }, '×'));
+    pending.set(id, { el: tile, ready: false });
+    attachEl.append(tile);
+    attachEl.hidden = false;
+  }
+
+  function removeTile(id) {
+    const p = pending.get(id);
+    if (!p) return;
+    p.el.remove();
+    pending.delete(id);
+    attachEl.hidden = pending.size === 0;
+  }
+
+  // The IDE validated the image: show its thumbnail (or [image]); or it refused it (a notice in the log says why).
+  function setAttachment(msg) {
+    if (typeof msg.id !== 'string') return;
+    if (msg.failed === true) { removeTile(msg.id); return; }
+    if (!pending.has(msg.id)) addTile(msg.id, typeof msg.name === 'string' ? msg.name : '');
+    const p = pending.get(msg.id);
+    p.ready = true;
+    p.el.classList.remove('loading');
+    p.el.firstChild.replaceWith(imageOrAlt(msg.thumb, '[image]'));
+  }
+
+  // Bytes go to the IDE as base64 in chunks; the IDE checks them (magic bytes, size) before anything else sees them.
+  function upload(file) {
+    const id = 'p' + (++attachSeq);
+    const name = String(file.name || 'image').slice(0, 100);
+    addTile(id, name);
+    send({ type: 'attachStart', id, name, size: file.size });
+    if (file.size > MAX_INPUT) return; // the IDE refuses it and says why
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (!pending.has(id)) return; // removed meanwhile
+      const url = String(reader.result);
+      const data = url.slice(url.indexOf(',') + 1);
+      for (let i = 0; i < data.length; i += CHUNK) send({ type: 'attachChunk', id, data: data.slice(i, i + CHUNK) });
+      send({ type: 'attachEnd', id });
+    };
+    reader.onerror = () => { send({ type: 'detach', id }); removeTile(id); };
+    reader.readAsDataURL(file);
+  }
+
+  const hasFiles = (dt) => !!dt && [...(dt.types || [])].includes('Files');
 
   function insertText(text) {
     recall = -1;
@@ -212,8 +278,13 @@
 
   function submit() {
     const text = input.value.trim();
-    if (!text || input.disabled) return;
-    send({ type: 'send', text });
+    if (input.disabled) return;
+    const tiles = [...pending.entries()];
+    if (tiles.some(([, p]) => !p.ready)) return; // wait until every image is ready
+    const attachments = tiles.map(([id]) => id);
+    if (!text && !attachments.length) return;
+    send({ type: 'send', text, attachments });
+    attachments.forEach(removeTile);
     input.value = '';
     recall = -1;
     draft = '';
@@ -269,10 +340,35 @@
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
   contextOffBtn.addEventListener('click', (e) => { e.stopPropagation(); send({ type: 'contextOff', off: true }); });
   contextEl.addEventListener('click', () => { if (contextEl.classList.contains('off')) send({ type: 'contextOff', off: false }); });
+  attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
+
+  // Pasted image data (Cmd+V of a screenshot) anywhere on the page becomes an attachment; text pastes are untouched.
+  document.addEventListener('paste', (e) => {
+    const files = [...((e.clipboardData && e.clipboardData.items) || [])]
+      .filter((i) => i.kind === 'file' && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault();
+    if (!input.disabled) files.forEach(upload);
+  });
 
   // Capture phase: no anchor click or form submit reaches the browser's default navigation.
   document.addEventListener('auxclick', (e) => { if (e.target.closest('a')) e.preventDefault(); }, true);
   document.addEventListener('submit', (e) => e.preventDefault(), true);
+  // Capture phase: a dropped file never reaches the browser's default (opening it would navigate the page). Dropped
+  // files become attachments; other drops are allowed only into the message box (text).
+  document.addEventListener('dragover', (e) => {
+    if (hasFiles(e.dataTransfer) || e.target !== input) {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = hasFiles(e.dataTransfer) && !input.disabled ? 'copy' : 'none';
+    }
+  }, true);
+  document.addEventListener('drop', (e) => {
+    const files = hasFiles(e.dataTransfer);
+    if (!files && e.target === input) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (files && !input.disabled) [...e.dataTransfer.files].forEach(upload);
+  }, true);
 
   document.addEventListener('click', (e) => {
     const a = e.target.closest('a');
@@ -287,6 +383,7 @@
     if (!b || !trusted.has(b)) return;
     const action = b.dataset.action;
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
+    else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
     else if (action === 'deny') {
       const reason = b.parentElement.querySelector('.deny-reason').value.trim();
