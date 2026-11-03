@@ -395,15 +395,7 @@ class ChatSession(
         keys.subList(keys.indexOf(itemId), keys.size).forEach(anchors::remove)
         generation++
         connection?.stop()
-        connection = null
-        mcpServer = null
-        readOnlyTools = emptySet()
-        initRequestId = null
-        contextRequestId = null
-        pendingPermissions.clear()
-        runningTools.clear()
-        turnEdits.clear()
-        phase = null
+        forgetProcess()
         lastAnswer = at
         fork = if (at != null && from != null) Fork(from, at) else null
         sessionId = null
@@ -674,7 +666,8 @@ class ChatSession(
         listener.onSuggestion(text)
     }
 
-    private fun handleExit(code: Int, stderrTail: String) {
+    /** Drops everything that belonged to the claude process that is gone or being replaced. */
+    private fun forgetProcess() {
         connection = null
         mcpServer = null
         readOnlyTools = emptySet()
@@ -683,10 +676,14 @@ class ChatSession(
         pendingPermissions.clear()
         runningTools.clear()
         turnEdits.clear()
-        dropQueue()
         backgroundTasks = 0
         endAgents { true }
         phase = null
+    }
+
+    private fun handleExit(code: Int, stderrTail: String) {
+        forgetProcess()
+        dropQueue()
         val detail = stderrTail.trim().takeLast(2000)
         val text = if (detail.isEmpty()) "Claude exited (code $code)." else "Claude exited (code $code).\n$detail"
         emit(ChatItem.Notice(nextId("notice"), text, isError = true))

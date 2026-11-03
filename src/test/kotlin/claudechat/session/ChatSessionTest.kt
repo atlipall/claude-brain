@@ -826,6 +826,17 @@ class ChatSessionTest {
         assertFalse(s.canRewindTo(userIds()[0]))
     }
 
+    @Test fun rewindingForgetsTheBackgroundAgentsOfTheOldProcess() {
+        val s = session()
+        conn.emit(Fx.init("sess-1"))
+        s.send("go")
+        conn.emit(Fx.assistantText("m1", "ok", uuid = "a-1"), Fx.toolUse("m1", "t1", "Agent", "{}"), Fx.backgroundTasks("Count"), Fx.toolResult("t1", "started"))
+        conn.emit(Fx.result())
+        assertEquals(Activity.Agents(1), listener.activities.last())
+        assertTrue(s.rewind(userIds()[0]))
+        assertNull(listener.activities.last())
+    }
+
     @Test fun aSubagentsAnswerIsNotAnAnchor() {
         val s = session()
         conn.emit(Fx.init("sess-1"))
