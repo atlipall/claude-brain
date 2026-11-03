@@ -28,7 +28,9 @@ everything after it. The user chooses each time what to revert.
 4. Put the reverted message's text back in the input box (images are not restored).
 5. The chat continues under the forked session's id, from `system/init`. A custom title is saved again under the new
    id. The old transcript stays in the history list as it was.
-6. The "files were reverted" note goes to Claude with the next message only when the files were reverted too.
+6. Notes to Claude with the next message: after **Files only**, that the files were reverted (as before); after
+   **Conversation only**, that the files may still hold changes from the dropped turns; after **Files and
+   conversation**, none, since Claude's memory and the files agree again.
 
 ### Anchors
 - `ChatSession` keeps the `uuid` of the newest `assistant` event in the stream (not `stream_event` partials, which

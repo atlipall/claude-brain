@@ -48,10 +48,12 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   which asks the selected chat to fix the problems on that line. In the test runner, **Send Failures to Tether**
   (right-click) puts the selected failed tests' messages and stack traces into the message box; in a run console,
   **Send to Tether** puts the selected output (or all of it) there.
-- **Revert to before a message.** Each message sent in this IDE session gets a **Revert to here** link (on hover):
-  after asking, it reverts the chat's checkout to how it was before that message went out, using the IDE's Local
-  History, and tells Claude with your next message. The revert can itself be undone from Local History. Only files
-  Local History tracks are reverted (excluded folders, such as worktrees by default, are not).
+- **Revert to before a message.** Each message sent in this IDE session gets a **Revert to here** link (on hover).
+  It asks what to revert: **Files and Conversation**, **Files Only** or **Conversation Only**. Files go back to how
+  they were before that message went out, using the IDE's Local History (undoable from there; only files Local
+  History tracks, so not excluded folders such as worktrees by default). The conversation goes back too: Claude
+  forgets that message and everything after it, the chat continues in a fork of the session, and the message
+  returns to the input box.
 - **Images.** Paste, drop or 📎-pick images to send with a message (PNG/JPEG/GIF/WebP, up to 10,
   5 MB each, large ones downscaled). Images Claude reads, and local project images referenced in its
   replies, are shown inline. Remote images are never loaded.

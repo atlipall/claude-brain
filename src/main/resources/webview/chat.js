@@ -176,7 +176,7 @@
     el.className = 'msg user';
     if (item.revertable) {
       el.append(h('button', { class: 'link revert', 'data-action': 'revertTo', 'data-id': item.id,
-        title: 'Revert the files to how they were before this message (asks first)' }, 'Revert to here'));
+        title: 'Revert the files, the conversation or both to before this message (asks first)' }, 'Revert to here'));
     }
     const images = Array.isArray(item.images) ? item.images : [];
     if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src) => imageOrAlt(src, '[image]'))));

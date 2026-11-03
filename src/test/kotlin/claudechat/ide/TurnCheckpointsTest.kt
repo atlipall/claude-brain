@@ -53,25 +53,33 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         return endTurn(chat)
     }
 
-    /** Ends the turn of the message just sent, once its checkpoint is in. */
+    /** Ends the turn of the message just sent, once its checkpoint is in (it is put in the background). */
     private fun endTurn(chat: claudechat.session.Chat): ChatItem.UserText {
-        PlatformTestUtil.waitWithEventsDispatching("The message was not marked", { sent(chat).revertable }, 10)
+        val item = sent(chat).last()
+        PlatformTestUtil.waitWithEventsDispatching("The message was not marked",
+            { TurnCheckpoints.getInstance(project).hasCheckpoint(chat.id, item.id) }, 10)
         conn.emit(Fx.result())
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-        return sent(chat)
+        return sent(chat).last()
     }
 
-    /** The chat's one message as the page would get it. */
-    private fun sent(chat: claudechat.session.Chat): ChatItem.UserText {
+    /** The chat's messages as the page would get them. */
+    private fun sent(chat: claudechat.session.Chat): List<ChatItem.UserText> {
         var shown = emptyList<ChatItem>()
         chat.attach(object : claudechat.session.SessionView {
             override fun reset(items: List<ChatItem>) { shown = items }
             override fun item(item: ChatItem) {}
             override fun state(state: claudechat.session.SessionState, sessionId: String?, mode: claudechat.cli.PermissionMode?) {}
-            override fun insert(text: String) {}
+            override fun insert(text: String) { inserted += text }
         })
-        return shown.filterIsInstance<ChatItem.UserText>().single()
+        return shown.filterIsInstance<ChatItem.UserText>()
     }
+    private val inserted = mutableListOf<String>()
+
+    private var asked: String? = null
+
+    /** Answers the revert dialog with button [index] (see RevertChoice order; Cancel is last). */
+    private fun answer(index: Int) = TestDialogManager.setTestDialog { message -> asked = message; index }
 
     private fun read(name: String) = root.findChild(name)?.let { VfsUtil.loadText(it) }
 
@@ -81,7 +89,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         val item = turn(chat, "change it")
         write("a.txt", "after")
         write("new.txt", "created by Claude")
-        TestDialogManager.setTestDialog(TestDialog.YES)
+        answer(1) // Files Only
         chat.revertTo(item.id)
         assertEquals("before", read("a.txt"))
         assertNull("files created since are removed", read("new.txt"))
@@ -105,7 +113,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         }, "Typing", null)
         val item = endTurn(chat)
         write("d.txt", "after")
-        TestDialogManager.setTestDialog(TestDialog.YES)
+        answer(1) // Files Only
         chat.revertTo(item.id)
         assertEquals("before", read("d.txt"))
     }
@@ -114,10 +122,12 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         write("c.txt", "before")
         val chat = chats.open(ChatSpec.inProject(root.path))
         chat.send("change it")
-        PlatformTestUtil.waitWithEventsDispatching("The message was not marked", { sent(chat).revertable }, 10)
+        val id = sent(chat).single().id
+        PlatformTestUtil.waitWithEventsDispatching("The message was not marked",
+            { TurnCheckpoints.getInstance(project).hasCheckpoint(chat.id, id) }, 10)
         write("c.txt", "after")
-        TestDialogManager.setTestDialog(TestDialog.YES)
-        chat.revertTo(sent(chat).id)
+        answer(1)
+        chat.revertTo(id)
         assertEquals("after", read("c.txt"))
     }
 
@@ -126,9 +136,56 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         val chat = chats.open(ChatSpec.inProject(root.path))
         val item = turn(chat, "change it")
         write("b.txt", "after")
-        TestDialogManager.setTestDialog(TestDialog.NO)
+        answer(3) // Cancel
         chat.revertTo(item.id)
         assertEquals("after", read("b.txt"))
         assertNull(TurnCheckpoints.getInstance(project).consumeNote(chat.id))
+    }
+
+    fun testRevertingFilesAndConversationDropsTheMessageAndRefillsTheInputBox() {
+        write("f.txt", "before")
+        val chat = chats.open(ChatSpec.inProject(root.path))
+        conn.emit(Fx.init("sess-1", cwd = root.path))
+        chat.send("first")
+        conn.emit(Fx.assistantText("m1", "ok", uuid = "a-1"))
+        endTurn(chat)
+        val second = turn(chat, "second")
+        write("f.txt", "after")
+        val old = conn
+        answer(0) // Files and Conversation
+        chat.revertTo(second.id)
+        assertEquals("before", read("f.txt"))
+        assertTrue(old.stopped)
+        assertEquals(listOf("first"), sent(chat).map { it.text })
+        assertEquals(listOf("second"), inserted)
+        assertNull("files and memory agree again", TurnCheckpoints.getInstance(project).consumeNote(chat.id))
+    }
+
+    fun testRevertingOnlyTheConversationLeavesTheFiles() {
+        write("g.txt", "before")
+        val chat = chats.open(ChatSpec.inProject(root.path))
+        conn.emit(Fx.init("sess-1", cwd = root.path))
+        val item = turn(chat, "change it")
+        write("g.txt", "after")
+        answer(2) // Conversation Only
+        chat.revertTo(item.id)
+        assertEquals("after", read("g.txt"))
+        assertTrue(sent(chat).isEmpty())
+        assertTrue(TurnCheckpoints.getInstance(project).consumeNote(chat.id)!!.contains("may still"))
+    }
+
+    fun testAnUntrackedCheckoutOffersOnlyTheConversation() {
+        val outside = VfsUtil.findFile(Files.createTempDirectory("untracked"), true)!! // not a content root
+        val chat = chats.open(ChatSpec.inProject(outside.path))
+        conn.emit(Fx.init("sess-1", cwd = outside.path))
+        chat.send("change it")
+        conn.emit(Fx.result())
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        val item = sent(chat).single()
+        assertTrue("the link shows without a checkpoint", item.revertable)
+        answer(0) // the only choice: Conversation Only
+        chat.revertTo(item.id)
+        assertTrue(asked!!.contains("can't be reverted"))
+        assertTrue(sent(chat).isEmpty())
     }
 }

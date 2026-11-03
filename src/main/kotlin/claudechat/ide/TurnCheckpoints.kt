@@ -5,6 +5,7 @@ import claudechat.follow.CheckoutMapper
 import claudechat.session.Chat
 import claudechat.session.ChatItem
 import claudechat.session.Checkpoints
+import claudechat.session.RevertChoice
 import com.intellij.history.Label
 import com.intellij.history.LocalHistory
 import com.intellij.history.LocalHistoryException
@@ -39,11 +40,10 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
     /** Chat id -> what to tell Claude with the next message after a revert. */
     private val notes = ConcurrentHashMap<Int, String>()
 
-    override fun mark(chat: Chat, item: ChatItem.UserText): Boolean = try {
-        val dir = LocalFileSystem.getInstance().refreshAndFindFileByPath(chat.cwd)
-        if (dir == null || !tracked(dir)) {
-            false
-        } else {
+    override fun mark(chat: Chat, item: ChatItem.UserText) {
+        try {
+            val dir = LocalFileSystem.getInstance().refreshAndFindFileByPath(chat.cwd)
+            if (dir == null || !tracked(dir)) return
             // Writes the previous turn made behind the IDE's back belong before this label, not after it.
             VfsUtil.markDirtyAndRefresh(false, true, true, dir)
             val message = shorten(item.text)
@@ -59,33 +59,54 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
                 })
             }
             forChat[item.id] = Checkpoint(label, dir.path, message)
-            true
+        } catch (e: Exception) {
+            LOG.warn("Could not put a Local History label", e)
         }
-    } catch (e: Exception) {
-        LOG.warn("Could not put a Local History label", e)
-        false
     }
 
-    override fun revert(chat: Chat, itemId: String) {
-        val checkpoint = checkpoints[chat.id]?.get(itemId)
-        if (checkpoint == null) {
-            Messages.showInfoMessage(project, "This message is too old to revert to.", "Revert to Before This Message")
-            return
+    /** Whether message [itemId] of chat [chatId] has a checkpoint its files can be reverted to. */
+    fun hasCheckpoint(chatId: Int, itemId: String): Boolean = checkpoints[chatId]?.containsKey(itemId) == true
+
+    override fun revert(chat: Chat, item: ChatItem.UserText, conversation: Boolean): RevertChoice? {
+        val title = "Revert to Before This Message"
+        val checkpoint = checkpoints[chat.id]?.get(item.id)
+        if (checkpoint == null && !conversation) {
+            Messages.showInfoMessage(project, "This message is too old to revert to.", title)
+            return null
         }
         // A turn's edits in flight would land after the revert; the user stops it (and sees what it did) first.
         if (chat.busy) {
-            Messages.showInfoMessage(project, "Claude is still working. Stop it, or wait for it to finish, then revert.", "Revert to Before This Message")
-            return
+            Messages.showInfoMessage(project, "Claude is still working. Stop it, or wait for it to finish, then revert.", title)
+            return null
         }
-        val dir = LocalFileSystem.getInstance().refreshAndFindFileByPath(checkpoint.dir) ?: return
-        val answer = Messages.showYesNoDialog(
-            project,
-            "Revert every file in ${dir.presentableUrl} to how it was before “${checkpoint.message}”?\n\n" +
-                "This undoes Claude's changes from that message on, and your own changes since then too. " +
-                "You can undo the revert from Local History.",
-            "Revert to Before This Message", "Revert", "Cancel", Messages.getWarningIcon(),
-        )
-        if (answer != Messages.YES) return
+        val dir = checkpoint?.let { LocalFileSystem.getInstance().refreshAndFindFileByPath(it.dir) }
+        val choices = RevertChoice.entries.filter { (!it.files || dir != null) && (!it.conversation || conversation) }
+        val message = shorten(item.text)
+        val text = buildString {
+            append("Revert to before “$message”?\n\n")
+            if (dir != null) {
+                append("Files: every file in ${dir.presentableUrl} goes back to how it was then. This undoes Claude's ")
+                append("changes from that message on, and your own changes since then too. You can undo it from Local History.\n\n")
+            } else {
+                append("The files can't be reverted: their folder isn't tracked by Local History, or the message is too old.\n\n")
+            }
+            if (conversation) append("Conversation: Claude forgets this message and everything after it, and the message goes back into the input box.")
+        }
+        val answer = Messages.showDialog(project, text, title, (choices.map { it.label } + "Cancel").toTypedArray(), 0, Messages.getWarningIcon())
+        val choice = choices.getOrNull(answer) ?: return null
+        if (choice.files && !revertFiles(chat, checkpoint!!, dir!!)) return null
+        when (choice) {
+            RevertChoice.FILES -> notes[chat.id] = "The user reverted the files in this checkout to how they were before their message " +
+                "“$message”. Changes made since then are gone; re-read files before relying on what you remember of them."
+            RevertChoice.CONVERSATION -> notes[chat.id] = "The user took the conversation back to before their message “$message”. " +
+                "The files may still hold changes made after that point; re-read files before relying on what you remember of them."
+            RevertChoice.FILES_AND_CONVERSATION -> notes.remove(chat.id)
+        }
+        return choice
+    }
+
+    /** Reverts [dir] to [checkpoint]'s label; false (with a notice in the chat) when Local History can't. */
+    private fun revertFiles(chat: Chat, checkpoint: Checkpoint, dir: VirtualFile): Boolean {
         // Local History must have the latest state, Claude's last writes included, so the revert is complete and undoable.
         FileDocumentManager.getInstance().saveAllDocuments()
         VfsUtil.markDirtyAndRefresh(false, true, true, dir)
@@ -94,11 +115,10 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
         } catch (e: LocalHistoryException) {
             LOG.warn("Revert failed", e)
             chat.session.notice("Couldn't revert: ${e.message}")
-            return
+            return false
         }
         chat.session.notice("Reverted the files to how they were before “${checkpoint.message}”.", isError = false)
-        notes[chat.id] = "The user reverted the files in this checkout to how they were before their message " +
-            "“${checkpoint.message}”. Changes made since then are gone; re-read files before relying on what you remember of them."
+        return true
     }
 
     /** Whether Local History keeps [dir]'s files: inside the project's content and not excluded. */

@@ -36,13 +36,23 @@ interface SessionView {
     fun queue(messages: List<QueuedMessage>) {}
 }
 
+/** What "Revert to here" takes back to before a message, as the user chose it. */
+enum class RevertChoice(val label: String, val files: Boolean, val conversation: Boolean) {
+    FILES_AND_CONVERSATION("Files and Conversation", true, true),
+    FILES("Files Only", true, false),
+    CONVERSATION("Conversation Only", false, true),
+}
+
 /** Marks the files' state before each message of a chat, and reverts to such a mark. */
 interface Checkpoints {
-    /** Marks the files before [item] goes out; true when it can be reverted to. Pooled thread, outside every lock. */
-    fun mark(chat: Chat, item: ChatItem.UserText): Boolean
+    /** Marks the files before [item] goes out, when their folder can be reverted. Pooled thread, outside every lock. */
+    fun mark(chat: Chat, item: ChatItem.UserText)
 
-    /** Reverts [chat]'s files to how they were before message [itemId] (asking first). EDT. */
-    fun revert(chat: Chat, itemId: String)
+    /**
+     * Asks what to revert to before [item] ([conversation]: whether the conversation can be), and reverts the files
+     * if that is chosen. Null when nothing more is to happen (cancelled, refused, or the file revert failed). EDT.
+     */
+    fun revert(chat: Chat, item: ChatItem.UserText, conversation: Boolean): RevertChoice?
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -168,11 +178,12 @@ class Chat(
         }
 
         override fun onItem(item: ChatItem) {
-            synchronized(lock) { items[item.id] = item }
-            view?.item(item)
-            // Every UserText the session reports is a message going out now (history comes through the constructor).
-            // The mark is IDE work (Local History): off this thread, which holds the session lock.
-            if (item is ChatItem.UserText) checkpoints?.let { c -> background { if (c.mark(this@Chat, item)) showRevertable(item.id) } }
+            // Every UserText the session reports is a message going out now (history comes through the constructor),
+            // so the conversation can be rewound to before it; the files' mark is IDE work, off this thread.
+            val shown = if (item is ChatItem.UserText && checkpoints != null) item.copy(revertable = true) else item
+            synchronized(lock) { items[shown.id] = shown }
+            view?.item(shown)
+            if (shown is ChatItem.UserText) checkpoints?.let { c -> background { c.mark(this@Chat, shown) } }
         }
 
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
@@ -370,17 +381,27 @@ class Chat(
         session.unqueue(id)?.text?.takeIf { it.isNotBlank() }?.let(::insert)
     }
 
-    /** Reverts the files to how they were before message [itemId], if it is [ChatItem.UserText.revertable]. EDT. */
+    /** Reverts the files, the conversation or both to before message [itemId], as the user picks. EDT. */
     fun revertTo(itemId: String) {
         val item = synchronized(lock) { items[itemId] } as? ChatItem.UserText ?: return
-        if (item.revertable) checkpoints?.revert(this, itemId)
+        if (!item.revertable) return
+        val choice = checkpoints?.revert(this, item, session.canRewindTo(itemId)) ?: return
+        if (choice.conversation) rewindTo(item)
     }
 
-    private fun showRevertable(itemId: String) {
-        val shown = synchronized(lock) {
-            (items[itemId] as? ChatItem.UserText)?.copy(revertable = true)?.also { items[itemId] = it }
-        } ?: return
-        view?.item(shown)
+    /** Claude forgets [item] and what followed; the panel drops them and the message goes back into the input box. */
+    private fun rewindTo(item: ChatItem.UserText) {
+        if (!session.canRewindTo(item.id)) return
+        val kept = synchronized(lock) {
+            val ids = items.keys.toList()
+            ids.subList(ids.indexOf(item.id), ids.size).forEach(items::remove)
+            items.values.toList()
+        }
+        view?.reset(kept)
+        // The fork gets a new session id; a name the user gave is saved under it once claude reports it.
+        if (customTitle != null) titleUnsaved.set(true)
+        session.rewind(item.id)
+        item.text.takeIf { it.isNotBlank() }?.let(::insert)
     }
 
     /** Stops the turn, and drops messages still waiting for their editor context. EDT only. */
