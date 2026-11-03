@@ -9,7 +9,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 
-data class SessionSummary(val id: String, val title: String, val modifiedMillis: Long)
+/** A past session; [folder] is the cwd it ran in (its transcript lives under that folder's project dir). */
+data class SessionSummary(val id: String, val title: String, val modifiedMillis: Long, val folder: String)
 
 /** Reads Claude Code's on-disk session transcripts (~/.claude/projects/<encoded cwd>/<id>.jsonl). */
 class SessionStore(private val claudeHome: File) {
@@ -19,9 +20,16 @@ class SessionStore(private val claudeHome: File) {
         projectDir(cwd).listFiles { f -> f.isFile && f.name.endsWith(".jsonl") }.orEmpty()
             .sortedByDescending { it.lastModified() }
             .asSequence()
-            .mapNotNull { f -> firstUserText(f)?.let { SessionSummary(f.nameWithoutExtension, oneLine(it), f.lastModified()) } }
+            .mapNotNull { f -> firstUserText(f)?.let { SessionSummary(f.nameWithoutExtension, oneLine(it), f.lastModified(), cwd) } }
             .take(limit)
             .toList()
+
+    /** Sessions of every folder, newest first. Folders that map to the same project dir are read once. */
+    fun listAll(folders: List<String>, limit: Int = 50): List<SessionSummary> =
+        folders.distinctBy { projectDir(it) }
+            .flatMap { list(it, limit) }
+            .sortedByDescending { it.modifiedMillis }
+            .take(limit)
 
     fun transcript(cwd: String, sessionId: String): List<ChatItem> {
         val file = File(projectDir(cwd), "$sessionId.jsonl")

@@ -11,8 +11,11 @@ class SessionStoreTest {
 
     private val cwd = "/Users/me/my_proj.v2"
 
-    private fun write(store: SessionStore, id: String, modified: Long, vararg lines: String): File {
-        val dir = store.projectDir(cwd).apply { mkdirs() }
+    private fun write(store: SessionStore, id: String, modified: Long, vararg lines: String): File =
+        writeIn(store, cwd, id, modified, *lines)
+
+    private fun writeIn(store: SessionStore, folder: String, id: String, modified: Long, vararg lines: String): File {
+        val dir = store.projectDir(folder).apply { mkdirs() }
         return File(dir, "$id.jsonl").apply { writeText(lines.joinToString("\n")); setLastModified(modified) }
     }
 
@@ -32,7 +35,7 @@ class SessionStoreTest {
         write(store, "new", 2_000_000, meta("<command-name>"), user("<local-command>"), user("second\nquestion"))
         write(store, "empty", 3_000_000, """{"type":"session-owner"}""")
         assertEquals(
-            listOf(SessionSummary("new", "second question", 2_000_000), SessionSummary("old", "first question", 1_000_000)),
+            listOf(SessionSummary("new", "second question", 2_000_000, cwd), SessionSummary("old", "first question", 1_000_000, cwd)),
             store.list(cwd))
     }
 
@@ -49,5 +52,27 @@ class SessionStoreTest {
                 ChatItem.AssistantText("h-3", "ok", false),
             ),
             store.transcript(cwd, "s1"))
+    }
+
+    @Test fun listAllMergesFoldersNewestFirst() {
+        val store = SessionStore(tmp.root)
+        val wt = "$cwd/.claude/worktrees/wt-1"
+        writeIn(store, cwd, "a", 1_000_000, user("in project"))
+        writeIn(store, wt, "b", 3_000_000, user("in worktree"))
+        writeIn(store, cwd, "c", 2_000_000, user("later in project"))
+        assertEquals(
+            listOf(
+                SessionSummary("b", "in worktree", 3_000_000, wt),
+                SessionSummary("c", "later in project", 2_000_000, cwd),
+                SessionSummary("a", "in project", 1_000_000, cwd),
+            ),
+            store.listAll(listOf(cwd, wt, cwd, "/nowhere")))
+    }
+
+    @Test fun listAllHonoursLimit() {
+        val store = SessionStore(tmp.root)
+        writeIn(store, cwd, "a", 1_000_000, user("one"))
+        writeIn(store, "$cwd/.claude/worktrees/wt-1", "b", 2_000_000, user("two"))
+        assertEquals(listOf("b"), store.listAll(listOf(cwd, "$cwd/.claude/worktrees/wt-1"), limit = 1).map { it.id })
     }
 }
