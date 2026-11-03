@@ -1,0 +1,14 @@
+<idea-plugin>
+    <id>local.claudechat</id>
+    <name>Claude Chat</name>
+    <vendor>local</vendor>
+    <description><![CDATA[
+    Native chat panel for the Claude Code CLI. Runs the locally installed <code>claude</code>
+    binary with your existing login, links files Claude touches, shows diffs of its edits,
+    and tells Claude about files you edited between turns.
+    ]]></description>
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+    </extensions>
+</idea-plugin>

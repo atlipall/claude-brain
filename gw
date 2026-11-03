@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the Gradle wrapper with WebStorm's bundled JBR (no system Java on this machine).
+export JAVA_HOME="${JAVA_HOME:-/Applications/WebStorm.app/Contents/jbr/Contents/Home}"
+exec "$(dirname "$0")/gradlew" "$@"
