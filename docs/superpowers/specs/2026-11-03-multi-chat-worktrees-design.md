@@ -53,4 +53,4 @@ Each chat has a `cwd` (absolute path). It starts as the launch directory and is 
 
 ## Carried-over item from v1 review
 
-The v1 fix wave added a navigation guard in `ChatPanel` (`onBeforeBrowse` + initial-URL capture). The user has since used the page successfully (bridge working), so the about:blank risk did not materialise; the v2 ChatPanel refactor must keep: bridge injected only on the chat page, and navigation away from it blocked, without ever blocking the initial load.
+The v1 fix wave added a navigation guard in `ChatPanel` (`onBeforeBrowse` + initial-URL capture). The user has since seen the page render (the History dropdown was visible), so the initial load is not cancelled; whether the bridge is injected is still unconfirmed. The v2 ChatPanel refactor must keep: bridge injected only on the chat page, and navigation away from it blocked, without ever blocking the initial load.
