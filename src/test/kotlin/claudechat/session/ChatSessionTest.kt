@@ -241,6 +241,18 @@ class ChatSessionTest {
         assertFalse(tool.hasDiff)
     }
 
+    @Test fun atMostSixImagesOfOneToolResultAreShown() {
+        val s = session()
+        s.send("x")
+        val block = """{"type":"image","source":{"type":"base64","data":"${TestImages.BLUE_PNG_BASE64}","media_type":"image/png"}}"""
+        val line = """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"t1","type":"tool_result","content":[${List(10) { block }.joinToString(",")}]}]},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"u12"}"""
+        conn.emit(Fx.toolUse("m1", "t1", "Read", """{"file_path":"/p/blue.png"}"""), line)
+        val images = listener.latest<ChatItem.ToolCall>().images
+        assertEquals(10, images.size)
+        assertEquals(6, images.count { it.startsWith("data:image/png;base64,") })
+        assertEquals(List(4) { "" }, images.drop(6))
+    }
+
     @Test fun anImageBlockThatIsNotAnImageShowsNothing() {
         val s = session()
         s.send("x")

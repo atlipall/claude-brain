@@ -32,6 +32,9 @@ data class FileDiff(val filePath: String, val originalContent: String)
 /** Longest base64 string accepted for a tool-result image (about 5 MB of bytes); longer ones show as "[image]". */
 private const val MAX_TOOL_IMAGE_BASE64 = 7_000_000
 
+/** Most images of one tool result converted to display copies; further ones show as "[image]". */
+private const val MAX_TOOL_IMAGES = 6
+
 /** One conversation with one claude process (respawned with --resume on restart). Thread-safe. */
 class ChatSession(
     private val connect: (SessionLaunch) -> CliConnection,
@@ -81,7 +84,11 @@ class ChatSession(
                 created = conn
                 connection = conn
                 conn.start(
-                    onLine = { line -> synchronized(lock) { if (gen == generation) handleLine(line) } },
+                    onLine = { line ->
+                        // Parsing and image decoding happen before the lock is taken: they can be slow.
+                        val events = CliParser.parse(line).map { it to displayCopiesOf(it) }
+                        synchronized(lock) { if (gen == generation) for ((event, copies) in events) handle(event, copies) }
+                    },
                     onExit = { code, tail -> synchronized(lock) { if (gen == generation) handleExit(code, tail) } },
                 )
                 conn.send(CliMessages.initialize(nextId("init")))
@@ -184,11 +191,11 @@ class ChatSession(
 
     fun diffFor(toolUseId: String): FileDiff? = synchronized(lock) { diffs[toolUseId] }
 
-    private fun handleLine(line: String) {
-        for (event in CliParser.parse(line)) handle(event)
-    }
+    /** Display copies for a tool result's images: at most [MAX_TOOL_IMAGES] are converted, the rest show as "[image]". */
+    private fun displayCopiesOf(event: CliEvent): List<String>? =
+        (event as? CliEvent.ToolResult)?.images?.mapIndexed { i, block -> if (i < MAX_TOOL_IMAGES) displayCopy(block) else "" }
 
-    private fun handle(event: CliEvent) {
+    private fun handle(event: CliEvent, copies: List<String>? = null) {
         when (event) {
             is CliEvent.SystemInit -> {
                 if (event.sessionId.isNotBlank()) sessionId = event.sessionId
@@ -221,7 +228,7 @@ class ChatSession(
                 upsertTool(base.copy(name = event.name, input = event.input, filePath = filePathOf(event.input)))
             }
             is CliEvent.PermissionRequest -> onPermissionRequest(event)
-            is CliEvent.ToolResult -> onToolResult(event)
+            is CliEvent.ToolResult -> onToolResult(event, copies.orEmpty())
             is CliEvent.UserText -> Unit
             is CliEvent.Result -> onResult(event)
             is CliEvent.Ignored -> Unit
@@ -242,7 +249,7 @@ class ChatSession(
         setState(SessionState.AWAITING_PERMISSION)
     }
 
-    private fun onToolResult(event: CliEvent.ToolResult) {
+    private fun onToolResult(event: CliEvent.ToolResult, copies: List<String>) {
         val tool = toolCalls[event.toolUseId] ?: return
         val status = when {
             event.toolUseId in deniedToolUses -> ToolStatus.DENIED
@@ -257,7 +264,7 @@ class ChatSession(
             permissionRequestId = null,
             resultPreview = event.content.take(4000),
             hasDiff = hasDiff,
-            images = event.images.map(::displayCopy),
+            images = copies,
         ))
     }
 
@@ -265,7 +272,7 @@ class ChatSession(
      * A display copy (at most 800 px and 512 KB) of an image the CLI returned, as a `data:` URL; "" when the block
      * is not a usable image. The CLI's claimed media type and its raw base64 never reach the page: the bytes are
      * decoded, sniffed and re-encoded by [Images.preview], and the URL is built from the re-encoded type.
-     * Runs on the CLI reader thread.
+     * Runs on the CLI reader thread, outside the session lock.
      */
     private fun displayCopy(block: ImageBlock): String {
         if (block.data.length > MAX_TOOL_IMAGE_BASE64) return ""
