@@ -1,0 +1,78 @@
+package claudechat.follow
+
+import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.TextEditor
+import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
+
+class EditorSwapperTest : BasePlatformTestCase() {
+    private val root get() = ProjectRootManager.getInstance(project).contentRoots.first().path
+    private val mapper get() = CheckoutMapper(root)
+    private val main get() = mapper.main
+    private val wt1 get() = Checkout("wt1", "$root/.claude/worktrees/wt1")
+    private val manager get() = FileEditorManager.getInstance(project)
+
+    override fun tearDown() {
+        try { manager.openFiles.forEach(manager::closeFile) } finally { super.tearDown() }
+    }
+
+    private fun file(path: String, text: String = "one\ntwo\nthree\n"): VirtualFile = myFixture.addFileToProject(path, text).virtualFile
+
+    private fun openPaths() = manager.openFiles.map { it.path.removePrefix("$root/") }.toSet()
+
+    private fun caret(file: VirtualFile) =
+        (manager.getSelectedEditor(file) as TextEditor).editor.caretModel.logicalPosition
+
+    fun testSwapsFilesThatHaveACounterpartAndKeepsTheRest() {
+        val a = file("a.txt")
+        val onlyMain = file("only-main.txt")
+        file(".claude/worktrees/wt1/a.txt")
+        manager.openFile(onlyMain, false)
+        manager.openFile(a, true)
+        EditorSwapper(project, mapper).swap(main, wt1)
+        assertEquals(setOf(".claude/worktrees/wt1/a.txt", "only-main.txt"), openPaths())
+        assertEquals(".claude/worktrees/wt1/a.txt", manager.selectedFiles.first().path.removePrefix("$root/"))
+    }
+
+    fun testCaretIsKeptAndClamped() {
+        val a = file("a.txt", "0123456789\n0123456789\n0123456789\n")
+        val b = file("b.txt", "0123456789\n0123456789\n")
+        file(".claude/worktrees/wt1/a.txt", "0123456789\n0123456789\n0123456789\n")
+        file(".claude/worktrees/wt1/b.txt", "x\n")
+        manager.openFile(a, false)
+        manager.openFile(b, false)
+        (manager.getSelectedEditor(a) as TextEditor).editor.caretModel.moveToLogicalPosition(LogicalPosition(2, 4))
+        (manager.getSelectedEditor(b) as TextEditor).editor.caretModel.moveToLogicalPosition(LogicalPosition(1, 9))
+        EditorSwapper(project, mapper).swap(main, wt1)
+        assertEquals(LogicalPosition(2, 4), caret(myFixture.findFileInTempDir(".claude/worktrees/wt1/a.txt")))
+        assertEquals(LogicalPosition(1, 0), caret(myFixture.findFileInTempDir(".claude/worktrees/wt1/b.txt")))
+    }
+
+    fun testUnsavedChangesAreSavedBeforeTheSwap() {
+        val a = file("a.txt", "old")
+        file(".claude/worktrees/wt1/a.txt")
+        myFixture.openFileInEditor(a)
+        myFixture.type("new ")
+        EditorSwapper(project, mapper).swap(main, wt1)
+        assertFalse(FileDocumentManager.getInstance().isFileModified(a))
+        assertEquals("new old", String(a.contentsToByteArray()))
+    }
+
+    fun testSwapsBack() {
+        val a = file("a.txt")
+        file(".claude/worktrees/wt1/a.txt")
+        manager.openFile(a, true)
+        val swapper = EditorSwapper(project, mapper)
+        swapper.swap(main, wt1)
+        swapper.swap(wt1, main)
+        assertEquals(setOf("a.txt"), openPaths())
+    }
+
+    fun testNothingOpenIsANoOp() {
+        EditorSwapper(project, mapper).swap(main, wt1)
+        assertTrue(manager.openFiles.isEmpty())
+    }
+}
