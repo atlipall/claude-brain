@@ -140,6 +140,7 @@ class Chat(
 
     /** Recomputes the chip and tells the page when its text or muted state changed. EDT only. */
     fun refreshContext() {
+        if (view == null) return // a detached chat has no chip; attach resets it and refreshes
         val next = captureContext(ContextNotes::chip).orEmpty() to contextOff
         if (next == shownContext) return
         shownContext = next
