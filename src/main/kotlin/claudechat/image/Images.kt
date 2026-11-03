@@ -92,10 +92,14 @@ object Images {
     fun prepare(bytes: ByteArray, maxBytes: Int = MAX_BYTES, maxEdge: Int = MAX_EDGE): Prepared {
         val type = ImageType.sniff(bytes) ?: return Prepared.Rejected(NOT_AN_IMAGE)
         val (w, h) = dimensions(bytes, type) ?: return Prepared.Rejected(UNREADABLE)
-        if (bytes.size <= maxBytes && max(w, h) <= maxEdge) return Prepared.Ok(Image(type, bytes, w, h))
-        if (type == ImageType.WEBP && !webpDecodable()) return Prepared.Rejected(WEBP_TOO_LARGE)
+        val fits = bytes.size <= maxBytes && max(w, h) <= maxEdge
+        if (type == ImageType.WEBP && !webpDecodable()) {
+            return if (fits) Prepared.Ok(Image(type, bytes, w, h)) else Prepared.Rejected(WEBP_TOO_LARGE)
+        }
         if (w.toLong() * h > MAX_PIXELS) return Prepared.Rejected(TOO_MANY_PIXELS)
+        // Even an image that fits is decoded in full: a truncated or corrupt one would break the session.
         val source = decode(bytes) ?: return Prepared.Rejected(UNREADABLE)
+        if (fits) return Prepared.Ok(Image(type, bytes, w, h))
         return fit(source, type, maxEdge, maxBytes)?.let { Prepared.Ok(it) } ?: Prepared.Rejected(TOO_LARGE)
     }
 
@@ -113,8 +117,17 @@ object Images {
         return fit(source, type, maxEdge, maxBytes)
     }
 
-    private fun decode(bytes: ByteArray): BufferedImage? =
-        try { ImageIO.read(ByteArrayInputStream(bytes)) } catch (e: Exception) { null }
+    private fun decode(bytes: ByteArray): BufferedImage? {
+        // The JPEG reader accepts a cut-off file with only a warning; it must end with the end-of-image marker.
+        if (ImageType.sniff(bytes) == ImageType.JPEG && !endsWithJpegEoi(bytes)) return null
+        return try { ImageIO.read(ByteArrayInputStream(bytes)) } catch (e: Exception) { null }
+    }
+
+    private fun endsWithJpegEoi(b: ByteArray): Boolean {
+        var end = b.size
+        while (end > 2 && b[end - 1].toInt() == 0) end-- // some encoders pad with zeros
+        return end >= 2 && (b[end - 2].toInt() and 0xFF) == 0xFF && (b[end - 1].toInt() and 0xFF) == 0xD9
+    }
 
     private fun fit(source: BufferedImage, type: ImageType, maxEdge: Int, maxBytes: Int): Image? {
         val scale = minOf(1.0, maxEdge.toDouble() / max(source.width, source.height))

@@ -56,6 +56,16 @@ class ImagesTest {
         assertEquals(ImageType.WEBP, ok(Images.prepare(TestImages.webpHeader("VP8X", 2000, 1000))).type)
     }
 
+    @Test fun truncatedOrCorruptImagesAreRefusedEvenWhenSmall() {
+        for (format in listOf("png", "gif", "jpeg")) {
+            val whole = TestImages.noiseIn(64, 64, format)
+            assertTrue(format, Images.prepare(whole) is Prepared.Ok)
+            val cut = Images.prepare(whole.copyOf(whole.size / 2))
+            assertTrue("$format was accepted", cut is Prepared.Rejected)
+            assertEquals(format, Images.UNREADABLE, reason(cut))
+        }
+    }
+
     @Test fun aLongEdgeOver2000IsScaledDownKeepingTheFormat() {
         val png = ok(Images.prepare(TestImages.solid(3000, 1500)))
         assertEquals(ImageType.PNG, png.type)

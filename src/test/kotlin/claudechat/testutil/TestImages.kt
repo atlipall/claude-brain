@@ -35,6 +35,14 @@ object TestImages {
         return ByteArrayOutputStream().also { ImageIO.write(img, "png", it) }.toByteArray()
     }
 
+    /** Random pixels in an ImageIO format ("png", "jpeg", "gif"). */
+    fun noiseIn(w: Int, h: Int, format: String, seed: Long = 1): ByteArray {
+        val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
+        val random = Random(seed)
+        for (y in 0 until h) for (x in 0 until w) img.setRGB(x, y, random.nextInt(0x1000000))
+        return ByteArrayOutputStream().also { check(ImageIO.write(img, format, it)) }.toByteArray()
+    }
+
     /** The first 30 bytes of a WebP file of the given chunk kind ("VP8 ", "VP8L" or "VP8X") and size; enough for its header. */
     fun webpHeader(kind: String, w: Int, h: Int): ByteArray {
         val b = ByteArray(30)
