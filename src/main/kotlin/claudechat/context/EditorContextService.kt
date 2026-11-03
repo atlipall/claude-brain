@@ -4,6 +4,9 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorKind
@@ -23,6 +26,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.Alarm
+import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -34,7 +38,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 class EditorContextService(private val project: Project) : Disposable {
     private val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
-    private var lastFocused: Editor? = null
+    private var lastFocusedRef: WeakReference<Editor>? = null
+    private var lastFocused: Editor?
+        get() = lastFocusedRef?.get()
+        set(value) { lastFocusedRef = value?.let(::WeakReference) }
 
     /** The main checkout's folder, for counterpart paths (tests point it at the light project's content root). */
     var projectDir: String = project.basePath ?: System.getProperty("user.home")
@@ -129,7 +136,18 @@ class EditorContextService(private val project: Project) : Disposable {
     private fun changed(editor: Editor?) {
         if (editor != null && editor.project !== project) return
         if (listeners.isEmpty()) return
-        schedule(Runnable { if (!project.isDisposed) listeners.forEach { it() } })
+        schedule(Runnable { if (!project.isDisposed) listeners.forEach(::notify) })
+    }
+
+    private fun notify(listener: () -> Unit) {
+        try {
+            listener()
+        } catch (e: ProcessCanceledException) {
+            throw e
+        } catch (e: Exception) {
+            if (e is ControlFlowException) throw e
+            logger<EditorContextService>().warn("An editor-context listener failed", e)
+        }
     }
 
     override fun dispose() = Unit

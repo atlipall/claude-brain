@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
@@ -150,5 +151,30 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         assertNull(service.contextFor("$root/.claude/worktrees/wt2"))
         assertNull(service.contextFor("/elsewhere"))
         assertEquals("a.js", service.contextFor("$root/src")!!.path)
+    }
+
+    fun testAFailingStructureModelMeansNoSymbol() {
+        assertEquals(null to null, SymbolFinder.safely { throw IllegalStateException("boom") })
+        val symbol = Symbol("f", "function", Lines(1, 1))
+        assertEquals(symbol to null, SymbolFinder.safely { symbol to null })
+    }
+
+    fun testDumbModeMeansNoSymbolButStillALocation() {
+        myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
+        DumbModeTestUtils.runInDumbModeSynchronously(project) {
+            val context = service.capture()!!
+            assertEquals(4, context.line)
+            assertNull(context.symbol)
+        }
+        assertNotNull(service.capture()!!.symbol)
+    }
+
+    fun testAThrowingListenerDoesNotStopTheOthers() {
+        myFixture.configureByText("a.txt", "one\ntwo\n")
+        var second = 0
+        service.addListener(testRootDisposable) { throw IllegalStateException("boom") }
+        service.addListener(testRootDisposable) { second++ }
+        myFixture.editor.caretModel.moveToOffset(5)
+        assertTrue(second > 0)
     }
 }

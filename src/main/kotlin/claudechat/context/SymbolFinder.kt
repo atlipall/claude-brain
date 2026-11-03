@@ -1,11 +1,15 @@
 package claudechat.context
 
+import com.intellij.ide.structureView.StructureViewModel
 import com.intellij.ide.structureView.StructureViewTreeElement
 import com.intellij.ide.structureView.TreeBasedStructureViewBuilder
 import com.intellij.ide.util.treeView.smartTree.TreeElement
 import com.intellij.lang.LanguageStructureViewBuilder
 import com.intellij.openapi.editor.Document
-import com.intellij.openapi.project.IndexNotReadyException
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.ElementDescriptionUtil
 import com.intellij.psi.PsiElement
@@ -22,17 +26,31 @@ object SymbolFinder {
 
     /** The innermost element at [offset] and its function-like container (see [Symbols.pick]); both null without a structure model. */
     fun find(file: PsiFile, document: Document, offset: Int): Pair<Symbol?, Symbol?> {
-        val builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(file) as? TreeBasedStructureViewBuilder
-            ?: return null to null
-        val model = builder.createStructureViewModel(null)
-        return try {
-            Symbols.pick(path(model.root, document, offset))
-        } catch (_: IndexNotReadyException) {
-            null to null // some structure models need indexes; while indexing there is no symbol
-        } finally {
-            Disposer.dispose(model)
+        if (DumbService.isDumb(file.project)) return null to null // structure models may need indexes
+        return safely {
+            val builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(file) as? TreeBasedStructureViewBuilder
+                ?: return@safely null to null
+            var model: StructureViewModel? = null
+            try {
+                model = builder.createStructureViewModel(null)
+                Symbols.pick(path(model.root, document, offset))
+            } finally {
+                model?.let(Disposer::dispose)
+            }
         }
     }
+
+    /** Runs [block]; a failing structure model (third-party language plugins can throw anything) means no symbol. */
+    internal fun safely(block: () -> Pair<Symbol?, Symbol?>): Pair<Symbol?, Symbol?> =
+        try {
+            block()
+        } catch (e: ProcessCanceledException) {
+            throw e
+        } catch (e: Exception) {
+            if (e is ControlFlowException) throw e
+            logger<SymbolFinder>().debug("No symbol: the structure model failed", e)
+            null to null
+        }
 
     /** From the root's children down: at each level the smallest child whose element contains [offset]. */
     private fun path(root: TreeElement, document: Document, offset: Int): List<StructureHit> {
