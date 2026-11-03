@@ -93,6 +93,19 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(SessionState.IDLE, other.session.state)
     }
 
+    fun testShowChangesOpensThisChatsChanges() {
+        val shown = mutableListOf<Chat>()
+        bridge.showChanges = { shown += it }
+        bridge.handle("""{"type":"showChanges"}""")
+        assertEquals(listOf(chat), shown)
+    }
+
+    fun testANewChatRecordsWhenItStarted() {
+        val before = System.currentTimeMillis()
+        val started = chats.open(ChatSpec.inProject(root)).startedAt!!
+        assertTrue(started in before..System.currentTimeMillis())
+    }
+
     fun testActivityIsPostedAndReplayedOnReady() {
         bridge.handle("""{"type":"ready"}""")
         bridge.handle("""{"type":"send","text":"hello"}""")

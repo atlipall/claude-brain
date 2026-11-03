@@ -581,6 +581,7 @@
   document.getElementById('new-chat').addEventListener('click', () => send({ type: 'newChat' }));
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
+  document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 

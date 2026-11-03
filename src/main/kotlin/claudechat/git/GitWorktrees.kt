@@ -1,8 +1,6 @@
 package claudechat.git
 
 import java.io.File
-import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 /** One entry of `git worktree list --porcelain`. [branch] is the short branch name, null when detached. */
 data class Worktree(val path: String, val branch: String?, val isMain: Boolean) {
@@ -68,19 +66,3 @@ fun runGitWorktreeBranches(dir: File): String? =
 
 /** Runs `git worktree list --porcelain` in [dir]; null if git is missing, fails, or takes longer than 5 seconds. */
 fun runGitWorktreeList(dir: File): String? = runGit(dir, "worktree", "list", "--porcelain")
-
-private fun runGit(dir: File, vararg args: String): String? = try {
-    val process = ProcessBuilder("git", *args)
-        .directory(dir)
-        .redirectError(ProcessBuilder.Redirect.DISCARD)
-        .start()
-    process.outputStream.close()
-    val out = process.inputStream.bufferedReader(Charsets.UTF_8).readText()
-    when {
-        !process.waitFor(5, TimeUnit.SECONDS) -> { process.destroyForcibly(); null }
-        process.exitValue() != 0 -> null
-        else -> out
-    }
-} catch (_: IOException) {
-    null
-}

@@ -44,8 +44,13 @@ class Chat(
      */
     private val resolveContext: ((Chat, (EditorContext?) -> Unit) -> Unit)? = null,
     log: (String) -> Unit = {},
+    /** When the session began (epoch millis): now for a new chat, the transcript's start for a resumed one. */
+    val startedAt: Long? = null,
 ) {
     val label: String = spec.label
+
+    /** The commit HEAD was at when this chat started, recorded off the EDT shortly after; null until then or unknown. */
+    @Volatile var startCommit: String? = null
 
     private val lock = Any()
     private val items = LinkedHashMap<String, ChatItem>().apply { history.forEach { put(it.id, it) } }

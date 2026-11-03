@@ -6,6 +6,7 @@ import claudechat.cli.ClaudeProcess
 import claudechat.cli.CliConnection
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
+import claudechat.git.DiffBases
 import claudechat.git.GitWorktrees
 import claudechat.context.EditorContextService
 import claudechat.ide.EditTracker
@@ -16,6 +17,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.util.EnvironmentUtil
+import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.execution.ParametersListUtil
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
@@ -61,9 +63,14 @@ class Chats(private val project: Project) : Disposable {
                 if (ClaudeChatSettings.getInstance().state.attachEditorContext) context.resolve(c.cwd, done) else done(null)
             },
             log = { LOG.info(it) },
+            startedAt = if (spec.resumeId == null) System.currentTimeMillis() else store.startedAt(spec.cwd, spec.resumeId),
         )
         tracker.register(chat.id)
         chats += chat
+        // A resumed session started earlier: its base is found from startedAt. A new worktree is a branch (diffed against main).
+        if (spec.resumeId == null && spec.worktree == null) {
+            AppExecutorUtil.getAppExecutorService().execute { chat.startCommit = DiffBases().head(spec.cwd) }
+        }
         chat.start()
         return chat
     }

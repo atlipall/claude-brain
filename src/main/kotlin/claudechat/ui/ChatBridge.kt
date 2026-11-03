@@ -6,6 +6,7 @@ import claudechat.cli.bool
 import claudechat.cli.long
 import claudechat.cli.parseJsonObject
 import claudechat.cli.str
+import claudechat.ide.CheckoutDiff
 import claudechat.ide.FileLinker
 import claudechat.image.Attachment
 import claudechat.image.Images
@@ -62,6 +63,9 @@ class ChatBridge(
 
     /** Brings results back to the EDT. Tests make it synchronous. */
     internal var onEdt: (() -> Unit) -> Unit = { task -> ApplicationManager.getApplication().invokeLater({ task() }, project.disposed) }
+
+    /** Opens the checkout's changes (see [CheckoutDiff]). Tests replace it. */
+    internal var showChanges: (Chat) -> Unit = { CheckoutDiff.show(project, it) }
 
     /** Shows the IDE file chooser for images and calls back with the chosen files (EDT). Tests replace it. */
     internal var chooseImages: ((List<VirtualFile>) -> Unit) -> Unit = { done ->
@@ -148,6 +152,7 @@ class ChatBridge(
             "newChat" -> onNewChat()
             "restart" -> session.restart()
             "openFile" -> msg.str("target")?.let { linker.open(it, msg.long("line")?.toInt()) }
+            "showChanges" -> showChanges(chat)
             "openDiff" -> msg.str("toolUseId")?.let { id -> session.diffFor(id)?.let(linker::showDiff) }
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))

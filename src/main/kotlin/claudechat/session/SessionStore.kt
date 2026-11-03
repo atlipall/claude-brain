@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
+import java.time.Instant
 
 /** A past session; [folder] is the cwd it ran in (its transcript lives under that folder's project dir). */
 data class SessionSummary(val id: String, val title: String, val modifiedMillis: Long, val folder: String)
@@ -15,6 +16,8 @@ data class SessionSummary(val id: String, val title: String, val modifiedMillis:
 /** Reads Claude Code's on-disk session transcripts (~/.claude/projects/<encoded cwd>/<id>.jsonl). */
 class SessionStore(private val claudeHome: File) {
     fun projectDir(cwd: String): File = File(File(claudeHome, "projects"), cwd.replace(NON_ALNUM, "-"))
+
+    private fun transcriptFile(cwd: String, sessionId: String) = File(projectDir(cwd), "$sessionId.jsonl")
 
     fun list(cwd: String, limit: Int = 30): List<SessionSummary> =
         projectDir(cwd).listFiles { f -> f.isFile && f.name.endsWith(".jsonl") }.orEmpty()
@@ -32,7 +35,7 @@ class SessionStore(private val claudeHome: File) {
             .take(limit)
 
     fun transcript(cwd: String, sessionId: String): List<ChatItem> {
-        val file = File(projectDir(cwd), "$sessionId.jsonl")
+        val file = transcriptFile(cwd, sessionId)
         if (!file.isFile) return emptyList()
         val items = mutableListOf<ChatItem>()
         file.useLines { lines ->
@@ -45,6 +48,17 @@ class SessionStore(private val claudeHome: File) {
             }
         }
         return items
+    }
+
+    /** When the session began: the first timestamp in its transcript (epoch millis), or null. */
+    fun startedAt(cwd: String, sessionId: String): Long? {
+        val file = transcriptFile(cwd, sessionId)
+        if (!file.isFile) return null
+        return file.useLines { lines ->
+            lines.mapNotNull { parseJsonObject(it)?.str("timestamp") }
+                .mapNotNull { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+                .firstOrNull()
+        }
     }
 
     private fun firstUserText(file: File): String? = file.useLines { lines ->

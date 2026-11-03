@@ -133,4 +133,22 @@ class SessionStoreTest {
         write(store, "s1", 1_000_000, userWithImages("look", 1))
         assertEquals("[image] look", store.list(cwd).single().title)
     }
+
+    @Test fun startedAtIsTheFirstTimestampInTheTranscript() {
+        val store = SessionStore(tmp.root)
+        write(store, "s1", 1_000_000,
+            """{"type":"mode","mode":"normal"}""",
+            "not json",
+            """{"type":"attachment","timestamp":"2026-11-03T09:34:21.196Z"}""",
+            """{"type":"user","timestamp":"2026-11-03T09:35:41.577Z","message":{"role":"user","content":"hi"}}""",
+        )
+        assertEquals(java.time.Instant.parse("2026-11-03T09:34:21.196Z").toEpochMilli(), store.startedAt(cwd, "s1"))
+    }
+
+    @Test fun startedAtIsNullWithoutTranscriptOrTimestamp() {
+        val store = SessionStore(tmp.root)
+        write(store, "s1", 1_000_000, user("hi"), """{"type":"user","timestamp":"yesterday"}""")
+        assertEquals(null, store.startedAt(cwd, "s1"))
+        assertEquals(null, store.startedAt(cwd, "missing"))
+    }
 }
