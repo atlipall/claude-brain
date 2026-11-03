@@ -8,6 +8,7 @@
   const stopBtn = document.getElementById('stop');
   const restartBtn = document.getElementById('restart');
   const statusEl = document.getElementById('status');
+  const checkoutEl = document.getElementById('checkout');
   const pendingResolve = new Map();
   let reqSeq = 0;
   let history = [];  // sent messages, oldest first (shared by every tab, kept by the IDE)
@@ -51,6 +52,7 @@
         case 'insert': insertText(msg.text); break;
         case 'theme': applyTheme(msg); break;
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
+        case 'checkout': setCheckout(msg.text); break;
       }
     }
   };
@@ -166,6 +168,12 @@
     restartBtn.hidden = msg.state !== 'DEAD';
     input.disabled = sendBtn.disabled = msg.state === 'DEAD';
     if (msg.mode) modeSel.value = msg.mode;
+  }
+
+  // Plain text only: the IDE's checkout name and folder never become markup.
+  function setCheckout(text) {
+    checkoutEl.textContent = typeof text === 'string' ? text : '';
+    checkoutEl.hidden = !checkoutEl.textContent;
   }
 
   function insertText(text) {

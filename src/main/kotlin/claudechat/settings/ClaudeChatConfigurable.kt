@@ -1,7 +1,10 @@
 package claudechat.settings
 
 import claudechat.cli.PermissionMode
+import claudechat.follow.CheckoutFollower
+import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.options.BoundConfigurable
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.bindItem
@@ -11,6 +14,12 @@ import com.intellij.ui.dsl.builder.panel
 
 class ClaudeChatConfigurable : BoundConfigurable("Claude Chat") {
     private val state get() = ClaudeChatSettings.getInstance().state
+
+    override fun apply() {
+        super.apply()
+        // Only projects whose chat tool window is open have a follower.
+        ProjectManager.getInstance().openProjects.forEach { it.serviceIfCreated<CheckoutFollower>()?.refresh() }
+    }
 
     override fun createPanel(): DialogPanel = panel {
         row("Claude binary:") {

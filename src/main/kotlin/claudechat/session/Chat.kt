@@ -10,6 +10,9 @@ interface SessionView {
     fun item(item: ChatItem)
     fun state(state: SessionState, sessionId: String?, mode: PermissionMode?)
     fun insert(text: String)
+
+    /** What the IDE window shows for this chat (`IDE: <checkout>`); empty hides it. */
+    fun checkout(text: String) {}
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -36,6 +39,14 @@ class Chat(
     /** Called on the EDT when [title] changes. */
     @Volatile var onTitleChanged: (() -> Unit)? = null
 
+    /** Called on the CLI reader thread, with the session lock held, when [cwd] changes (system/init reported another folder). */
+    @Volatile var onCwdChanged: (() -> Unit)? = null
+    @Volatile private var knownCwd: String? = null
+
+    /** The header text the page shows (see [SessionView.checkout]). */
+    @Volatile var checkoutText: String = ""
+        private set
+
     private val listener = object : ChatListener {
         override fun onItem(item: ChatItem) {
             synchronized(lock) { items[item.id] = item }
@@ -44,6 +55,11 @@ class Chat(
 
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
             view?.state(state, sessionId, mode)
+            val now = cwd
+            if (now != knownCwd) {
+                knownCwd = now
+                onCwdChanged?.invoke()
+            }
         }
     }
 
@@ -59,12 +75,16 @@ class Chat(
 
     val title: String get() = ChatNames.tabTitle(label, firstMessage)
 
-    fun start() = session.start()
+    fun start() {
+        knownCwd = cwd
+        session.start()
+    }
 
     fun attach(view: SessionView) {
         this.view = view
         view.reset(synchronized(lock) { items.values.toList() })
         view.state(session.state, session.sessionId, session.mode)
+        checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)
     }
 
@@ -75,6 +95,12 @@ class Chat(
     fun insert(text: String) {
         val v = view
         if (v != null) v.insert(text) else synchronized(lock) { pendingInsert = text }
+    }
+
+    fun showCheckout(text: String) {
+        if (text == checkoutText) return
+        checkoutText = text
+        view?.checkout(text)
     }
 
     /** EDT only (the edit note saves documents). Ignored while the session is dead. */

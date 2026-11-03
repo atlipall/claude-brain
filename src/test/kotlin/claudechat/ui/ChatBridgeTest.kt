@@ -124,6 +124,20 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertTrue(connections[0].userMessages().isEmpty())
     }
 
+    fun testCheckoutIsPostedAsText() {
+        bridge.handle("""{"type":"ready"}""")
+        chat.showCheckout("IDE: wt1")
+        val msg = posted.last()
+        assertEquals("checkout", msg.str("type"))
+        assertEquals("IDE: wt1", msg.str("text"))
+    }
+
+    fun testReadyReplaysTheCheckout() {
+        chat.showCheckout("IDE: main")
+        bridge.handle("""{"type":"ready"}""")
+        assertEquals(listOf("theme", "history", "reset", "state", "checkout"), types())
+    }
+
     fun testDisposedBridgeStopsReceivingHistory() {
         bridge.handle("""{"type":"ready"}""")
         bridge.dispose()

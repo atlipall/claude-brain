@@ -27,6 +27,14 @@ class WebAssetsTest {
         assertFalse(page.contains("listSessions"))
     }
 
+    @Test fun pageShowsCheckoutAsPlainText() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("<span id=\"checkout\" hidden></span>"))
+        assertTrue(page.contains("case 'checkout': setCheckout(msg.text);"))
+        assertTrue(page.contains("checkoutEl.textContent ="))
+        assertFalse(page.contains("checkoutEl.innerHTML"))
+    }
+
     @Test fun pageHandlesHistoryRecall() {
         val page = WebAssets.page()
         assertTrue(page.contains("case 'history':"))

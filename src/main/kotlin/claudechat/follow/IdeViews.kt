@@ -22,16 +22,20 @@ object ProjectViewChoice {
 
 /** Switches the Project tool window to a plugin scope. EDT only. */
 class ProjectViewSwitcher(private val project: Project) {
-    /** Shows the named scope [scopeName] if [ProjectViewChoice] allows it; does nothing if the scope pane does not list it. */
-    fun show(scopeName: String) {
+    /**
+     * Shows the named scope [scopeName] if [ProjectViewChoice] allows it. False only when the Scope pane does not (yet)
+     * list the scope, so the caller may try again; true when the scope is shown or nothing should change.
+     */
+    fun show(scopeName: String): Boolean {
         val view = ProjectView.getInstance(project)
         val pane = view.currentProjectViewPane
         // Sub-ids of the Scope pane embed the scope's pattern text, so they are looked up by presentable name.
         val shown = pane?.takeIf { it.id == ScopeViewPane.ID }?.subId?.let(pane::getPresentableSubIdName)
-        if (shown == scopeName || !ProjectViewChoice.shouldSwitch(pane?.id, shown)) return
-        val scopes = view.getProjectViewPaneById(ScopeViewPane.ID) ?: return
-        val subId = scopes.subIds.firstOrNull { scopes.getPresentableSubIdName(it) == scopeName } ?: return
+        if (shown == scopeName || !ProjectViewChoice.shouldSwitch(pane?.id, shown)) return true
+        val scopes = view.getProjectViewPaneById(ScopeViewPane.ID) ?: return false
+        val subId = scopes.subIds.firstOrNull { scopes.getPresentableSubIdName(it) == scopeName } ?: return false
         view.changeView(ScopeViewPane.ID, subId)
+        return true
     }
 }
 

@@ -95,6 +95,11 @@ class ChatBridge(
         put("text", text)
     }.toString())
 
+    override fun checkout(text: String) = post(buildJsonObject {
+        put("type", "checkout")
+        put("text", text)
+    }.toString())
+
     private fun historyMessage(entries: List<String>) = buildJsonObject {
         put("type", "history")
         put("entries", JsonArray(entries.map(::JsonPrimitive)))

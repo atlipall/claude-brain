@@ -131,6 +131,32 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(1, changes)
     }
 
+    fun testCwdChangeIsReportedOnlyWhenTheFolderChanges() {
+        val chat = chats.open(ChatSpec.newWorktree("/work/proj", "wt-1"))
+        var changes = 0
+        chat.onCwdChanged = { changes++ }
+        connections.single().emit(Fx.init(cwd = "/work/proj/.claude/worktrees/wt-1"))
+        assertEquals(0, changes)
+        connections.single().emit(Fx.init(cwd = "/elsewhere/real"))
+        assertEquals(1, changes)
+        connections.single().emit(Fx.init(cwd = "/elsewhere/real"))
+        assertEquals(1, changes)
+    }
+
+    fun testCheckoutTextIsReplayedOnAttach() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.showCheckout("IDE: wt1")
+        val view = object : SessionView by RecordingView() {
+            val checkouts = mutableListOf<String>()
+            override fun checkout(text: String) { checkouts += text }
+        }
+        chat.attach(view)
+        assertEquals(listOf("IDE: wt1"), view.checkouts)
+        chat.showCheckout("IDE: main")
+        chat.showCheckout("IDE: main")
+        assertEquals(listOf("IDE: wt1", "IDE: main"), view.checkouts)
+    }
+
     fun testDeadChatIgnoresSend() {
         val chat = chats.open(ChatSpec.inProject(root))
         connections.single().exit(1, "gone")

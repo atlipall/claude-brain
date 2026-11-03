@@ -1,8 +1,10 @@
 package claudechat.ui
 
+import claudechat.follow.CheckoutFollower
 import claudechat.session.Chat
 import claudechat.session.ChatSpec
 import claudechat.session.Chats
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.util.Disposer
@@ -27,6 +29,8 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
         content.component = panel.browser.component
         content.preferredFocusableComponent = panel.browser.component
         chat.onTitleChanged = { content.displayName = chat.title } // Chat.send runs on the EDT
+        val follower = CheckoutFollower.getInstance(project)
+        chat.onCwdChanged = { ApplicationManager.getApplication().invokeLater({ follower.refresh() }, project.disposed) }
         toolWindow.contentManager.addContent(content)
         toolWindow.contentManager.setSelectedContent(content, true)
         return chat
