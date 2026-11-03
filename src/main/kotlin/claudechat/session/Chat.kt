@@ -27,6 +27,9 @@ interface SessionView {
 
     /** How full the context window is (the latest report). */
     fun context(usage: ContextUsage) {}
+
+    /** A predicted next prompt for the empty message box, valid until the next state other than IDLE. */
+    fun suggestion(text: String) {}
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -84,6 +87,8 @@ class Chat(
     @Volatile var onBusyChanged: (() -> Unit)? = null
 
     @Volatile private var contextUsage: ContextUsage? = null
+    /** The latest prompt suggestion, kept while the session stays idle (replayed on attach). */
+    @Volatile private var suggestion: String? = null
 
     private val activityLock = Any()
     private var sessionActivity: Activity? = null
@@ -113,6 +118,11 @@ class Chat(
             view?.context(usage)
         }
 
+        override fun onSuggestion(text: String) {
+            suggestion = text
+            view?.suggestion(text)
+        }
+
         override fun onItem(item: ChatItem) {
             synchronized(lock) { items[item.id] = item }
             view?.item(item)
@@ -120,6 +130,7 @@ class Chat(
 
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
             val nowBusy = state == SessionState.RUNNING || state == SessionState.AWAITING_PERMISSION
+            if (state != SessionState.IDLE) suggestion = null
             if (nowBusy != busy) {
                 busy = nowBusy
                 onBusyChanged?.invoke()
@@ -158,6 +169,7 @@ class Chat(
         synchronized(activityLock) { shownActivity }?.let(view::activity)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         contextUsage?.let(view::context)
+        suggestion?.let(view::suggestion)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)
     }
 

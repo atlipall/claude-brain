@@ -4,7 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.DumbAwareAction
 
-/** The `+` in the Claude Chat title bar: opens the New-chat popup under the button. */
+/** The `+` in the Tether title bar: opens the New-chat popup under the button. */
 class NewChatAction : DumbAwareAction("New Chat", "Start a new Claude chat", AllIcons.General.Add) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

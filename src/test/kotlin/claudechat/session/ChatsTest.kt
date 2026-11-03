@@ -42,6 +42,8 @@ class ChatsTest : BasePlatformTestCase() {
         override fun insert(text: String) { inserted += text }
         val activities = mutableListOf<Activity?>()
         override fun activity(activity: Activity?) { activities += activity }
+        val suggestions = mutableListOf<String>()
+        override fun suggestion(text: String) { suggestions += text }
     }
 
     private val settings get() = ClaudeChatSettings.getInstance().state
@@ -419,6 +421,33 @@ class ChatsTest : BasePlatformTestCase() {
         val view = RecordingView()
         chat.attach(view)
         assertEquals(listOf<Activity?>(Activity.Thinking), view.activities)
+    }
+
+    fun testSuggestionReachesTheViewAndIsReplayedOnAttachUntilTheNextTurn() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        val first = RecordingView()
+        chat.attach(first)
+        chat.send("go")
+        connections.single().emit(Fx.result(), Fx.promptSuggestion("run the tests"))
+        assertEquals(listOf("run the tests"), first.suggestions)
+        chat.detach(first)
+        val second = RecordingView()
+        chat.attach(second)
+        assertEquals(listOf("run the tests"), second.suggestions)
+        chat.send("again")
+        val third = RecordingView()
+        chat.attach(third)
+        assertTrue(third.suggestions.isEmpty())
+    }
+
+    fun testSuggestionIsNotReplayedAfterTheProcessDies() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.send("go")
+        connections.single().emit(Fx.result(), Fx.promptSuggestion("run the tests"))
+        connections.single().exit(1, "boom")
+        val view = RecordingView()
+        chat.attach(view)
+        assertTrue(view.suggestions.isEmpty())
     }
 
     fun testBusyFollowsTheTurn() {

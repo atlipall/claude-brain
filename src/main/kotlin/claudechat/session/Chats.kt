@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class ClaudeNotFoundException : Exception(
     "Claude Code CLI not found. Install it, run `claude` once in a terminal to log in, " +
-        "or set its path in Settings > Tools > Claude Chat."
+        "or set its path in Settings > Tools > Tether."
 )
 
 /** The project's open chats. Each chat owns its own claude process. */

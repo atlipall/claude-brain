@@ -25,6 +25,8 @@
   let history = [];  // sent messages, oldest first (shared by every tab, kept by the IDE)
   let recall = -1;   // index into history while recalling, -1 otherwise
   let draft = '';    // what the box held before recall started
+  let suggestion = '';  // the predicted next prompt shown in the empty box; Tab takes it
+  let idle = false;     // the last state was IDLE: a suggestion that lands later than a new turn's state is stale
 
   const STATUS = { DEAD: 'Stopped' }; // the header says nothing else; the strip above the input shows the turn
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
@@ -85,6 +87,7 @@
         case 'checkout': setCheckout(msg.text); break;
         case 'usage': setUsage(msg); break;
         case 'attachment': setAttachment(msg); break;
+        case 'suggestion': setSuggestion(msg.text); break;
       }
     }
   };
@@ -414,6 +417,23 @@
     restartBtn.hidden = msg.state !== 'DEAD';
     input.disabled = sendBtn.disabled = attachBtn.disabled = msg.state === 'DEAD';
     if (msg.mode) modeSel.value = msg.mode;
+    idle = msg.state === 'IDLE';
+    if (!idle) setSuggestion('');
+  }
+
+  const PLACEHOLDER = input.placeholder;
+  // Only offered into an empty box while idle; typing, sending or a new turn takes it away.
+  function setSuggestion(text) {
+    suggestion = idle && !input.value ? text : '';
+    input.placeholder = suggestion ? suggestion + '   (Tab to use)' : PLACEHOLDER;
+  }
+
+  function acceptSuggestion() {
+    const text = suggestion;
+    setSuggestion('');
+    input.value = text;
+    input.setSelectionRange(text.length, text.length);
+    recall = -1;
   }
 
   // The strip above the input: phase and tool name come from the IDE, shown as text only; the seconds are counted here.
@@ -576,6 +596,7 @@
     input.value = '';
     recall = -1;
     draft = '';
+    setSuggestion('');
   }
 
   const caretOnFirstLine = () => !input.value.slice(0, input.selectionStart).includes('\n');
@@ -616,11 +637,12 @@
     if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); return; }
     if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'Tab' && suggestion && !input.value) { e.preventDefault(); acceptSuggestion(); return; }
     if (e.key === 'ArrowUp' && caretOnFirstLine() && recallKey('up')) e.preventDefault();
     else if (e.key === 'ArrowDown' && caretOnLastLine() && recallKey('down')) e.preventDefault();
   });
-  // Typing ends recall: the edited text becomes the new draft.
-  input.addEventListener('input', () => { recall = -1; });
+  // Typing ends recall (the edited text becomes the new draft) and dismisses the suggestion.
+  input.addEventListener('input', () => { recall = -1; if (suggestion) setSuggestion(''); });
   sendBtn.addEventListener('click', submit);
   document.getElementById('new-chat').addEventListener('click', () => send({ type: 'newChat' }));
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));

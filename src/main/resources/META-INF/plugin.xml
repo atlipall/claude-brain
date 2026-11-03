@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>local.claudechat</id>
-    <name>Claude Chat</name>
+    <name>Tether for Claude Code</name>
     <vendor>local</vendor>
     <description><![CDATA[
     Native chat panel for the Claude Code CLI. Runs the locally installed <code>claude</code>
@@ -12,16 +12,16 @@
     <depends>com.intellij.modules.vcs</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <applicationConfigurable parentId="tools" id="claudechat.settings" displayName="Claude Chat"
+        <applicationConfigurable parentId="tools" id="claudechat.settings" displayName="Tether"
                                  instance="claudechat.settings.ClaudeChatConfigurable"/>
-        <toolWindow id="Claude Chat" anchor="right" icon="AllIcons.Toolwindows.ToolWindowMessages"
+        <toolWindow id="Tether" anchor="right" icon="/icons/tether.svg"
                     canCloseContents="true" factoryClass="claudechat.ui.ChatToolWindowFactory"/>
-        <notificationGroup id="Claude Chat" displayType="STICKY_BALLOON"/>
+        <notificationGroup id="Tether" displayType="STICKY_BALLOON"/>
     </extensions>
 
     <actions>
         <action id="claudechat.AddToChat" class="claudechat.ide.AddToChatAction"
-                text="Add to Claude Chat" description="Insert a reference to this file or selection into the Claude chat">
+                text="Add to Tether" description="Insert a reference to this file or selection into the Tether chat">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt K"/>
             <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta shift alt K"/>

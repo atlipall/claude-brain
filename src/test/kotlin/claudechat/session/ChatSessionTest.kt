@@ -190,6 +190,31 @@ class ChatSessionTest {
         assertEquals(5566L, result.durationMs)
     }
 
+    @Test fun suggestionAfterTheTurnIsPassedOnTrimmed() {
+        val s = session()
+        s.send("one")
+        conn.emit(Fx.result(), Fx.promptSuggestion("  run the tests \n"))
+        assertEquals(listOf("run the tests"), listener.suggestions)
+    }
+
+    @Test fun suggestionIsDroppedWhileATurnRunsOrIsQueuedOrWhenBlank() {
+        val s = session()
+        s.send("one")
+        conn.emit(Fx.promptSuggestion("early"))
+        s.send("two")
+        conn.emit(Fx.result(), Fx.promptSuggestion("stale"))
+        assertEquals(SessionState.RUNNING, s.state)
+        conn.emit(Fx.result(), Fx.promptSuggestion("   "))
+        assertTrue(listener.suggestions.isEmpty())
+    }
+
+    @Test fun longSuggestionIsDropped() {
+        val s = session()
+        s.send("one")
+        conn.emit(Fx.result(), Fx.promptSuggestion("x".repeat(MAX_SUGGESTION_CHARS + 1)))
+        assertTrue(listener.suggestions.isEmpty())
+    }
+
     @Test fun errorResultCarriesText() {
         val s = session()
         s.send("x")

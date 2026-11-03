@@ -89,6 +89,9 @@ object Fx {
     fun result(text: String = "DONE") =
         """{"type":"result","subtype":"success","is_error":false,"duration_ms":5566,"duration_api_ms":4514,"num_turns":2,"result":${q(text)},"stop_reason":"end_turn","session_id":"sess-1","total_cost_usd":0.1944822,"uuid":"u10"}"""
 
+    fun promptSuggestion(text: String) =
+        """{"type":"prompt_suggestion","suggestion":${q(text)},"uuid":"u12","session_id":"sess-1"}"""
+
     fun errorResult() =
         """{"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":4010,"num_turns":2,"stop_reason":null,"session_id":"sess-1","total_cost_usd":0.19,"errors":["[ede_diagnostic] result_type=user"],"uuid":"u11"}"""
 }

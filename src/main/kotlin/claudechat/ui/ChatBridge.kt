@@ -293,6 +293,11 @@ class ChatBridge(
 
     override fun context(usage: ContextUsage) = post(usageMessage(usage))
 
+    override fun suggestion(text: String) = post(buildJsonObject {
+        put("type", "suggestion")
+        put("text", text)
+    }.toString())
+
     override fun insert(text: String) = post(buildJsonObject {
         put("type", "insert")
         put("text", text)

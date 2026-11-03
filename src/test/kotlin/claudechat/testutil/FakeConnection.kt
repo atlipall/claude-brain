@@ -59,6 +59,8 @@ class RecordingListener : ChatListener {
     override fun onActivity(activity: claudechat.session.Activity?) { activities += activity }
     val contexts = mutableListOf<claudechat.cli.ContextUsage>()
     override fun onContext(usage: claudechat.cli.ContextUsage) { contexts += usage }
+    val suggestions = mutableListOf<String>()
+    override fun onSuggestion(text: String) { suggestions += text }
 
     /** Latest version of every item, in first-seen order. */
     fun current(): List<ChatItem> = items.associateBy { it.id }.values.toList()

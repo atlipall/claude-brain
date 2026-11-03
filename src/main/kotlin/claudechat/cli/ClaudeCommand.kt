@@ -28,6 +28,7 @@ object ClaudeCommand {
         addAll(listOf(
             "-p", "--input-format", "stream-json", "--output-format", "stream-json",
             "--include-partial-messages", "--verbose", "--permission-prompt-tool", "stdio",
+            "--prompt-suggestions", "true",
         ))
         launch.permissionMode?.let { add("--permission-mode"); add(it.cli) }
         launch.worktree?.let { add("--worktree"); add(it) }

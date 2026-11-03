@@ -37,6 +37,9 @@ interface ChatListener {
 
     /** How full the context window is (the latest report). */
     fun onContext(usage: ContextUsage) {}
+
+    /** A predicted next prompt, told only while the session is idle. */
+    fun onSuggestion(text: String) {}
 }
 
 sealed interface PermissionDecision {
@@ -55,6 +58,9 @@ private const val CONTEXT_PREFIX = "context"
 
 /** Most images of one tool result converted to display copies; further ones show as "[image]". */
 private const val MAX_TOOL_IMAGES = 6
+
+/** Longest prompt suggestion passed on; longer ones are dropped rather than cut, since a cut prompt is a wrong one. */
+internal const val MAX_SUGGESTION_CHARS = 2000
 
 /** One conversation with one claude process (respawned with --resume on restart). Thread-safe. */
 class ChatSession(
@@ -330,6 +336,7 @@ class ChatSession(
             is CliEvent.ToolResult -> onToolResult(event, copies.orEmpty())
             is CliEvent.UserText -> Unit
             is CliEvent.Result -> onResult(event)
+            is CliEvent.PromptSuggestion -> onSuggestion(event.text)
             is CliEvent.Ignored -> Unit
             is CliEvent.Malformed -> log("Malformed line from claude: ${event.line.take(200)}")
         }
@@ -417,6 +424,13 @@ class ChatSession(
             setState(SessionState.IDLE)
         }
         reportActivity()
+    }
+
+    /** A suggestion that arrives once the next turn has begun is stale, so it is dropped. */
+    private fun onSuggestion(raw: String) {
+        val text = raw.trim()
+        if (state != SessionState.IDLE || text.isEmpty() || text.length > MAX_SUGGESTION_CHARS) return
+        listener.onSuggestion(text)
     }
 
     private fun handleExit(code: Int, stderrTail: String) {

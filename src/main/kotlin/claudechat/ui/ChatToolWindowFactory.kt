@@ -17,7 +17,7 @@ import com.intellij.ui.jcef.JBCefApp
 class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         if (!JBCefApp.isSupported()) {
-            val label = JBLabel("Claude Chat needs JCEF, which is not available in this IDE runtime.")
+            val label = JBLabel("Tether needs JCEF, which is not available in this IDE runtime.")
             toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(label, null, false))
             return
         }
@@ -45,6 +45,6 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
     }
 
     companion object {
-        const val ID = "Claude Chat"
+        const val ID = "Tether"
     }
 }

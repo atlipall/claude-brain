@@ -37,6 +37,8 @@ sealed interface CliEvent {
         val costUsd: Double?,
         val errors: List<String>,
     ) : CliEvent
+    /** The CLI's guess at the user's next prompt, sent after some turns' result. */
+    data class PromptSuggestion(val text: String) : CliEvent
     data class Ignored(val type: String) : CliEvent
     data class Malformed(val line: String) : CliEvent
 }
@@ -57,6 +59,7 @@ object CliParser {
             "control_request" -> listOf(controlRequest(obj))
             "control_response" -> listOf(controlResponse(obj))
             "result" -> listOf(result(obj))
+            "prompt_suggestion" -> listOf(CliEvent.PromptSuggestion(obj.str("suggestion") ?: ""))
             else -> listOf(CliEvent.Ignored(type ?: "?"))
         }
     }
