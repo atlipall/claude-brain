@@ -342,7 +342,7 @@
     return h('details', { open: t.status === 'awaiting_permission' }, h('summary', {}, 'Input'), ...body[1]);
   }
 
-  // Tool rows the user has expanded, by item id, so a re-render of the same item keeps them open.
+  // Tool rows and turn file lists the user has expanded, by item id, so a re-render of the same item keeps them open.
   const expandedTools = new Set();
   const STATUS_ICON = { done: '\u2713', error: '\u2717', denied: '\u2298' };
 
@@ -552,10 +552,52 @@
 
   function renderResult(el, r) {
     el.className = 'msg result' + (r.isError ? ' error' : '');
-    if (r.isError) { el.textContent = r.text || 'Error'; return; }
-    const parts = [];
-    if (r.durationMs != null) parts.push((r.durationMs / 1000).toFixed(1) + 's');
-    el.textContent = 'Done' + (parts.length ? ' · ' + parts.join(' · ') : '');
+    const files = Array.isArray(r.files) ? r.files : [];
+    const line = h('div', { class: 'result-line' });
+    if (r.isError) line.textContent = r.text || 'Error';
+    else {
+      const parts = [];
+      if (r.durationMs != null) parts.push((r.durationMs / 1000).toFixed(1) + 's');
+      line.textContent = 'Done' + (parts.length ? ' · ' + parts.join(' · ') : '');
+    }
+    el.append(line);
+    if (!files.length) return;
+    const sum = (key) => files.reduce((n, f) => n + (Number(f[key]) || 0), 0);
+    const open = expandedTools.has(r.id);
+    line.append(' · ',
+      h('button', { class: 'link turn-files-toggle', 'data-action': 'turnFiles', 'data-id': r.id, 'aria-expanded': open ? 'true' : 'false' },
+        files.length + (files.length === 1 ? ' file' : ' files') + ' changed ', h('span', { class: 'tool-toggle' }, open ? '\u25BE' : '\u25B8')),
+      ' ', lineCounts(sum('added'), sum('removed')), ' · ',
+      h('button', { class: 'link', 'data-action': 'turnDiff', 'data-id': r.id, 'data-index': '0' }, 'Review all'));
+    const list = h('div', { class: 'tool-detail turn-files', hidden: !open });
+    files.forEach((f, i) => {
+      const path = String(f.path || '');
+      const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+      const dir = slash < 0 ? '' : path.slice(0, slash).split(/[\\/]/).pop();
+      list.append(h('div', { class: 'tool-row', role: 'button', tabindex: '0', title: path, 'data-action': 'turnDiff', 'data-id': r.id, 'data-index': String(i) },
+        h('span', { class: 'tool-desc' }, h('span', { class: 'turn-file-name' }, path.slice(slash + 1)), dir ? ' ' + dir + '/' : '', f.isNew ? h('span', { class: 'turn-file-new' }, ' new') : ''),
+        h('span', { class: 'tool-side' }, lineCounts(Number(f.added) || 0, Number(f.removed) || 0))));
+    });
+    el.append(list);
+  }
+
+  function lineCounts(added, removed) {
+    return h('span', { class: 'line-counts' },
+      added ? h('span', { class: 'added' }, '+' + added) : '', added && removed ? ' ' : '',
+      removed ? h('span', { class: 'removed' }, '\u2212' + removed) : '');
+  }
+
+  function toggleTurnFiles(button) {
+    const open = button.getAttribute('aria-expanded') !== 'true';
+    if (open) expandedTools.add(button.dataset.id); else expandedTools.delete(button.dataset.id);
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    button.querySelector('.tool-toggle').textContent = open ? '\u25BE' : '\u25B8';
+    const list = button.closest('.result').querySelector('.turn-files');
+    if (list) list.hidden = !open;
+  }
+
+  function openTurnDiff(target) {
+    send({ type: 'openTurnDiff', id: target.dataset.id, index: Number(target.dataset.index) || 0 });
   }
 
   function setState(msg) {
@@ -852,6 +894,8 @@
       } else if (/^https?:/i.test(a.getAttribute('href') || '')) send({ type: 'openUrl', url: a.href });
       return;
     }
+    const fileRow = e.target.closest('.turn-files .tool-row');
+    if (fileRow) { if (trusted.has(fileRow)) openTurnDiff(fileRow); return; }
     const b = e.target.closest('button[data-action]');
     if (!b) {
       const row = e.target.closest('.tool-row');
@@ -861,6 +905,8 @@
     if (!b || !trusted.has(b)) return;
     const action = b.dataset.action;
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
+    else if (action === 'turnFiles') toggleTurnFiles(b);
+    else if (action === 'turnDiff') openTurnDiff(b);
     else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
     else if (action === 'queueSendNow' || action === 'queueEdit' || action === 'queueRemove' || action === 'revertTo') send({ type: action, id: b.dataset.id });
@@ -873,6 +919,8 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    const fileRow = e.target.closest && e.target.closest('.turn-files .tool-row');
+    if (fileRow && e.target === fileRow && trusted.has(fileRow)) { e.preventDefault(); openTurnDiff(fileRow); return; }
     const row = e.target.closest && e.target.closest('.tool-row');
     if (row && e.target === row && trusted.has(row) && row.hasAttribute('role')) { e.preventDefault(); toggleRow(row); }
   });

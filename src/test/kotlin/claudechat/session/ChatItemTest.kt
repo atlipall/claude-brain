@@ -53,4 +53,12 @@ class ChatItemTest {
     @Test fun notice() = assertEquals(
         """{"id":"n1","kind":"notice","text":"Interrupted","isError":false}""",
         ChatItem.Notice("n1", "Interrupted", false).toJson().toString())
+
+    @Test fun resultWithEditedFiles() = assertEquals(
+        """{"id":"r1","kind":"result","isError":false,"text":null,"durationMs":5,"costUsd":null,"files":[{"path":"/p/a.kt","added":3,"removed":1,"isNew":false}]}""",
+        ChatItem.TurnResult("r1", false, null, 5, null, listOf(TurnFile("/p/a.kt", 3, 1, false))).toJson().toString())
+
+    @Test fun resultWithoutEditedFilesHasNoList() = assertEquals(
+        """{"id":"r1","kind":"result","isError":false,"text":null,"durationMs":5,"costUsd":null}""",
+        ChatItem.TurnResult("r1", false, null, 5, null).toJson().toString())
 }

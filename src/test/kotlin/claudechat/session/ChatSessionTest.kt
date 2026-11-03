@@ -18,9 +18,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class ChatSessionTest {
+    @get:Rule val tmp = TemporaryFolder()
     private val launches = mutableListOf<SessionLaunch>()
     private val connections = mutableListOf<FakeConnection>()
     private val listener = RecordingListener()
@@ -497,6 +501,114 @@ class ChatSessionTest {
         s.send("x")
         conn.emit(Fx.toolUse("m1", "t1", "Write", writeInput), Fx.toolResult("t1", "ok", toolUseResultJson = Fx.createResult("/p/a.txt")))
         assertEquals(FileDiff("/p/a.txt", ""), s.diffFor("t1"))
+    }
+
+    // --- files a turn edited ---
+
+    private fun edit(id: String, file: File, original: String) = arrayOf(
+        Fx.toolUse("m1", id, "Edit", """{"file_path":${Fx.q(file.path)},"old_string":"a","new_string":"b"}"""),
+        Fx.toolResult(id, "ok", toolUseResultJson = Fx.editResult(file.path, original)),
+    )
+
+    private fun turnFiles() = listener.latest<ChatItem.TurnResult>().files
+
+    @Test fun resultListsEachEditedFileOnceAgainstItsContentBeforeTheTurn() {
+        val a = tmp.newFile("a.txt").apply { writeText("one\n2\nthree\nfour\n") }
+        val s = session()
+        s.send("x")
+        conn.emit(*edit("t1", a, "one\ntwo\nthree\n"))
+        conn.emit(*edit("t2", a, "one\n2\nthree\n"))
+        conn.emit(Fx.result())
+        assertEquals(listOf(TurnFile(a.path, added = 2, removed = 1, isNew = false)), turnFiles())
+        assertEquals(listOf(FileDiff(a.path, "one\ntwo\nthree\n")), s.turnDiffs(listener.latest<ChatItem.TurnResult>().id))
+    }
+
+    @Test fun aCreatedFileIsNewAndAllItsLinesAreAdded() {
+        val a = tmp.newFile("a.txt").apply { writeText("x\ny\n") }
+        val s = session()
+        s.send("x")
+        conn.emit(Fx.toolUse("m1", "t1", "Write", """{"file_path":${Fx.q(a.path)},"content":"x\ny\n"}"""),
+            Fx.toolResult("t1", "ok", toolUseResultJson = Fx.createResult(a.path)))
+        conn.emit(Fx.result())
+        assertEquals(listOf(TurnFile(a.path, added = 2, removed = 0, isNew = true)), turnFiles())
+        assertEquals(listOf(FileDiff(a.path, "")), s.turnDiffs(listener.latest<ChatItem.TurnResult>().id))
+    }
+
+    @Test fun aSubagentsEditsCount() {
+        val a = tmp.newFile("a.txt").apply { writeText("new\n") }
+        startAgent(session())
+        conn.emit(Fx.subagentToolUse("t1", "s1", "Edit", """{"file_path":${Fx.q(a.path)}}"""),
+            Fx.subagentToolResult("t1", "s1", "ok", toolUseResultJson = Fx.editResult(a.path, "old\n")))
+        conn.emit(Fx.toolResult("t1", "DONE"), Fx.result())
+        assertEquals(listOf(TurnFile(a.path, added = 1, removed = 1, isNew = false)), turnFiles())
+    }
+
+    @Test fun filesAreListedInTheOrderTheTurnFirstEditedThem() {
+        val b = tmp.newFile("b.txt").apply { writeText("b2\n") }
+        val a = tmp.newFile("a.txt").apply { writeText("a2\n") }
+        session().send("x")
+        conn.emit(*edit("t1", b, "b1\n"))
+        conn.emit(*edit("t2", a, "a1\n"))
+        conn.emit(*edit("t3", b, "b1.5\n"))
+        conn.emit(Fx.result())
+        assertEquals(listOf(b.path, a.path), turnFiles().map { it.path })
+    }
+
+    @Test fun aFileBackToHowItWasIsLeftOut() {
+        val a = tmp.newFile("a.txt").apply { writeText("same\n") }
+        session().send("x")
+        conn.emit(*edit("t1", a, "same\n"))
+        conn.emit(Fx.result())
+        assertEquals(emptyList<TurnFile>(), turnFiles())
+    }
+
+    @Test fun failedEditsAndReadsDoNotCount() {
+        val a = tmp.newFile("a.txt").apply { writeText("x\n") }
+        session().send("x")
+        conn.emit(Fx.toolUse("m1", "t1", "Edit", """{"file_path":${Fx.q(a.path)}}"""),
+            Fx.toolResult("t1", "no match", isError = true, toolUseResultJson = Fx.editResult(a.path, "y\n")))
+        conn.emit(Fx.toolUse("m1", "t2", "Read", """{"file_path":${Fx.q(a.path)}}"""), Fx.toolResult("t2", "x"))
+        conn.emit(Fx.result())
+        assertEquals(emptyList<TurnFile>(), turnFiles())
+    }
+
+    @Test fun eachTurnListsOnlyItsOwnEdits() {
+        val a = tmp.newFile("a.txt").apply { writeText("2\n") }
+        val b = tmp.newFile("b.txt").apply { writeText("2\n") }
+        val s = session()
+        s.send("x")
+        conn.emit(*edit("t1", a, "1\n"))
+        conn.emit(Fx.result())
+        val first = listener.latest<ChatItem.TurnResult>().id
+        s.send("y")
+        conn.emit(*edit("t2", b, "1\n"))
+        conn.emit(Fx.result())
+        assertEquals(listOf(b.path), turnFiles().map { it.path })
+        assertEquals(listOf(FileDiff(a.path, "1\n")), s.turnDiffs(first))
+    }
+
+    @Test fun anInterruptedTurnsEditsDoNotCarryIntoTheNext() {
+        val a = tmp.newFile("a.txt").apply { writeText("2\n") }
+        val s = session()
+        s.send("x")
+        conn.emit(*edit("t1", a, "1\n"))
+        s.interrupt()
+        conn.emit(Fx.result())
+        s.send("y")
+        conn.emit(Fx.result())
+        assertEquals(emptyList<TurnFile>(), turnFiles())
+    }
+
+    @Test fun editsOfATurnTheProcessDiedInDoNotCarryIntoTheNext() {
+        val a = tmp.newFile("a.txt").apply { writeText("2\n") }
+        val s = session()
+        s.send("x")
+        conn.emit(*edit("t1", a, "1\n"))
+        conn.exit(1, "boom")
+        s.restart()
+        s.send("y")
+        conn.emit(Fx.result())
+        assertEquals(emptyList<TurnFile>(), turnFiles())
     }
 
     @Test fun readResultHasNoDiff() {

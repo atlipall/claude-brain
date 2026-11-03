@@ -3,6 +3,7 @@ package claudechat.session
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -22,6 +23,9 @@ data class AgentInfo(
     val lastTool: String? = null,
     val report: String? = null,
 )
+
+/** A file a turn edited, by absolute path: lines added and removed since the turn began; [isNew] when the turn created it. */
+data class TurnFile(val path: String, val added: Int, val removed: Int, val isNew: Boolean)
 
 /** One entry in the chat log. Items are upserted by [id]. A `parentId` is the Agent call whose subagent produced the item. */
 sealed interface ChatItem {
@@ -50,7 +54,11 @@ sealed interface ChatItem {
         /** Set for an Agent/Task call once the CLI reports on its subagent. */
         val agent: AgentInfo? = null,
     ) : ChatItem
-    data class TurnResult(override val id: String, val isError: Boolean, val text: String?, val durationMs: Long?, val costUsd: Double?) : ChatItem
+    /** The end of a turn; [files] are those its edit tools changed, in the order it first edited them. */
+    data class TurnResult(
+        override val id: String, val isError: Boolean, val text: String?, val durationMs: Long?, val costUsd: Double?,
+        val files: List<TurnFile> = emptyList(),
+    ) : ChatItem
     data class Notice(override val id: String, val text: String, val isError: Boolean) : ChatItem
 }
 
@@ -100,6 +108,11 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
             put("text", item.text)
             put("durationMs", item.durationMs)
             put("costUsd", item.costUsd)
+            if (item.files.isNotEmpty()) put("files", buildJsonArray {
+                for (f in item.files) add(buildJsonObject {
+                    put("path", f.path); put("added", f.added); put("removed", f.removed); put("isNew", f.isNew)
+                })
+            })
         }
         is ChatItem.Notice -> { put("kind", "notice"); put("text", item.text); put("isError", item.isError) }
     }

@@ -17,6 +17,7 @@ import claudechat.context.ContextNotes
 import claudechat.session.Activity
 import claudechat.session.Chat
 import claudechat.session.ChatItem
+import claudechat.session.FileDiff
 import claudechat.session.PermissionDecision
 import claudechat.session.QuestionAnswer
 import claudechat.session.QueuedMessage
@@ -70,6 +71,9 @@ class ChatBridge(
 
     /** Opens the checkout's changes (see [CheckoutDiff]). Tests replace it. */
     internal var showChanges: (Chat) -> Unit = { CheckoutDiff.show(project, it) }
+
+    /** Opens a turn's file diffs at the [Int]th (see [FileLinker.showTurnDiffs]). Tests replace it. */
+    internal var showTurnDiffs: (List<FileDiff>, Int) -> Unit = { diffs, index -> linker.showTurnDiffs(diffs, index) }
 
     /** Shows the IDE file chooser for images and calls back with the chosen files (EDT). Tests replace it. */
     internal var chooseImages: ((List<VirtualFile>) -> Unit) -> Unit = { done ->
@@ -162,6 +166,12 @@ class ChatBridge(
             "showChanges" -> showChanges(chat)
             "revertTo" -> msg.str("id")?.let(chat::revertTo)
             "openDiff" -> msg.str("toolUseId")?.let { id -> session.diffFor(id)?.let(linker::showDiff) }
+            "openTurnDiff" -> {
+                val diffs = msg.str("id")?.let(session::turnDiffs).orEmpty()
+                val index = msg.long("index")?.toInt() ?: 0
+                if (index in diffs.indices) showTurnDiffs(diffs, index)
+                else session.notice("That turn is too old: its changes are no longer kept.", isError = false)
+            }
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))
             "resolveImages" -> {
