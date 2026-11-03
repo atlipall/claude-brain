@@ -527,6 +527,7 @@
   document.getElementById('new-chat').addEventListener('click', () => send({ type: 'newChat' }));
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
+  document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
   contextOffBtn.addEventListener('click', (e) => { e.stopPropagation(); send({ type: 'contextOff', off: true }); });
   contextEl.addEventListener('click', () => { if (contextEl.classList.contains('off')) send({ type: 'contextOff', off: false }); });

@@ -19,6 +19,10 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   Find in Files to it. The chat header shows `IDE: main` / `IDE: <worktree>`.
 - **Files are clickable.** Paths Claude reads, edits or mentions (in backticks or markdown links)
   open in the editor; edits have a "View diff" link.
+- **See everything that changed.** **Diff** in the chat header opens the IDE's changes browser for the
+  chat's checkout: since it forked from `main` (or `master`) on a branch, otherwise since the commit
+  HEAD was at when the session started (for a resumed session, the last commit before its first
+  message). It covers commits, uncommitted edits and new untracked files, yours included.
 - **Claude knows what you edited.** Files you save between messages are listed in a hidden note
   on your next message, so Claude re-reads them instead of working from stale contents.
 - **Claude knows where you are looking.** Every message carries your current file, caret line,
