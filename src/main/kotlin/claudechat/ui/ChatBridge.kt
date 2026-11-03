@@ -44,7 +44,7 @@ class ChatBridge(
                 chat.attach(this)
             }
             "send" -> msg.str("text")?.takeIf { it.isNotBlank() }?.let { text ->
-                history.add(text)
+                if (session.state != SessionState.DEAD) history.add(text) // Chat.send ignores a dead chat
                 chat.send(text)
             }
             "permission" -> {

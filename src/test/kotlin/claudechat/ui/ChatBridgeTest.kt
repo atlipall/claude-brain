@@ -116,6 +116,14 @@ class ChatBridgeTest : BasePlatformTestCase() {
         }
     }
 
+    fun testSendToADeadChatIsNotRemembered() {
+        connections[0].exit(1, "boom")
+        assertEquals(SessionState.DEAD, chat.session.state)
+        bridge.handle("""{"type":"send","text":"ignored"}""")
+        assertTrue(PromptHistory.getInstance(project).entries().isEmpty())
+        assertTrue(connections[0].userMessages().isEmpty())
+    }
+
     fun testDisposedBridgeStopsReceivingHistory() {
         bridge.handle("""{"type":"ready"}""")
         bridge.dispose()
