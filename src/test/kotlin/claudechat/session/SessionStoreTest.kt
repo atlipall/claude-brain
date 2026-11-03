@@ -54,6 +54,32 @@ class SessionStoreTest {
             store.transcript(cwd, "s1"))
     }
 
+    @Test fun transcriptStripsEveryIdeNote() {
+        val store = SessionStore(tmp.root)
+        write(store, "s1", 1,
+            user("[IDE] Since your last turn...\nRe-read.\n\n[IDE] The user is looking at `a.ts`.\n\nboth"),
+            assistant("a"),
+            user("[IDE] The user is looking at `a.ts`.\n\nctx only"),
+            assistant("b"),
+            user("[IDE] Since your last turn...\n\n[IDE] The user is looking at `a.ts`."),
+            assistant("c"))
+        assertEquals(
+            listOf(
+                ChatItem.UserText("h-0", "both"),
+                ChatItem.AssistantText("h-1", "a", false),
+                ChatItem.UserText("h-2", "ctx only"),
+                ChatItem.AssistantText("h-3", "b", false),
+                ChatItem.AssistantText("h-4", "c", false),
+            ),
+            store.transcript(cwd, "s1"))
+    }
+
+    @Test fun listTitleUsesTheCleanedText() {
+        val store = SessionStore(tmp.root)
+        write(store, "s1", 1_000_000, user("[IDE] edit\n\n[IDE] ctx\n\nreal question"))
+        assertEquals("real question", store.list(cwd).single().title)
+    }
+
     @Test fun listAllMergesFoldersNewestFirst() {
         val store = SessionStore(tmp.root)
         val wt = "$cwd/.claude/worktrees/wt-1"

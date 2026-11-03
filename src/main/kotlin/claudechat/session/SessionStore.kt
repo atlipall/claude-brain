@@ -72,8 +72,12 @@ class SessionStore(private val claudeHome: File) {
         else -> null
     }?.takeIf { it.isNotBlank() }
 
-    private fun stripIdeNote(text: String): String? =
-        if (text.startsWith("[IDE] ")) text.substringAfter("\n\n", "").takeIf { it.isNotBlank() } else text
+    /** Drops every leading "[IDE] " note (a message can carry an edit note and a context note); null when only notes remain. */
+    private fun stripIdeNote(text: String): String? {
+        var rest = text
+        while (rest.startsWith("[IDE] ")) rest = rest.substringAfter("\n\n", "")
+        return rest.takeIf { it.isNotBlank() }
+    }
 
     private fun oneLine(text: String) = text.replace(Regex("\\s+"), " ").trim().take(80)
 
