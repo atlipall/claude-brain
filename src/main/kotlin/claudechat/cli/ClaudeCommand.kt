@@ -11,8 +11,16 @@ enum class PermissionMode(val cli: String) {
     }
 }
 
-/** What a new CLI process should start as. */
-data class SessionLaunch(val resumeId: String?, val permissionMode: PermissionMode?)
+/**
+ * What a new CLI process should start as. [cwd] is the process directory; [worktree] asks claude to
+ * create `<cwd>/.claude/worktrees/<name>` on branch `worktree-<name>` and run there.
+ */
+data class SessionLaunch(
+    val resumeId: String?,
+    val permissionMode: PermissionMode?,
+    val cwd: String,
+    val worktree: String? = null,
+)
 
 object ClaudeCommand {
     fun build(binary: String, launch: SessionLaunch, extraArgs: List<String>): List<String> = buildList {
@@ -22,6 +30,7 @@ object ClaudeCommand {
             "--include-partial-messages", "--verbose", "--permission-prompt-tool", "stdio",
         ))
         launch.permissionMode?.let { add("--permission-mode"); add(it.cli) }
+        launch.worktree?.let { add("--worktree"); add(it) }
         launch.resumeId?.let { add("--resume"); add(it) }
         addAll(extraArgs)
     }

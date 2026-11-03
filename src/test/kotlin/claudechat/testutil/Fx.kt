@@ -6,8 +6,8 @@ import kotlinx.serialization.json.JsonPrimitive
 object Fx {
     fun q(s: String): String = JsonPrimitive(s).toString()
 
-    fun init(sessionId: String = "sess-1", mode: String = "default") =
-        """{"type":"system","subtype":"init","cwd":"/proj","session_id":"$sessionId","tools":["Read","Write"],"permissionMode":"$mode","claude_code_version":"2.1.317","uuid":"u1"}"""
+    fun init(sessionId: String = "sess-1", mode: String = "default", cwd: String = "/proj") =
+        """{"type":"system","subtype":"init","cwd":${q(cwd)},"session_id":"$sessionId","tools":["Read","Write"],"permissionMode":"$mode","claude_code_version":"2.1.317","uuid":"u1"}"""
 
     fun initResponse(requestId: String, mode: String = "default") =
         """{"type":"control_response","response":{"subtype":"success","request_id":"$requestId","response":{"commands":[],"current_permission_mode":"$mode","session_state":"idle","claude_code_version":"2.1.317"}}}"""

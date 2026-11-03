@@ -96,7 +96,7 @@ class SessionManager(private val project: Project) : Disposable {
             history.forEach { items[it.id] = it }
         }
         view?.reset(history)
-        val session = ChatSession(connector, listener, resumeId, defaultMode(), log = { LOG.info(it) })
+        val session = ChatSession(connector, listener, cwd(), resumeId, defaultMode(), log = { LOG.info(it) })
         current = session
         session.start()
     }
@@ -112,7 +112,7 @@ class SessionManager(private val project: Project) : Disposable {
             File(it).canExecute()
         } ?: throw ClaudeNotFoundException()
         val command = ClaudeCommand.build(binary, launch, ParametersListUtil.parse(settings.extraArgs.orEmpty()))
-        return ClaudeProcess(command, File(cwd()), env)
+        return ClaudeProcess(command, File(launch.cwd), env)
     }
 
     override fun dispose() {

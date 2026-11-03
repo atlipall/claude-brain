@@ -9,7 +9,14 @@ class CliParserTest {
     private fun one(line: String): CliEvent = CliParser.parse(line).single()
 
     @Test fun systemInit() {
-        assertEquals(CliEvent.SystemInit("sess-1", "acceptEdits"), one(Fx.init(mode = "acceptEdits")))
+        assertEquals(CliEvent.SystemInit("sess-1", "acceptEdits", "/proj"), one(Fx.init(mode = "acceptEdits")))
+        assertEquals(
+            CliEvent.SystemInit("sess-2", "default", "/proj/.claude/worktrees/wt-1"),
+            one(Fx.init("sess-2", cwd = "/proj/.claude/worktrees/wt-1")))
+    }
+
+    @Test fun systemInitWithoutCwd() {
+        assertEquals(CliEvent.SystemInit("s", null, null), one("""{"type":"system","subtype":"init","session_id":"s"}"""))
     }
 
     @Test fun otherSystemMessagesAreIgnored() {

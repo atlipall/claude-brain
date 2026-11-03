@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 sealed interface CliEvent {
-    data class SystemInit(val sessionId: String, val permissionMode: String?) : CliEvent
+    data class SystemInit(val sessionId: String, val permissionMode: String?, val cwd: String?) : CliEvent
     data class TextDelta(val messageId: String, val index: Int, val text: String) : CliEvent
     data class BlockStop(val messageId: String, val index: Int) : CliEvent
     data class AssistantText(val messageId: String, val text: String) : CliEvent
@@ -42,7 +42,7 @@ object CliParser {
         val obj = parseJsonObject(line) ?: return listOf(CliEvent.Malformed(line))
         return when (val type = obj.str("type")) {
             "system" ->
-                if (obj.str("subtype") == "init") listOf(CliEvent.SystemInit(obj.str("session_id") ?: "", obj.str("permissionMode")))
+                if (obj.str("subtype") == "init") listOf(CliEvent.SystemInit(obj.str("session_id") ?: "", obj.str("permissionMode"), obj.str("cwd")))
                 else listOf(CliEvent.Ignored("system/${obj.str("subtype")}"))
             "stream_event" -> listOf(streamEvent(obj))
             "assistant" -> assistant(obj)

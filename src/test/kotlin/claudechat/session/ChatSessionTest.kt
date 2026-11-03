@@ -21,7 +21,13 @@ class ChatSessionTest {
     private val listener = RecordingListener()
     private val conn get() = connections.last()
 
-    private fun session(resumeId: String? = null, mode: PermissionMode? = null, failConnect: Boolean = false) =
+    private fun session(
+        resumeId: String? = null,
+        mode: PermissionMode? = null,
+        failConnect: Boolean = false,
+        cwd: String = "/proj",
+        worktree: String? = null,
+    ) =
         ChatSession(
             connect = { launch ->
                 if (failConnect) throw IllegalStateException("claude not found")
@@ -29,8 +35,10 @@ class ChatSessionTest {
                 FakeConnection().also { connections += it }
             },
             listener = listener,
+            cwd = cwd,
             resumeId = resumeId,
             initialMode = mode,
+            worktree = worktree,
         ).also { it.start() }
 
     private val writeInput = """{"file_path":"/p/a.txt","content":"hi"}"""
@@ -233,7 +241,7 @@ class ChatSessionTest {
         assertEquals(listOf("x"), connections.first().userMessages())
 
         s.restart()
-        assertEquals(SessionLaunch("sess-7", PermissionMode.PLAN), launches.last())
+        assertEquals(SessionLaunch("sess-7", PermissionMode.PLAN, "/proj"), launches.last())
         assertEquals(2, connections.size)
         assertEquals(SessionState.IDLE, s.state)
     }
@@ -256,7 +264,7 @@ class ChatSessionTest {
 
     @Test fun resumeIdAndModeArePassedToFirstLaunch() {
         session(resumeId = "abc", mode = PermissionMode.AUTO)
-        assertEquals(SessionLaunch("abc", PermissionMode.AUTO), launches.single())
+        assertEquals(SessionLaunch("abc", PermissionMode.AUTO, "/proj"), launches.single())
     }
 
     private class ThrowingSendConnection : CliConnection {
@@ -269,12 +277,37 @@ class ChatSessionTest {
 
     @Test fun startFailureAfterConnectStopsConnectionAndIgnoresLateExit() {
         val bad = ThrowingSendConnection()
-        val s = ChatSession(connect = { bad }, listener = listener)
+        val s = ChatSession(connect = { bad }, listener = listener, cwd = "/proj")
         s.start()
         assertEquals(SessionState.DEAD, s.state)
         assertEquals(1, listener.items.filterIsInstance<ChatItem.Notice>().size)
         assertTrue(bad.stopped)
         bad.onExit!!(1, "late")
         assertEquals(1, listener.items.filterIsInstance<ChatItem.Notice>().size)
+    }
+
+    // --- folder ---
+
+    @Test fun firstLaunchUsesLaunchDirAndWorktree() {
+        val s = session(cwd = "/proj", worktree = "wt-1")
+        assertEquals(SessionLaunch(null, null, "/proj", "wt-1"), launches.single())
+        assertEquals("/proj", s.cwd)
+    }
+
+    @Test fun systemInitCwdReplacesLaunchDirAndRestartDropsWorktree() {
+        val s = session(cwd = "/proj", worktree = "wt-1")
+        conn.emit(Fx.init("sess-3", "default", cwd = "/proj/.claude/worktrees/wt-1"))
+        assertEquals("/proj/.claude/worktrees/wt-1", s.cwd)
+        conn.exit(1, "")
+        s.restart()
+        assertEquals(
+            SessionLaunch("sess-3", PermissionMode.DEFAULT, "/proj/.claude/worktrees/wt-1", null),
+            launches.last())
+    }
+
+    @Test fun blankInitCwdKeepsLaunchDir() {
+        val s = session(cwd = "/proj")
+        conn.emit("""{"type":"system","subtype":"init","cwd":"","session_id":"s1","permissionMode":"default"}""")
+        assertEquals("/proj", s.cwd)
     }
 }

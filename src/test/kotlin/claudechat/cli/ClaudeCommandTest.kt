@@ -11,11 +11,18 @@ class ClaudeCommandTest {
     )
 
     @Test fun newSessionWithoutMode() =
-        assertEquals(base, ClaudeCommand.build("/bin/claude", SessionLaunch(null, null), emptyList()))
+        assertEquals(base, ClaudeCommand.build("/bin/claude", SessionLaunch(null, null, "/p"), emptyList()))
 
     @Test fun resumeWithModeAndExtraArgs() = assertEquals(
         base + listOf("--permission-mode", "acceptEdits", "--resume", "abc", "--model", "sonnet"),
-        ClaudeCommand.build("/bin/claude", SessionLaunch("abc", PermissionMode.ACCEPT_EDITS), listOf("--model", "sonnet")))
+        ClaudeCommand.build("/bin/claude", SessionLaunch("abc", PermissionMode.ACCEPT_EDITS, "/p"), listOf("--model", "sonnet")))
+
+    @Test fun newWorktree() = assertEquals(
+        base + listOf("--permission-mode", "plan", "--worktree", "wt-1"),
+        ClaudeCommand.build("/bin/claude", SessionLaunch(null, PermissionMode.PLAN, "/p", "wt-1"), emptyList()))
+
+    @Test fun cwdIsNotAnArgument() =
+        assertEquals(base, ClaudeCommand.build("/bin/claude", SessionLaunch(null, null, "/somewhere/else"), emptyList()))
 
     @Test fun permissionModeFromCli() {
         assertEquals(PermissionMode.PLAN, PermissionMode.fromCli("plan"))

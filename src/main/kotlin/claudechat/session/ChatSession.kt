@@ -29,8 +29,10 @@ data class FileDiff(val filePath: String, val originalContent: String)
 class ChatSession(
     private val connect: (SessionLaunch) -> CliConnection,
     private val listener: ChatListener,
+    cwd: String,
     resumeId: String? = null,
     initialMode: PermissionMode? = null,
+    private val worktree: String? = null,
     private val log: (String) -> Unit = {},
 ) {
     private val lock = Any()
@@ -41,6 +43,12 @@ class ChatSession(
         private set
     var state: SessionState = SessionState.IDLE
         private set
+
+    /** The folder claude runs in: the launch directory until system/init reports the real one (a new worktree's path). */
+    @Volatile var cwd: String = cwd
+        private set
+    /** True once system/init reported a cwd; from then on restarts run there instead of creating the worktree again. */
+    private var cwdReported = false
 
     private var connection: CliConnection? = null
     private var generation = 0
@@ -60,7 +68,7 @@ class ChatSession(
             val gen = ++generation
             var created: CliConnection? = null
             try {
-                val conn = connect(SessionLaunch(sessionId, mode))
+                val conn = connect(SessionLaunch(sessionId, mode, cwd, if (cwdReported) null else worktree))
                 created = conn
                 connection = conn
                 conn.start(
@@ -167,6 +175,7 @@ class ChatSession(
             is CliEvent.SystemInit -> {
                 if (event.sessionId.isNotBlank()) sessionId = event.sessionId
                 PermissionMode.fromCli(event.permissionMode)?.let { mode = it }
+                event.cwd?.takeIf { it.isNotBlank() }?.let { cwd = it; cwdReported = true }
                 notifyState()
             }
             is CliEvent.ControlResponse -> {
