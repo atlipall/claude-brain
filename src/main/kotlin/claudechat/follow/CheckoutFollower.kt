@@ -77,7 +77,9 @@ class CheckoutFollower(private val project: Project) : Disposable {
         val mapper = CheckoutMapper(projectDir)
         val on = enabled
         if (on) {
-            CheckoutScopes(project).sync(listOf(mapper.main) + chats.all().mapNotNull { followable(mapper, it) }.filterNot { it.isMain })
+            // The checkout the IDE shows keeps its scope even when no open chat is in it any more.
+            val wanted = chats.all().mapNotNull { followable(mapper, it) } + listOfNotNull(current)
+            CheckoutScopes(project).sync(listOf(mapper.main) + wanted.filterNot { it.isMain })
             val target = selected?.let { followable(mapper, it) }
             if (target != null && (selecting || target != (current ?: mapper.main) || pendingSwapFrom != null || (current?.isMain == false && !viewsApplied))) show(mapper, target)
         } else if (viewsApplied) {

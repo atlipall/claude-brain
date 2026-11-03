@@ -120,7 +120,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         assertEquals("IDE: wt2", wt.checkoutText)
         connections.single().emit(Fx.init(cwd = "/elsewhere/wt2"))
         follower.refresh()
-        assertEquals(listOf("Claude: main"), scopeNames())
+        assertEquals(listOf("Claude: main", "Claude: wt2"), scopeNames()) // still the checkout the IDE shows
         assertTrue(wt.checkoutText, wt.checkoutText.startsWith("IDE: wt2 · /elsewhere/wt2 is outside this window"))
     }
 
@@ -214,5 +214,19 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         settings.followCheckout = true
         follower.refresh()
         assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
+    }
+
+    fun testShownCheckoutKeepsItsScopeAfterItsChatCloses() {
+        val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        val outside = chats.open(ChatSpec("x", "/elsewhere/x"))
+        follower.follow(wt)
+        chats.close(wt)
+        follower.follow(outside)
+        assertEquals("wt1", follower.current?.name)
+        assertEquals(listOf("Claude: main", "Claude: wt1"), scopeNames())
+        val main = chats.open(ChatSpec.inProject(root))
+        follower.follow(main)
+        follower.refresh()
+        assertEquals(listOf("Claude: main"), scopeNames())
     }
 }
