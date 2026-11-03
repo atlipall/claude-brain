@@ -26,4 +26,11 @@ class WebAssetsTest {
         assertFalse(page.contains("id=\"sessions\""))
         assertFalse(page.contains("listSessions"))
     }
+
+    @Test fun pageHandlesHistoryRecall() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("case 'history':"))
+        assertTrue(page.contains("ArrowUp"))
+        assertTrue(page.contains("ArrowDown"))
+    }
 }

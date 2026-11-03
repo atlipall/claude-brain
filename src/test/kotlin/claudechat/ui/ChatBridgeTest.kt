@@ -1,16 +1,19 @@
 package claudechat.ui
 
+import claudechat.cli.arr
 import claudechat.cli.obj
 import claudechat.cli.parseJsonObject
 import claudechat.cli.str
 import claudechat.session.Chat
 import claudechat.session.ChatSpec
 import claudechat.session.Chats
+import claudechat.session.PromptHistory
 import claudechat.session.SessionState
 import claudechat.testutil.FakeConnection
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 class ChatBridgeTest : BasePlatformTestCase() {
     private val posted = mutableListOf<JsonObject>()
@@ -23,6 +26,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
+        PromptHistory.getInstance(project).clear()
         chats.closeAll()
         chats.connector = { FakeConnection().also { connections += it } }
         chat = chats.open(ChatSpec.inProject(root))
@@ -30,14 +34,16 @@ class ChatBridgeTest : BasePlatformTestCase() {
     }
 
     override fun tearDown() {
-        try { chat.detach(bridge); chats.closeAll() } finally { super.tearDown() }
+        try { bridge.dispose(); chat.detach(bridge); chats.closeAll() } finally { super.tearDown() }
     }
 
     private fun types() = posted.map { it.str("type") }
 
-    fun testReadySendsThemeResetAndState() {
+    fun testReadySendsThemeHistoryResetAndState() {
+        PromptHistory.getInstance(project).add("earlier")
         bridge.handle("""{"type":"ready"}""")
-        assertEquals(listOf("theme", "reset", "state"), types())
+        assertEquals(listOf("theme", "history", "reset", "state"), types())
+        assertEquals(listOf(JsonPrimitive("earlier")), posted[1].arr("entries")!!.toList())
         assertEquals("IDLE", posted.last().str("state"))
     }
 
@@ -93,5 +99,28 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(inWorktree.url, wtPosted.single().obj("paths")!!.obj("lib/z.txt")!!.str("target"))
         bridge.handle("""{"type":"resolvePaths","reqId":2,"candidates":["lib/z.txt"]}""")
         assertNull(posted.single().obj("paths")!!["lib/z.txt"])
+    }
+
+    fun testSentTextIsRememberedAndBroadcastToOtherTabs() {
+        val other = chats.open(ChatSpec.inProject(root))
+        val otherPosted = mutableListOf<JsonObject>()
+        val otherBridge = ChatBridge(project, other, {}) { otherPosted += parseJsonObject(it)!! }
+        try {
+            otherBridge.handle("""{"type":"ready"}""")
+            bridge.handle("""{"type":"send","text":"hello"}""")
+            assertEquals(listOf("hello"), PromptHistory.getInstance(project).entries())
+            val last = otherPosted.last { it.str("type") == "history" }
+            assertEquals(listOf(JsonPrimitive("hello")), last.arr("entries")!!.toList())
+        } finally {
+            otherBridge.dispose()
+        }
+    }
+
+    fun testDisposedBridgeStopsReceivingHistory() {
+        bridge.handle("""{"type":"ready"}""")
+        bridge.dispose()
+        val before = posted.size
+        PromptHistory.getInstance(project).add("later")
+        assertEquals(before, posted.size)
     }
 }

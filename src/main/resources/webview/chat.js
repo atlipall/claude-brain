@@ -10,6 +10,9 @@
   const statusEl = document.getElementById('status');
   const pendingResolve = new Map();
   let reqSeq = 0;
+  let history = [];  // sent messages, oldest first (shared by every tab, kept by the IDE)
+  let recall = -1;   // index into history while recalling, -1 otherwise
+  let draft = '';    // what the box held before recall started
 
   const STATUS = { IDLE: 'Ready', RUNNING: 'Working…', AWAITING_PERMISSION: 'Waiting for your permission', DEAD: 'Stopped' };
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
@@ -47,6 +50,7 @@
         case 'resolved': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.paths); break; }
         case 'insert': insertText(msg.text); break;
         case 'theme': applyTheme(msg); break;
+        case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
       }
     }
   };
@@ -165,6 +169,7 @@
   }
 
   function insertText(text) {
+    recall = -1;
     const start = input.selectionStart, end = input.selectionEnd;
     const before = input.value.slice(0, start), after = input.value.slice(end);
     const sep = before && !/\s$/.test(before) ? ' ' : '';
@@ -187,11 +192,53 @@
     if (!text || input.disabled) return;
     send({ type: 'send', text });
     input.value = '';
+    recall = -1;
+    draft = '';
+  }
+
+  const caretOnFirstLine = () => !input.value.slice(0, input.selectionStart).includes('\n');
+  const caretOnLastLine = () => !input.value.slice(input.selectionEnd).includes('\n');
+
+  // Pure recall state machine. s = { recall, draft }; dir = 'up' | 'down'.
+  // Returns { recall, draft, text } where text is the new box content, or null when the key is not handled.
+  function recallStep(s, dir, entries, value) {
+    if (dir === 'up') {
+      let r = s.recall, d = s.draft;
+      if (r === -1) {
+        if (!entries.length) return null;
+        d = value;
+        r = entries.length;
+      }
+      r = Math.min(r, entries.length);
+      if (r > 0) r--;
+      return { recall: r, draft: d, text: entries[r] };
+    }
+    if (s.recall === -1) return null;
+    const r = s.recall + 1;
+    if (r >= entries.length) return { recall: -1, draft: s.draft, text: s.draft };
+    return { recall: r, draft: s.draft, text: entries[r] };
+  }
+
+  function recallKey(dir) {
+    const step = recallStep({ recall, draft }, dir, history, input.value);
+    if (!step) return false;
+    recall = step.recall;
+    draft = step.draft;
+    // Text goes into the textarea value only, never parsed as HTML.
+    input.value = step.text;
+    input.setSelectionRange(step.text.length, step.text.length);
+    return true;
   }
 
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); return; }
+    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'ArrowUp' && caretOnFirstLine() && recallKey('up')) e.preventDefault();
+    else if (e.key === 'ArrowDown' && caretOnLastLine() && recallKey('down')) e.preventDefault();
   });
+  // Typing ends recall: the edited text becomes the new draft.
+  input.addEventListener('input', () => { recall = -1; });
   sendBtn.addEventListener('click', submit);
   document.getElementById('new-chat').addEventListener('click', () => send({ type: 'newChat' }));
   stopBtn.addEventListener('click', () => send({ type: 'interrupt' }));

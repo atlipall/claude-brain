@@ -9,6 +9,7 @@ import claudechat.ide.FileLinker
 import claudechat.session.Chat
 import claudechat.session.ChatItem
 import claudechat.session.PermissionDecision
+import claudechat.session.PromptHistory
 import claudechat.session.SessionState
 import claudechat.session.SessionView
 import claudechat.session.toJson
@@ -29,13 +30,23 @@ class ChatBridge(
 ) : SessionView {
     private val linker get() = FileLinker.getInstance(project)
     private val session get() = chat.session
+    private val history get() = PromptHistory.getInstance(project)
+    @Volatile private var unsubscribe: (() -> Unit)? = null
 
     /** EDT only. */
     fun handle(json: String) {
         val msg = parseJsonObject(json) ?: return
         when (msg.str("type")) {
-            "ready" -> { post(Theme.message()); chat.attach(this) }
-            "send" -> msg.str("text")?.takeIf { it.isNotBlank() }?.let(chat::send)
+            "ready" -> {
+                post(Theme.message())
+                post(historyMessage(history.entries()))
+                if (unsubscribe == null) unsubscribe = history.subscribe { post(historyMessage(it)) }
+                chat.attach(this)
+            }
+            "send" -> msg.str("text")?.takeIf { it.isNotBlank() }?.let { text ->
+                history.add(text)
+                chat.send(text)
+            }
             "permission" -> {
                 val requestId = msg.str("requestId") ?: return
                 val decision = when (msg.str("decision")) {
@@ -54,6 +65,12 @@ class ChatBridge(
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))
         }
+    }
+
+    /** Stops history updates. Called when the page goes away. */
+    fun dispose() {
+        unsubscribe?.invoke()
+        unsubscribe = null
     }
 
     override fun reset(items: List<ChatItem>) = post(buildJsonObject {
@@ -77,6 +94,11 @@ class ChatBridge(
         put("type", "insert")
         put("text", text)
     }.toString())
+
+    private fun historyMessage(entries: List<String>) = buildJsonObject {
+        put("type", "history")
+        put("entries", JsonArray(entries.map(::JsonPrimitive)))
+    }.toString()
 
     private fun resolvedMessage(reqId: Long, candidates: List<String>) = buildJsonObject {
         put("type", "resolved")

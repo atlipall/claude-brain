@@ -56,6 +56,7 @@ class ChatPanel(project: Project, private val chat: Chat, onNewChat: () -> Unit,
 
     override fun dispose() {
         disposed = true
+        bridge.dispose()
         chat.detach(bridge)
         Disposer.dispose(query)
         Disposer.dispose(browser)
