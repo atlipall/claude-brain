@@ -42,7 +42,16 @@ interface ChatListener {
 
     /** A predicted next prompt, told only while the session is idle. */
     fun onSuggestion(text: String) {}
+
+    /** The messages waiting for the running turn to end, oldest first (every change). */
+    fun onQueue(messages: List<QueuedMessage>) {}
+
+    /** Queued messages that will not be sent (the turn was stopped or the process died), oldest first. */
+    fun onDropped(messages: List<QueuedMessage>) {}
 }
+
+/** A message sent while a turn was running; [images] are thumbnails as for [ChatItem.UserText]. */
+data class QueuedMessage(val id: String, val text: String, val images: List<String>)
 
 sealed interface PermissionDecision {
     data object Allow : PermissionDecision
@@ -94,8 +103,10 @@ class ChatSession(
     private var generation = 0
     private var seq = 0
     private var interruptRequested = false
-    /** Lines for the CLI's stdin waiting for the running turn to end (image bytes live only here until sent). */
-    private val queue = ArrayDeque<String>()
+    /** A queued message and its line for the CLI's stdin (image bytes live only here until sent). */
+    private class Queued(val shown: QueuedMessage, val line: String)
+    /** Messages waiting for the running turn to end, oldest first. */
+    private val queue = ArrayDeque<Queued>()
     private val toolCalls = HashMap<String, ChatItem.ToolCall>()
     private val streamed = HashMap<String, ChatItem.AssistantText>()
     private val streamedMessages = HashSet<String>()
@@ -147,22 +158,46 @@ class ChatSession(
     }
 
     /**
-     * Shows [text] (with [thumbs] above it) in the chat; sends "[prefix]\n\n[text]" and [images] to Claude. Queued
-     * while a turn is running.
+     * Shows [text] (with [thumbs] above it) in the chat; sends "[prefix]\n\n[text]" and [images] to Claude. While a
+     * turn is running the message is queued instead (see [ChatListener.onQueue]) and enters the chat when it goes out.
      */
     fun send(text: String, prefix: String? = null, images: List<Image> = emptyList(), thumbs: List<String> = emptyList()) {
         synchronized(lock) {
             if (state == SessionState.DEAD) return
-            emit(ChatItem.UserText(nextId("user"), text, thumbs))
             val payload = listOfNotNull(prefix?.takeIf { it.isNotBlank() }, text.takeIf { it.isNotEmpty() }).joinToString("\n\n")
             val line = CliMessages.userContent(payload, images)
             if (state == SessionState.IDLE) {
+                emit(ChatItem.UserText(nextId("user"), text, thumbs))
                 connection?.send(line)
                 beginRunning(Activity.Starting)
                 reportActivity()
             } else {
-                queue.addLast(line)
+                queue.addLast(Queued(QueuedMessage(nextId("queued"), text, thumbs), line))
+                notifyQueue()
             }
+        }
+    }
+
+    /** Takes queued message [id] out of the queue without sending it; null when it is not queued (any more). */
+    fun unqueue(id: String): QueuedMessage? = synchronized(lock) {
+        val i = queue.indexOfFirst { it.shown.id == id }
+        if (i < 0) return null
+        val removed = queue.removeAt(i).shown
+        notifyQueue()
+        removed
+    }
+
+    /** Stops the running turn and sends queued message [id] next; the rest of the queue follows it. */
+    fun sendNow(id: String) {
+        synchronized(lock) {
+            if (!turnOpen) return
+            val i = queue.indexOfFirst { it.shown.id == id }
+            if (i < 0) return
+            if (i > 0) {
+                queue.addFirst(queue.removeAt(i))
+                notifyQueue()
+            }
+            if (!interruptRequested) stopTurn()
         }
     }
 
@@ -243,23 +278,42 @@ class ChatSession(
         }
     }
 
+    /** Stops the running turn; queued messages are dropped (see [ChatListener.onDropped]). */
     fun interrupt() {
         synchronized(lock) {
-            if (state != SessionState.RUNNING && state != SessionState.AWAITING_PERMISSION) return
-            interruptRequested = true
-            queue.clear()
-            for ((requestId, req) in pendingPermissions) {
-                val toolId = req.toolUseId ?: "perm-$requestId"
-                deniedToolUses += toolId
-                connection?.send(CliMessages.deny(requestId, "Interrupted by the user."))
-                toolCalls[toolId]?.let { upsertTool(it.copy(status = ToolStatus.DENIED, permissionRequestId = null)) }
-            }
-            if (pendingPermissions.isNotEmpty()) phase = Activity.Thinking
-            pendingPermissions.clear()
-            connection?.send(CliMessages.interrupt(nextId("interrupt")))
-            reportActivity()
+            if (!turnOpen) return
+            dropQueue()
+            if (!interruptRequested) stopTurn()
         }
     }
+
+    private fun stopTurn() {
+        interruptRequested = true
+        for ((requestId, req) in pendingPermissions) {
+            val toolId = req.toolUseId ?: "perm-$requestId"
+            deniedToolUses += toolId
+            connection?.send(CliMessages.deny(requestId, "Interrupted by the user."))
+            toolCalls[toolId]?.let { upsertTool(it.copy(status = ToolStatus.DENIED, permissionRequestId = null)) }
+        }
+        if (pendingPermissions.isNotEmpty()) phase = Activity.Thinking
+        pendingPermissions.clear()
+        connection?.send(CliMessages.interrupt(nextId("interrupt")))
+        reportActivity()
+    }
+
+    private fun dropQueue() {
+        if (queue.isEmpty()) return
+        val dropped = queue.map { it.shown }
+        queue.clear()
+        notifyQueue()
+        listener.onDropped(dropped)
+        val images = dropped.sumOf { it.images.size }
+        if (images > 0) emit(ChatItem.Notice(nextId("notice"), "$images queued image${if (images == 1) " was" else "s were"} not sent.", isError = false))
+    }
+
+    private val turnOpen get() = state == SessionState.RUNNING || state == SessionState.AWAITING_PERMISSION
+
+    private fun notifyQueue() = listener.onQueue(queue.map { it.shown })
 
     /** Respawns a dead session with --resume and the current permission mode. */
     fun restart() {
@@ -425,7 +479,9 @@ class ChatSession(
         requestContextUsage()
         val next = queue.removeFirstOrNull()
         if (next != null) {
-            connection?.send(next)
+            notifyQueue()
+            emit(ChatItem.UserText(nextId("user"), next.shown.text, next.shown.images))
+            connection?.send(next.line)
             beginRunning(Activity.Starting)
         } else {
             setState(SessionState.IDLE)
@@ -446,7 +502,7 @@ class ChatSession(
         contextRequestId = null
         pendingPermissions.clear()
         runningTools.clear()
-        queue.clear()
+        dropQueue()
         backgroundTasks = 0
         phase = null
         val detail = stderrTail.trim().takeLast(2000)
@@ -472,7 +528,7 @@ class ChatSession(
     private fun beginRunning(phase: Activity) { this.phase = phase; setState(SessionState.RUNNING) }
     /** Tells the listener the current activity if it differs from the last one told. */
     private fun reportActivity() {
-        val now = if (state == SessionState.RUNNING || state == SessionState.AWAITING_PERMISSION) {
+        val now = if (turnOpen) {
             if (pendingPermissions.isNotEmpty()) Activity.Waiting else phase
         } else if (state == SessionState.IDLE && backgroundTasks > 0) Activity.Agents(backgroundTasks) else null
         if (now == reported) return
