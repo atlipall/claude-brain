@@ -71,6 +71,7 @@ class WebAssetsTest {
         assertTrue(page.contains("document.addEventListener('drop', (e) => {"))
         assertTrue(page.contains("    if (files && !input.disabled) [...e.dataTransfer.files].forEach(upload);\n  }, true);"))
         assertTrue(page.contains("document.addEventListener('paste', (e) => {"))
+        assertTrue(page.contains("if (e.target === input && e.clipboardData && e.clipboardData.getData('text/plain')) return;"))
     }
 
     @Test fun imagesAreOnlyPageCreatedDataUrls() {

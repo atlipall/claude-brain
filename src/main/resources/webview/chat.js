@@ -416,7 +416,9 @@
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
   // Pasted image data (Cmd+V of a screenshot) anywhere on the page becomes an attachment; text pastes are untouched.
+  // A clipboard with text too (spreadsheets and Office put a picture next to the text) pastes into the message box as text.
   document.addEventListener('paste', (e) => {
+    if (e.target === input && e.clipboardData && e.clipboardData.getData('text/plain')) return;
     const files = [...((e.clipboardData && e.clipboardData.items) || [])]
       .filter((i) => i.kind === 'file' && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
     if (!files.length) return;
