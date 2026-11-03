@@ -6,6 +6,7 @@ import claudechat.cli.ClaudeProcess
 import claudechat.cli.CliConnection
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
+import claudechat.git.GitWorktrees
 import claudechat.ide.EditTracker
 import claudechat.settings.ClaudeChatSettings
 import com.intellij.openapi.Disposable
@@ -29,6 +30,7 @@ class ClaudeNotFoundException : Exception(
 class Chats(private val project: Project) : Disposable {
     var connector: (SessionLaunch) -> CliConnection = ::defaultConnect
     var store: SessionStore = SessionStore.default()
+    var worktrees: GitWorktrees = GitWorktrees(projectDir)
 
     private val chats = CopyOnWriteArrayList<Chat>()
     private val ids = AtomicInteger()

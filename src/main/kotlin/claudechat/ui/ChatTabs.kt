@@ -4,6 +4,7 @@ import claudechat.session.Chat
 import claudechat.session.ChatSpec
 import claudechat.session.Chats
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.wm.ToolWindow
@@ -21,7 +22,8 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
         content.isCloseable = true
         content.putUserData(CHAT, chat)
         Disposer.register(content) { registry.close(chat) }
-        val panel = ChatPanel(project, chat, onNewChat = { open(chats.mainSpec()) }, parent = content)
+        lateinit var panel: ChatPanel
+        panel = ChatPanel(project, chat, onNewChat = { newChat { it.showInCenterOf(panel.browser.component) } }, parent = content)
         content.component = panel.browser.component
         content.preferredFocusableComponent = panel.browser.component
         chat.onTitleChanged = { content.displayName = chat.title } // Chat.send runs on the EDT
@@ -31,6 +33,9 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
     }
 
     fun selectedChat(): Chat? = toolWindow.contentManager.selectedContent?.getUserData(CHAT)
+
+    /** Shows the New-chat popup; [place] positions it. */
+    fun newChat(place: (JBPopup) -> Unit) = NewChatPopup.show(project, this, place)
 
     companion object {
         val CHAT: Key<Chat> = Key.create("claudechat.chat")

@@ -1,14 +1,17 @@
 package claudechat.ui
 
-import claudechat.session.Chats
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.DumbAwareAction
 
-/** The `+` in the Claude Chat title bar. */
+/** The `+` in the Claude Chat title bar: opens the New-chat popup under the button. */
 class NewChatAction : DumbAwareAction("New Chat", "Start a new Claude chat", AllIcons.General.Add) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        ChatTabs.find(project)?.open(Chats.getInstance(project).mainSpec())
+        val tabs = ChatTabs.find(project) ?: return
+        val anchor = e.inputEvent?.component
+        tabs.newChat { popup ->
+            if (anchor != null && anchor.isShowing) popup.showUnderneathOf(anchor) else popup.showCenteredInCurrentWindow(project)
+        }
     }
 }
