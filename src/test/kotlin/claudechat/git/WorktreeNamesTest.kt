@@ -1,0 +1,27 @@
+package claudechat.git
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class WorktreeNamesTest {
+    @Test fun acceptsValidNewNames() {
+        assertNull(WorktreeNames.error("feature_1.x-y", setOf("wt-1")))
+        assertNull(WorktreeNames.error("wt-2", setOf("wt-1")))
+    }
+
+    @Test fun rejectsInvalidNames() {
+        for (bad in listOf("", "has space", "a/b", "ü", "-x", ".", "..", "a..b", "x.", "x.lock")) {
+            assertNotNull("expected '$bad' to be rejected", WorktreeNames.error(bad, emptySet()))
+        }
+    }
+
+    @Test fun rejectsExistingName() =
+        assertEquals("A worktree named 'wt-1' already exists.", WorktreeNames.error("wt-1", setOf("wt-1")))
+
+    @Test fun suggestsFirstFreeWtName() {
+        assertEquals("wt-1", WorktreeNames.suggest(emptySet()))
+        assertEquals("wt-3", WorktreeNames.suggest(setOf("wt-1", "wt-2", "other")))
+    }
+}
