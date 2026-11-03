@@ -36,6 +36,16 @@
   };
   // Elements created by h() are the only ones the click handler acts on; model markup is never trusted.
   const trusted = new WeakSet();
+  // Markdown images never become <img> in model markup: the renderer leaves a marker (unguessable per page load) that
+  // survives sanitizing as text; the page swaps it for alt text, and for a trusted <img> once the IDE resolves the file.
+  const IMG_NONCE = Array.from(crypto.getRandomValues(new Uint32Array(2)), (n) => n.toString(36)).join('');
+  const IMG_MARK = new RegExp('IMG' + IMG_NONCE + '_(\\d+)_', 'g');
+  let imgSlots = null; // the image tokens of the message being parsed
+  marked.use({ renderer: { image(token) {
+    if (!imgSlots) return '';
+    imgSlots.push({ href: String(token.href || ''), alt: String(token.text || '') });
+    return 'IMG' + IMG_NONCE + '_' + (imgSlots.length - 1) + '_';
+  } } });
 
   function send(msg) { if (window.__send) window.__send(JSON.stringify(msg)); }
 
@@ -62,6 +72,7 @@
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
         case 'resolved': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.paths); break; }
+        case 'images': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.images || {}); break; }
         case 'insert': insertText(msg.text); break;
         case 'theme': applyTheme(msg); break;
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
@@ -98,8 +109,66 @@
 
   function renderAssistant(el, item) {
     el.className = 'msg assistant';
-    el.innerHTML = DOMPurify.sanitize(marked.parse(item.text || ''), SANITIZE);
-    if (!item.streaming) linkify(el);
+    imgSlots = [];
+    let html, slots;
+    try { html = marked.parse(item.text || ''); } finally { slots = imgSlots; imgSlots = null; }
+    el.innerHTML = DOMPurify.sanitize(html, SANITIZE);
+    const images = placeImages(el, slots);
+    if (!item.streaming) { linkify(el); resolveImages(images); }
+  }
+
+  // Replaces each image marker with its alt text in a trusted span; returns { span, href, alt } for each.
+  function placeImages(root, slots) {
+    const out = [];
+    if (!slots.length) return out;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) {
+      const text = node.nodeValue;
+      IMG_MARK.lastIndex = 0;
+      if (!IMG_MARK.test(text)) continue;
+      IMG_MARK.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0, m;
+      while ((m = IMG_MARK.exec(text))) {
+        frag.append(text.slice(last, m.index));
+        const slot = slots[Number(m[1])];
+        if (slot) {
+          const span = h('span', { class: 'img-alt' }, slot.alt);
+          out.push({ span, href: slot.href, alt: slot.alt });
+          frag.append(span);
+        }
+        last = m.index + m[0].length;
+      }
+      frag.append(text.slice(last));
+      node.replaceWith(frag);
+    }
+    return out;
+  }
+
+  // Only local paths are asked for; URLs (http:, https:, data:, file:, //host) stay alt text and are never fetched.
+  const imageKey = (href) => {
+    let s = href.trim().replace(/^<(.*)>$/, '$1');
+    try { s = decodeURI(s); } catch (e) { /* keep it as written */ }
+    return s.replace(/^\.\//, '');
+  };
+
+  function resolveImages(images) {
+    const wanted = images.filter((x) => x.href && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(x.href.trim()));
+    if (!wanted.length) return;
+    const reqId = ++reqSeq;
+    pendingResolve.set(reqId, (found) => {
+      for (const x of wanted) {
+        const src = Object.prototype.hasOwnProperty.call(found, imageKey(x.href)) ? found[imageKey(x.href)] : null;
+        if (!x.span.isConnected) continue;
+        const img = imageOrAlt(src, x.alt);
+        if (img.tagName !== 'IMG') continue;
+        img.className = 'md-img';
+        x.span.replaceWith(img);
+      }
+    });
+    send({ type: 'resolveImages', reqId, paths: [...new Set(wanted.map((x) => imageKey(x.href)))] });
   }
 
   function linkify(root) {

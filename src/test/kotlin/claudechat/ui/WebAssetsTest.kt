@@ -88,4 +88,16 @@ class WebAssetsTest {
         assertTrue(page.contains("h('div', { class: 'tool-images' }, ...images.map((src) => imageOrAlt(src, '[image]')))"))
         assertTrue(page.contains(".tool-images img { display: block; max-width: 100%; max-height: 400px;"))
     }
+
+    @Test fun markdownImagesBecomeMarkersNotMarkup() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("marked.use({ renderer: { image(token) {"))
+        assertTrue(page.contains("const IMG_NONCE = Array.from(crypto.getRandomValues(new Uint32Array(2))"))
+        assertTrue(page.contains("el.innerHTML = DOMPurify.sanitize(html, SANITIZE);"))
+        assertTrue(page.contains("const images = placeImages(el, slots);"))
+        assertTrue(page.contains("send({ type: 'resolveImages', reqId, paths: [...new Set(wanted.map((x) => imageKey(x.href)))] });"))
+        assertTrue(page.contains("case 'images':"))
+        // remote and other URL schemes are never requested
+        assertTrue(page.contains("""!/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(x.href.trim())"""))
+    }
 }

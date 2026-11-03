@@ -1,6 +1,7 @@
 package claudechat.ide
 
 import claudechat.git.canonicalPath
+import claudechat.image.Images
 import claudechat.session.FileDiff
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
@@ -15,6 +16,7 @@ import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
+import java.io.IOException
 
 data class ResolvedPath(val target: String, val line: Int?)
 
@@ -32,6 +34,22 @@ class FileLinker(private val project: Project) {
         val line = match.groupValues[2].toIntOrNull()
         val file = findFile(raw, cwd) ?: return null
         return ResolvedPath(file.url, line)
+    }
+
+    /**
+     * A `data:` URL for a local image Claude's markdown shows (`![alt](path)`), or null. The file is found like [resolve]
+     * finds one (relative to [cwd] first, then the content roots; it must be project content or lie under [cwd]); the
+     * path may not contain a `..` segment or a URL scheme; the file must be at most 5 MB and a PNG, JPEG, GIF or WebP by
+     * its magic bytes. The page gets a display copy (at most 800 px and 512 KB). Reads the file: never call it on the EDT.
+     */
+    fun localImage(candidate: String, cwd: String?): String? {
+        val raw = candidate.trim()
+        if (raw.isEmpty() || SCHEME.containsMatchIn(raw) || raw.split('/').any { it == ".." }) return null
+        val file = findFile(raw, cwd) ?: return null
+        if (file.length > Images.MAX_BYTES) return null
+        val bytes = try { file.contentsToByteArray() } catch (e: IOException) { return null }
+        if (bytes.size > Images.MAX_BYTES) return null
+        return Images.preview(bytes)?.dataUrl()
     }
 
     private fun findFile(raw: String, cwd: String?): VirtualFile? {
@@ -114,6 +132,8 @@ class FileLinker(private val project: Project) {
         else LocalFileSystem.getInstance().refreshAndFindFileByPath(target)
 
     companion object {
+        private val SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
+
         fun getInstance(project: Project): FileLinker = project.service()
     }
 }

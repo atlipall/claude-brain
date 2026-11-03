@@ -375,4 +375,40 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertTrue(reset.arr("items")!!.isEmpty())
         assertTrue(posted.none { it.str("type") == "items" })
     }
+
+    // --- local images in replies ---
+
+    fun testResolveImagesAnswersWithDataUrlsForLocalImagesOnly() {
+        val file = myFixture.addFileToProject("docs/blue.png", "").virtualFile
+        WriteAction.runAndWait<IOException> { file.setBinaryContent(TestImages.bytes(TestImages.BLUE_PNG_BASE64)) }
+        bridge.handle("""{"type":"resolveImages","reqId":4,"paths":["docs/blue.png","docs/missing.png","https://x/y.png",7]}""")
+        val msg = posted.single()
+        assertEquals("images", msg.str("type"))
+        assertEquals(4L, msg["reqId"].toString().toLong())
+        val images = msg.obj("images")!!
+        assertEquals(setOf("docs/blue.png"), images.keys)
+        assertEquals("data:image/png;base64,${TestImages.BLUE_PNG_BASE64}", images.str("docs/blue.png"))
+    }
+
+    fun testResolveImagesUsesTheChatsFolder() {
+        val file = myFixture.addFileToProject(".claude/worktrees/wt1/img/w.png", "").virtualFile
+        WriteAction.runAndWait<IOException> { file.setBinaryContent(TestImages.bytes(TestImages.BLUE_PNG_BASE64)) }
+        val wtChat = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        val wtPosted = mutableListOf<JsonObject>()
+        val wtBridge = ChatBridge(project, wtChat, {}) { wtPosted += parseJsonObject(it)!! }
+        wtBridge.offEdt = { it() }
+        wtBridge.onEdt = { it() }
+        wtBridge.handle("""{"type":"resolveImages","reqId":1,"paths":["img/w.png"]}""")
+        assertNotNull(wtPosted.single().obj("images")!!.str("img/w.png"))
+        bridge.handle("""{"type":"resolveImages","reqId":2,"paths":["img/w.png"]}""")
+        assertTrue(posted.single().obj("images")!!.isEmpty())
+    }
+
+    fun testResolveImagesRunsOffTheEdt() {
+        val tasks = mutableListOf<() -> Unit>()
+        bridge.offEdt = { tasks += it }
+        bridge.handle("""{"type":"resolveImages","reqId":1,"paths":["a.png"]}""")
+        assertTrue(posted.isEmpty())
+        assertEquals(1, tasks.size)
+    }
 }

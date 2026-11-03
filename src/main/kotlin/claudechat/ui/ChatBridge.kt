@@ -130,6 +130,15 @@ class ChatBridge(
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))
             "contextOff" -> msg.bool("off")?.let(chat::skipContext) // booleans only
+            "resolveImages" -> {
+                val reqId = msg.long("reqId") ?: 0
+                val paths = strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS)
+                val cwd = chat.cwd
+                offEdt {
+                    val found = paths.mapNotNull { path -> linker.localImage(path, cwd)?.let { path to it } }
+                    onEdt { post(imagesMessage(reqId, found)) }
+                }
+            }
         }
     }
 
@@ -241,6 +250,12 @@ class ChatBridge(
     private fun strings(element: JsonElement?): List<String> =
         (element as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
 
+    private fun imagesMessage(reqId: Long, found: List<Pair<String, String>>) = buildJsonObject {
+        put("type", "images")
+        put("reqId", reqId)
+        putJsonObject("images") { for ((path, url) in found) put(path, url) }
+    }.toString()
+
     private fun historyMessage(entries: List<String>) = buildJsonObject {
         put("type", "history")
         put("entries", JsonArray(entries.map(::JsonPrimitive)))
@@ -259,6 +274,8 @@ class ChatBridge(
 
     internal companion object {
         const val BATCH_CHARS = 2_000_000
+        /** Local images one reply may ask for at a time. */
+        const val MAX_IMAGE_PATHS = 20
 
         /** Consecutive groups of [items] whose JSON adds up to at most [limit] characters; a larger item goes alone. */
         fun batches(items: List<JsonObject>, limit: Int): List<List<JsonObject>> {

@@ -1,11 +1,16 @@
 package claudechat.ide
 
+import claudechat.image.Images
+import claudechat.testutil.TestImages
+import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 
 class FileLinkerTest : BasePlatformTestCase() {
@@ -89,6 +94,62 @@ class FileLinkerTest : BasePlatformTestCase() {
             assertEquals(ResolvedPath(url, null), linker.resolve(f.path, link.path))
         } finally {
             parent.deleteRecursively()
+        }
+    }
+
+    // --- local images in replies ---
+
+    private val blueUrl = "data:image/png;base64,${TestImages.BLUE_PNG_BASE64}"
+
+    private fun binary(path: String, bytes: ByteArray): VirtualFile {
+        val file = myFixture.addFileToProject(path, "").virtualFile
+        WriteAction.runAndWait<IOException> { file.setBinaryContent(bytes) }
+        return file
+    }
+
+    fun testLocalImageInTheProjectBecomesADataUrl() {
+        binary("docs/blue.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+        assertEquals(blueUrl, linker.localImage("docs/blue.png", root))
+        assertEquals(blueUrl, linker.localImage("./docs/blue.png", null))
+    }
+
+    fun testLocalImageIsFoundInTheChatsFolderFirst() {
+        binary("shot.png", TestImages.solid(2, 2, "jpeg"))
+        binary(".claude/worktrees/wt1/shot.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+        assertEquals(blueUrl, linker.localImage("shot.png", "$root/.claude/worktrees/wt1"))
+        assertTrue(linker.localImage("shot.png", root)!!.startsWith("data:image/jpeg;base64,"))
+    }
+
+    fun testNonImagesMissingFilesUrlsAndParentSegmentsAreRefused() {
+        binary("docs/blue.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+        myFixture.addFileToProject("docs/notes.png", "not really a png")
+        assertNull(linker.localImage("docs/notes.png", root))
+        assertNull(linker.localImage("docs/missing.png", root))
+        assertNull(linker.localImage("docs", root))
+        assertNull(linker.localImage("docs/../docs/blue.png", root))
+        assertNull(linker.localImage("https://example.com/blue.png", root))
+        assertNull(linker.localImage("file://$root/docs/blue.png", root))
+        assertNull(linker.localImage("", root))
+    }
+
+    fun testLocalImageOver5MbIsRefused() {
+        val big = ByteArray(Images.MAX_BYTES + 1).also { TestImages.bytes(TestImages.BLUE_PNG_BASE64).copyInto(it) }
+        binary("docs/big.png", big)
+        assertNull(linker.localImage("docs/big.png", root))
+    }
+
+    fun testLocalImageOutsideTheProjectOnlyUnderTheChatFolder() {
+        val dir = Files.createTempDirectory("img-outside").toFile().canonicalFile
+        VfsRootAccess.allowRootAccess(testRootDisposable, dir.path)
+        try {
+            val png = File(dir, "a.png").apply { writeBytes(TestImages.bytes(TestImages.BLUE_PNG_BASE64)) }
+            LocalFileSystem.getInstance().refreshAndFindFileByIoFile(png)!!
+            assertEquals(blueUrl, linker.localImage("a.png", dir.path))
+            assertEquals(blueUrl, linker.localImage(png.path, dir.path))
+            assertNull(linker.localImage(png.path, null))
+            assertNull(linker.localImage(png.path, root))
+        } finally {
+            dir.deleteRecursively()
         }
     }
 }
