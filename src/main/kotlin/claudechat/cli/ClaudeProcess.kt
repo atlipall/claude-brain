@@ -1,5 +1,6 @@
 package claudechat.cli
 
+import com.intellij.openapi.diagnostic.logger
 import java.io.BufferedWriter
 import java.io.File
 import java.io.IOException
@@ -45,7 +46,13 @@ class ClaudeProcess(
         }
         thread(isDaemon = true, name = "claude-stdout") {
             try {
-                p.inputStream.bufferedReader(Charsets.UTF_8).forEachLine(onLine)
+                p.inputStream.bufferedReader(Charsets.UTF_8).forEachLine { line ->
+                    try {
+                        onLine(line)
+                    } catch (e: Exception) {
+                        logger<ClaudeProcess>().warn("Listener failed on a claude output line", e)
+                    }
+                }
             } catch (_: IOException) {
                 // stream closed by stop()
             }

@@ -20,8 +20,6 @@ class ChatPanel(private val project: Project, parent: Disposable) : Disposable {
 
     init {
         Disposer.register(parent, this)
-        Disposer.register(this, browser)
-        Disposer.register(this, query)
 
         query.addHandler { json ->
             ApplicationManager.getApplication().invokeLater({ bridge.handle(json) }, project.disposed)
@@ -37,11 +35,17 @@ class ChatPanel(private val project: Project, parent: Disposable) : Disposable {
         browser.loadHTML(WebAssets.page())
     }
 
+    @Volatile private var disposed = false
+
     private fun post(json: String) {
+        if (disposed) return
         browser.cefBrowser.executeJavaScript("window.chat && window.chat.receive($json);", "", 0)
     }
 
     override fun dispose() {
+        disposed = true
         SessionManager.getInstance(project).detach(bridge)
+        Disposer.dispose(query)
+        Disposer.dispose(browser)
     }
 }

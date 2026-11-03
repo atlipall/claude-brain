@@ -84,4 +84,16 @@ class ClaudeProcessTest {
         p.send("after exit")
         p.stop()
     }
+
+    @Test fun listenerExceptionDoesNotStopLaterLines() {
+        val lines = CopyOnWriteArrayList<String>()
+        val exited = CountDownLatch(1)
+        val p = ClaudeProcess(listOf("/bin/sh", "-c", "echo a; echo b; echo c"), tmp, emptyMap())
+        p.start(
+            onLine = { if (it == "a") throw IllegalStateException("boom") else lines += it },
+            onExit = { _, _ -> exited.countDown() },
+        )
+        assertTrue(exited.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf("b", "c"), lines.toList())
+    }
 }
