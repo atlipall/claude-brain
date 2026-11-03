@@ -23,6 +23,10 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   chat's checkout: since it forked from `main` (or `master`) on a branch, otherwise since the commit
   HEAD was at when the session started (for a resumed session, the last commit before its first
   message). It covers commits, uncommitted edits and new untracked files, yours included.
+- **See how full the context is.** A meter at the right of the chat header shows how much of the
+  context window is used. Hover it for tokens used/max, what fills it, and where autocompact kicks in.
+  It turns amber within 10 points of autocompact and red at it. It updates when the session starts
+  and after every turn, using the CLI's `get_context_usage` request (no model call).
 - **Claude knows what you edited.** Files you save between messages are listed in a hidden note
   on your next message, so Claude re-reads them instead of working from stale contents.
 - **Claude knows where you are looking.** Every message carries your current file, caret line,

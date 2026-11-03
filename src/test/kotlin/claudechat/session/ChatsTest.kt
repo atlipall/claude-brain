@@ -204,6 +204,23 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(listOf("IDE: wt1", "IDE: main"), view.checkouts)
     }
 
+    fun testContextUsageReachesTheViewAndIsReplayedOnAttach() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        val conn = connections.single()
+        conn.emit(Fx.initResponse(conn.lastRequestId("initialize")))
+        conn.emit(Fx.contextResponse(conn.lastRequestId("get_context_usage"), used = 76000, max = 200000, percent = 38))
+        val view = object : SessionView by RecordingView() {
+            val contexts = mutableListOf<claudechat.cli.ContextUsage>()
+            override fun context(usage: claudechat.cli.ContextUsage) { contexts += usage }
+        }
+        chat.attach(view)
+        assertEquals(listOf(38), view.contexts.map { it.percent })
+        chat.send("go")
+        conn.emit(Fx.result())
+        conn.emit(Fx.contextResponse(conn.lastRequestId("get_context_usage"), used = 90000, max = 200000, percent = 45))
+        assertEquals(listOf(38, 45), view.contexts.map { it.percent })
+    }
+
     fun testDeadChatIgnoresSend() {
         val chat = chats.open(ChatSpec.inProject(root))
         connections.single().exit(1, "gone")

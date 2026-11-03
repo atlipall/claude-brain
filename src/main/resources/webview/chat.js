@@ -13,6 +13,9 @@
   const restartBtn = document.getElementById('restart');
   const statusEl = document.getElementById('status');
   const checkoutEl = document.getElementById('checkout');
+  const usageEl = document.getElementById('usage');
+  const usageRing = document.getElementById('usage-ring');
+  const usagePct = document.getElementById('usage-pct');
   const attachEl = document.getElementById('attachments');
   const attachBtn = document.getElementById('attach');
   const pending = new Map(); // attachment id -> { el, ready }
@@ -80,13 +83,26 @@
         case 'theme': applyTheme(msg); break;
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
         case 'checkout': setCheckout(msg.text); break;
+        case 'usage': setUsage(msg); break;
         case 'attachment': setAttachment(msg); break;
       }
     }
   };
 
+  const nearBottom = (height) => log.scrollHeight - log.scrollTop - height < 40;
+
+  // The log shrinks when the activity strip, the image tray or a taller message box appears; shrinking keeps scrollTop,
+  // which would slide the latest lines out of view. Whether the user was at the bottom is judged by the height before
+  // the change: a scroll event can arrive after the shrink and would misreport it.
+  let logHeight = log.clientHeight;
+  new ResizeObserver(() => {
+    const wasAtBottom = nearBottom(logHeight);
+    logHeight = log.clientHeight;
+    if (wasAtBottom) log.scrollTop = log.scrollHeight;
+  }).observe(log);
+
   function upsert(item) {
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    const atBottom = nearBottom(log.clientHeight);
     let el = items.get(item.id);
     if (!el) { el = document.createElement('div'); items.set(item.id, el); log.appendChild(el); }
     const open = [...el.querySelectorAll('details')].map((d) => d.open);
@@ -389,7 +405,6 @@
     if (r.isError) { el.textContent = r.text || 'Error'; return; }
     const parts = [];
     if (r.durationMs != null) parts.push((r.durationMs / 1000).toFixed(1) + 's');
-    if (r.costUsd != null) parts.push('$' + r.costUsd.toFixed(2));
     el.textContent = 'Done' + (parts.length ? ' · ' + parts.join(' · ') : '');
   }
 
@@ -445,6 +460,35 @@
   function setCheckout(text) {
     checkoutEl.textContent = typeof text === 'string' ? text : '';
     checkoutEl.hidden = !checkoutEl.textContent;
+  }
+
+  const USAGE_WARN_POINTS = 10; // amber this many points before autocompact
+  function fmtTokens(n) {
+    if (n >= 1e6) return +(n / 1e6).toFixed(1) + 'M';
+    if (n >= 1000) return +(n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k';
+    return String(n);
+  }
+  const num = (v) => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : null);
+
+  function setUsage(msg) {
+    const used = num(msg.used), max = num(msg.max), pct = num(msg.percent);
+    if (used === null || !max || pct === null) { usageEl.hidden = true; return; }
+    const p = Math.min(100, Math.round(pct));
+    const at = num(msg.autocompactAt);
+    const limit = at || 100;
+    usageEl.classList.toggle('full', p >= limit);
+    usageEl.classList.toggle('near', p < limit && p >= limit - USAGE_WARN_POINTS);
+    usageRing.style.setProperty('--p', String(p));
+    usagePct.textContent = p + '%';
+    const parts = (Array.isArray(msg.categories) ? msg.categories : [])
+      .filter((c) => c && typeof c.name === 'string' && num(c.tokens) !== null)
+      .sort((a, b) => b.tokens - a.tokens)
+      .map((c) => c.name + ' ' + fmtTokens(c.tokens));
+    const lines = ['Context: ' + fmtTokens(used) + ' / ' + fmtTokens(max) + ' tokens (' + p + '%)'];
+    if (parts.length) lines.push(parts.join(' · '));
+    if (at !== null) lines.push('Autocompacts at ~' + at + '%');
+    usageEl.title = lines.join('\n');
+    usageEl.hidden = false;
   }
 
   function addTile(id, name) {

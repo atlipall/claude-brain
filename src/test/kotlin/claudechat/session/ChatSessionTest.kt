@@ -623,4 +623,66 @@ class ChatSessionTest {
         val dup = """{"question":"Q?","header":"H","options":[{"label":"L","description":"d"}],"multiSelect":false}"""
         assertFalse(parses("""{"questions":[$dup,$dup]}"""))
     }
+
+    // --- context usage ---
+
+    @Test fun contextUsageIsAskedForOnceInitializeIsAnswered() {
+        val s = session()
+        assertEquals(0, conn.requestCount("get_context_usage"))
+        conn.emit(Fx.initResponse(conn.lastRequestId("initialize")))
+        assertEquals(1, conn.requestCount("get_context_usage"))
+        conn.emit(Fx.contextResponse(conn.lastRequestId("get_context_usage"), used = 76000, max = 200000, percent = 38))
+        val usage = listener.contexts.single()
+        assertEquals(76000L, usage.used)
+        assertEquals(38, usage.percent)
+        assertEquals(SessionState.IDLE, s.state)
+    }
+
+    @Test fun contextUsageIsAskedForAfterEveryTurn() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.result())
+        assertEquals(1, conn.requestCount("get_context_usage"))
+        s.send("again")
+        conn.emit(Fx.result())
+        assertEquals(2, conn.requestCount("get_context_usage"))
+    }
+
+    @Test fun aFailedContextRequestIsNotShown() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.result())
+        conn.emit(Fx.errorResponse(conn.lastRequestId("get_context_usage"), "Unsupported control request subtype"))
+        assertTrue(listener.contexts.isEmpty())
+        assertTrue(listener.current().none { it is ChatItem.Notice })
+    }
+
+    @Test fun aFailedInitializeAsksForNothing() {
+        session()
+        conn.emit(Fx.errorResponse(conn.lastRequestId("initialize"), "nope"))
+        assertEquals(0, conn.requestCount("get_context_usage"))
+    }
+
+    @Test fun anUnparsableContextReplyIsIgnored() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.result())
+        conn.emit(Fx.modeResponse(conn.lastRequestId("get_context_usage"), "plan"))
+        assertTrue(listener.contexts.isEmpty())
+        assertEquals(null, s.mode) // the reply is not mistaken for a mode change
+    }
+
+    @Test fun aStaleContextReplyIsDropped() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.result())
+        val first = conn.lastRequestId("get_context_usage")
+        s.send("again")
+        conn.emit(Fx.result())
+        conn.emit(Fx.contextResponse(first, percent = 10))
+        conn.emit(Fx.contextResponse(conn.lastRequestId("get_context_usage"), percent = 20))
+        conn.emit(Fx.errorResponse(first, "late"))
+        assertEquals(listOf(20), listener.contexts.map { it.percent })
+        assertTrue(listener.current().none { it is ChatItem.Notice })
+    }
 }

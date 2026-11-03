@@ -1,6 +1,7 @@
 package claudechat.session
 
 import claudechat.cli.CliConnection
+import claudechat.cli.ContextUsage
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.context.ContextNotes
@@ -23,6 +24,9 @@ interface SessionView {
 
     /** What Claude is doing now (changes only); null when no turn is running. */
     fun activity(activity: Activity?) {}
+
+    /** How full the context window is (the latest report). */
+    fun context(usage: ContextUsage) {}
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -79,6 +83,8 @@ class Chat(
     /** Called on the CLI reader thread (or the EDT) when [busy] changes. */
     @Volatile var onBusyChanged: (() -> Unit)? = null
 
+    @Volatile private var contextUsage: ContextUsage? = null
+
     private val activityLock = Any()
     private var sessionActivity: Activity? = null
     private var shownActivity: Activity? = null
@@ -99,6 +105,12 @@ class Chat(
         override fun onActivity(activity: Activity?) {
             synchronized(activityLock) { sessionActivity = activity }
             publishActivity()
+        }
+
+        override fun onContext(usage: ContextUsage) {
+            if (usage == contextUsage) return
+            contextUsage = usage
+            view?.context(usage)
         }
 
         override fun onItem(item: ChatItem) {
@@ -145,6 +157,7 @@ class Chat(
         view.state(session.state, session.sessionId, session.mode)
         synchronized(activityLock) { shownActivity }?.let(view::activity)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
+        contextUsage?.let(view::context)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)
     }
 
