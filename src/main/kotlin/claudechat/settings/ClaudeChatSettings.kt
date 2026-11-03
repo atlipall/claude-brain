@@ -16,6 +16,8 @@ class ClaudeChatSettings : SimplePersistentStateComponent<ClaudeChatSettings.Sta
         /** Empty = whatever the CLI's own settings say. */
         var defaultMode by string("")
         var extraArgs by string("")
+        /** The IDE window follows the selected chat's checkout (Project view scope, open editors, Find scope). */
+        var followCheckout by property(true)
     }
 
     companion object {

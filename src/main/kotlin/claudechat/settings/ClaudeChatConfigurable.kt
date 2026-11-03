@@ -5,6 +5,7 @@ import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.bindItem
+import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.panel
 
@@ -28,6 +29,11 @@ class ClaudeChatConfigurable : BoundConfigurable("Claude Chat") {
                 .bindText({ state.extraArgs.orEmpty() }, { state.extraArgs = it })
                 .align(AlignX.FILL)
                 .comment("For example: --model sonnet")
+        }
+        row {
+            checkBox("IDE follows the selected chat's checkout")
+                .bindSelected({ state.followCheckout }, { state.followCheckout = it })
+                .comment("Selecting a worktree chat scopes the Project view and Find in Files to that worktree and swaps open editors to its files.")
         }
     }
 }
