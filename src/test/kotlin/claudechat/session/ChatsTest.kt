@@ -276,4 +276,25 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\na"), connections[0].userMessages())
         assertEquals(listOf("b"), connections[1].userMessages())
     }
+
+    fun testFailingContextCaptureStillSendsTheMessage() {
+        myFixture.configureByText("a.txt", "x")
+        myFixture.type("y")
+        val connection = FakeConnection()
+        val chat = Chat(
+            id = 99, spec = ChatSpec.inProject(root), history = emptyList(), connector = { connection },
+            initialMode = null,
+            editNote = { "[IDE] edit note" },
+            editorContext = { throw IllegalStateException("boom") },
+        )
+        try {
+            chat.start()
+            chat.skipContext(false)
+            chat.send("hello")
+            assertEquals(listOf("[IDE] edit note\n\nhello"), connection.userMessages())
+            assertFalse(chat.contextOff)
+        } finally {
+            chat.dispose()
+        }
+    }
 }

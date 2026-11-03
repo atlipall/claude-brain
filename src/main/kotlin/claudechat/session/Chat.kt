@@ -5,6 +5,9 @@ import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.context.ContextNotes
 import claudechat.context.EditorContext
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProcessCanceledException
 
 /** Receives one chat's updates. Methods may be called from any thread. */
 interface SessionView {
@@ -123,12 +126,21 @@ class Chat(
         refreshContext()
     }
 
+    /** The formatted editor context, or null when there is none or capturing it failed (a failure must never block sending). */
+    private fun captureContext(format: (EditorContext) -> String): String? = try {
+        editorContext(this)?.let(format)
+    } catch (e: Exception) {
+        if (e is ProcessCanceledException || e is ControlFlowException) throw e
+        logger<Chat>().warn("Editor context capture failed; going on without it", e)
+        null
+    }
+
     /** The chip text and muted state the page shows. EDT only. */
     private var shownContext = HIDDEN
 
     /** Recomputes the chip and tells the page when its text or muted state changed. EDT only. */
     fun refreshContext() {
-        val next = editorContext(this)?.let(ContextNotes::chip).orEmpty() to contextOff
+        val next = captureContext(ContextNotes::chip).orEmpty() to contextOff
         if (next == shownContext) return
         shownContext = next
         view?.context(next.first, next.second)
@@ -145,7 +157,7 @@ class Chat(
             onTitleChanged?.invoke()
         }
         val edits = editNote(this) // saves documents first
-        val context = if (contextOff) null else editorContext(this)?.let(ContextNotes::note)
+        val context = if (contextOff) null else captureContext(ContextNotes::note)
         contextOff = false
         session.send(text, listOfNotNull(edits, context).joinToString("\n\n").ifEmpty { null })
         refreshContext() // the chip is live again
