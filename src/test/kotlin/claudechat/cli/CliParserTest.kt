@@ -90,6 +90,20 @@ class CliParserTest {
         assertEquals("hi", ev.input.str("content"))
     }
 
+    @Test fun mcpMessage() {
+        val ev = one(Fx.mcpMessage("r1", "tether", """{"jsonrpc":"2.0","id":3,"method":"tools/list"}""")) as CliEvent.McpMessage
+        assertEquals("r1", ev.requestId)
+        assertEquals("tether", ev.server)
+        assertEquals("tools/list", ev.message.str("method"))
+    }
+
+    @Test fun hookCallback() {
+        val ev = one(Fx.hookCallback("r1", "after-edit", "Edit", "/p/a.ts")) as CliEvent.HookCallback
+        assertEquals("r1", ev.requestId)
+        assertEquals("after-edit", ev.callbackId)
+        assertEquals("/p/a.ts", ev.input.obj("tool_input")!!.str("file_path"))
+    }
+
     @Test fun askUserQuestionRequestIsAPermissionRequestCarryingTheQuestions() {
         val ev = one(Fx.askQuestion("r1", "t1")) as CliEvent.PermissionRequest
         assertEquals("AskUserQuestion", ev.toolName)

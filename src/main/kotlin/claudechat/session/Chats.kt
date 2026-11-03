@@ -10,6 +10,7 @@ import claudechat.git.DiffBases
 import claudechat.git.GitWorktrees
 import claudechat.context.EditorContextService
 import claudechat.ide.EditTracker
+import claudechat.ide.tools.ChatIdeHost
 import claudechat.settings.ClaudeChatSettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
@@ -51,7 +52,9 @@ class Chats(private val project: Project) : Disposable {
     /** Creates and starts a chat (a resumed one shows its transcript). EDT. */
     fun open(spec: ChatSpec): Chat {
         val history = spec.resumeId?.let { store.transcript(spec.cwd, it) }.orEmpty()
-        val chat = Chat(
+        lateinit var chat: Chat
+        val ide = ChatIdeHost(project, projectDir) { chat.cwd } // asked only once the chat runs
+        chat = Chat(
             id = ids.incrementAndGet(),
             spec = spec,
             history = history,
@@ -64,6 +67,8 @@ class Chats(private val project: Project) : Disposable {
             },
             log = { LOG.info(it) },
             startedAt = if (spec.resumeId == null) System.currentTimeMillis() else store.startedAt(spec.cwd, spec.resumeId),
+            ide = ide,
+            background = { AppExecutorUtil.getAppExecutorService().execute(it) },
         )
         tracker.register(chat.id)
         chats += chat

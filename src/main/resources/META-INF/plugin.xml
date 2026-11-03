@@ -10,6 +10,12 @@
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.jcef</depends>
     <depends>com.intellij.modules.vcs</depends>
+    <!-- TypeScript service errors for the diagnostics tool; the plugin works without it. -->
+    <depends optional="true" config-file="tether-javascript.xml">JavaScript</depends>
+
+    <extensionPoints>
+        <extensionPoint qualifiedName="local.claudechat.problemSource" interface="claudechat.ide.tools.ProblemSource" dynamic="true"/>
+    </extensionPoints>
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationConfigurable parentId="tools" id="claudechat.settings" displayName="Tether"

@@ -84,6 +84,15 @@ object Fx {
     fun toolUse(msg: String, toolUseId: String, name: String, inputJson: String) =
         """{"type":"assistant","message":{"model":"claude-opus-5-5","id":"$msg","type":"message","role":"assistant","content":[{"type":"tool_use","id":"$toolUseId","name":"$name","input":$inputJson,"caller":{"type":"direct"}}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"sess-1","uuid":"u6"}"""
 
+    /** A CLI-forwarded MCP message for in-process server [server] ([messageJson] is the JSON-RPC message). */
+    fun mcpMessage(requestId: String, server: String, messageJson: String) =
+        """{"type":"control_request","request_id":"$requestId","request":{"subtype":"mcp_message","server_name":"$server","message":$messageJson}}"""
+
+    /** A PostToolUse hook callback for an edit of [filePath] with [tool]. */
+    fun hookCallback(requestId: String, callbackId: String, tool: String, filePath: String) =
+        """{"type":"control_request","request_id":"$requestId","request":{"subtype":"hook_callback","callback_id":"$callbackId",""" +
+            """"input":{"hook_event_name":"PostToolUse","tool_name":"$tool","tool_input":{"file_path":"$filePath"}},"tool_use_id":"t9"}}"""
+
     fun canUseTool(requestId: String, toolUseId: String, name: String, inputJson: String) =
         """{"type":"control_request","request_id":"$requestId","request":{"subtype":"can_use_tool","tool_name":"$name","display_name":"$name","input":$inputJson,"description":"x","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"$toolUseId"}}"""
 

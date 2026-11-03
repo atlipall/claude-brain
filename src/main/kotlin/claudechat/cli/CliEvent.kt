@@ -39,6 +39,10 @@ sealed interface CliEvent {
     ) : CliEvent
     data class UserText(val text: String) : CliEvent
     data class PermissionRequest(val requestId: String, val toolName: String, val toolUseId: String?, val input: JsonObject) : CliEvent
+    /** Claude's MCP traffic for in-process server [server]; a JSON-RPC request is answered with [CliMessages.mcpResponse]. */
+    data class McpMessage(val requestId: String, val server: String, val message: JsonObject) : CliEvent
+    /** A hook registered in the initialize request fired; answered with [CliMessages.hookResponse]. */
+    data class HookCallback(val requestId: String, val callbackId: String, val input: JsonObject) : CliEvent
     data class ControlResponse(val requestId: String, val isSuccess: Boolean, val response: JsonObject?, val error: String?) : CliEvent
     data class Result(
         val isError: Boolean,
@@ -178,6 +182,16 @@ object CliParser {
                 requestId = obj.str("request_id") ?: "",
                 toolName = request.str("tool_name") ?: "",
                 toolUseId = request.str("tool_use_id"),
+                input = request.obj("input") ?: EMPTY,
+            )
+            "mcp_message" -> CliEvent.McpMessage(
+                requestId = obj.str("request_id") ?: "",
+                server = request.str("server_name") ?: "",
+                message = request.obj("message") ?: EMPTY,
+            )
+            "hook_callback" -> CliEvent.HookCallback(
+                requestId = obj.str("request_id") ?: "",
+                callbackId = request.str("callback_id") ?: "",
                 input = request.obj("input") ?: EMPTY,
             )
             else -> CliEvent.Ignored("control_request/$subtype")

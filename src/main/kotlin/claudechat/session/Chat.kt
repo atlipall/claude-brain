@@ -56,6 +56,10 @@ class Chat(
     log: (String) -> Unit = {},
     /** When the session began (epoch millis): now for a new chat, the transcript's start for a resumed one. */
     val startedAt: Long? = null,
+    /** Tools and edit checks the IDE lends this chat's Claude; null for none. */
+    ide: IdeHost? = null,
+    /** Runs IDE work for the session off the CLI reader thread. */
+    background: (Runnable) -> Unit = { it.run() },
 ) {
     val label: String = spec.label
 
@@ -156,7 +160,7 @@ class Chat(
         }
     }
 
-    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log)
+    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background)
 
     private val predictedCwd: String? = spec.worktree?.let { "${spec.cwd.trimEnd('/')}/.claude/worktrees/$it" }
 
