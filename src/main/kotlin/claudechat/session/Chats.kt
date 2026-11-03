@@ -37,9 +37,8 @@ class Chats(private val project: Project) : Disposable {
 
     val projectDir: String get() = project.basePath ?: System.getProperty("user.home")
 
-    init {
-        EditTracker.getInstance(project) // start recording saves before the first message
-    }
+    // Cached: services must not be looked up while the project is being disposed (close runs then).
+    private val tracker = EditTracker.getInstance(project) // also starts recording saves before the first message
 
     fun all(): List<Chat> = chats.toList()
 
@@ -48,7 +47,6 @@ class Chats(private val project: Project) : Disposable {
     /** Creates and starts a chat (a resumed one shows its transcript). EDT. */
     fun open(spec: ChatSpec): Chat {
         val history = spec.resumeId?.let { store.transcript(spec.cwd, it) }.orEmpty()
-        val tracker = EditTracker.getInstance(project)
         val chat = Chat(
             id = ids.incrementAndGet(),
             spec = spec,
@@ -68,7 +66,7 @@ class Chats(private val project: Project) : Disposable {
     fun close(chat: Chat) {
         if (chats.remove(chat)) {
             chat.dispose()
-            EditTracker.getInstance(project).forget(chat.id)
+            tracker.forget(chat.id)
         }
     }
 
