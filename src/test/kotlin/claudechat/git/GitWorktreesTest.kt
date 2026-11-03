@@ -61,7 +61,7 @@ class GitWorktreesTest {
         File(proj, ".claude/worktrees/wt-1").mkdirs()
         File(proj, ".claude/worktrees/wt-2").mkdirs()
         File(proj, ".claude/worktrees/stray.txt").writeText("")
-        val git = GitWorktrees(proj.path) { null }
+        val git = GitWorktrees(proj.path, { null }) { null }
         val listed = listOf(
             Worktree(proj.path, "main", true),
             Worktree("${proj.path}/.claude/worktrees/wt-1", "worktree-wt-1", false),
@@ -93,8 +93,22 @@ class GitWorktreesTest {
 
     @Test fun knownFoldersWithoutClaudeDir() {
         val proj = tmp.newFolder("plain")
-        assertEquals(listOf(proj.path), GitWorktrees(proj.path) { null }.knownFolders(null))
-        assertEquals(emptySet<String>(), GitWorktrees(proj.path) { null }.existingNames(null))
+        assertEquals(listOf(proj.path), GitWorktrees(proj.path, { null }) { null }.knownFolders(null))
+        assertEquals(emptySet<String>(), GitWorktrees(proj.path, { null }) { null }.existingNames(null))
+    }
+
+    @Test fun parsesLeftoverWorktreeBranchNames() {
+        assertEquals(setOf("wt-1", "feat/x"), WorktreeBranches.parse("worktree-wt-1\nworktree-feat/x\r\n\n  \nmain\nworktree-\n"))
+        assertEquals(emptySet<String>(), WorktreeBranches.parse(""))
+    }
+
+    @Test fun existingNamesIncludeLeftoverBranchesAndSurviveGitFailure() {
+        val proj = tmp.newFolder("br")
+        var asked: File? = null
+        val git = GitWorktrees(proj.path, { asked = it; "worktree-wt-1\nworktree-wt-2\n" }) { null }
+        assertEquals(setOf("wt-1", "wt-2"), git.existingNames(null))
+        assertEquals(proj, asked)
+        assertEquals(emptySet<String>(), GitWorktrees(proj.path, { null }) { null }.existingNames(null))
     }
 
     @Test fun realGitReturnsNullOutsideARepository() = assertNull(runGitWorktreeList(tmp.newFolder("not-a-repo")))
