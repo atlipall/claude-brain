@@ -819,4 +819,5 @@ This needs WebStorm restarted, which ends the chat running inside it, so the use
 
 - [ ] **Step 1:** Install: `./install.sh --force`, then restart WebStorm.
 - [ ] **Step 2:** In a new chat, send two messages that each edit a file. On the second, choose **Revert to here → Files and Conversation**. Expected: the second message and its turn leave the panel, its text is in the input box, the file is back to the first turn's version, and asking "what did I ask you last?" gets the first message.
-- [ ] **Step 3:** Rename the chat, rewind again, restart WebStorm, and resume it from history. Expected: the rewound chat is listed under its name and shows only the kept messages; the original session is listed too.
+- [ ] **Step 3:** Rewind twice in a row: after Step 2, send a new second message, then **Revert to here → Conversation Only** on it. Expected: the same as Step 2 (a rewind of a fork resumes at the original message's uuid). Then rewind the first message and send: a fresh session that remembers nothing.
+- [ ] **Step 4:** Rename the chat, rewind again, restart WebStorm, and resume it from history. Expected: the rewound chat is listed under its name and shows only the kept messages; the original session is listed too.
