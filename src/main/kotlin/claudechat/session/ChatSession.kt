@@ -48,7 +48,8 @@ class ChatSession(
     @Volatile var cwd: String = cwd
         private set
     /** True once system/init reported a cwd; from then on restarts run there instead of creating the worktree again. */
-    private var cwdReported = false
+    @Volatile var cwdReported = false
+        private set
 
     private var connection: CliConnection? = null
     private var generation = 0

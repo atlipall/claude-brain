@@ -50,6 +50,15 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(listOf(chat), chats.all())
     }
 
+    fun testNewWorktreeChatUsesPredictedFolderUntilInitReportsOne() {
+        val chat = chats.open(ChatSpec.newWorktree("/work/proj", "wt-1"))
+        assertEquals("/work/proj/.claude/worktrees/wt-1", chat.cwd)
+        assertEquals("/work/proj", launches.single().cwd)
+        assertEquals("wt-1", launches.single().worktree)
+        connections.single().emit(Fx.init(cwd = "/elsewhere/real"))
+        assertEquals("/elsewhere/real", chat.cwd)
+    }
+
     fun testNewWorktreeChatPassesNameAndAdoptsReportedFolder() {
         val chat = chats.open(ChatSpec.newWorktree("/work/proj", "wt-1"))
         assertEquals("wt-1", launches.single().worktree)

@@ -49,8 +49,13 @@ class Chat(
 
     val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log)
 
-    /** Absolute folder claude runs in (the worktree path once system/init reported it). */
-    val cwd: String get() = session.cwd
+    private val predictedCwd: String? = spec.worktree?.let { "${spec.cwd.trimEnd('/')}/.claude/worktrees/$it" }
+
+    /**
+     * Absolute folder claude works in. For a new worktree this is the predicted `.claude/worktrees/<name>` until
+     * system/init (which arrives only after the first message) reports the real one.
+     */
+    val cwd: String get() = if (session.cwdReported) session.cwd else predictedCwd ?: session.cwd
 
     val title: String get() = ChatNames.tabTitle(label, firstMessage)
 
