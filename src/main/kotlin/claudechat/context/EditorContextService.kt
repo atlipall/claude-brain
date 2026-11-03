@@ -26,6 +26,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.Alarm
+import org.jetbrains.annotations.TestOnly
 import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -86,6 +87,7 @@ class EditorContextService(private val project: Project) : Disposable {
     }
 
     /** Where the user is looking, with the file's absolute path; null without a context editor. Commits the document. */
+    @TestOnly
     fun capture(): EditorContext? {
         val editor = contextEditor() ?: return null
         val file = localFile(editor) ?: return null
