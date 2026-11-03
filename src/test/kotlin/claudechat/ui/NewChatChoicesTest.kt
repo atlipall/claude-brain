@@ -33,6 +33,17 @@ class NewChatChoicesTest {
         listOf(NewChatChoice.Open("In this project", ChatSpec.inProject("/p/wt")), NewChatChoice.NewWorktree, NewChatChoice.Resume),
         NewChatChoices.build("/p/wt", listOf(Worktree("/p/wt/", "feature", false), Worktree("/p/./wt", "feature", false))))
 
+    @Test fun openChatForFindsTheChatHoldingTheSession() {
+        val open = listOf<Pair<String?, String>>(null to "a", "s1" to "b", "s2" to "c")
+        assertEquals("c", NewChatChoices.openChatFor("s2", open))
+        assertEquals(null, NewChatChoices.openChatFor("s3", open))
+        assertEquals(null, NewChatChoices.openChatFor("s1", emptyList<Pair<String?, String>>()))
+    }
+
+    @Test fun resumeTextMarksSessionsOpenInATab() = assertEquals(
+        "hello · main · T7 · open",
+        NewChatChoices.resumeText(SessionSummary("s", "hello", 7, "/p"), "/p", isOpen = true) { "T$it" })
+
     @Test fun resumeTextShowsTitleFolderAndTime() {
         assertEquals(
             "fix bug · wt-1 · T5",

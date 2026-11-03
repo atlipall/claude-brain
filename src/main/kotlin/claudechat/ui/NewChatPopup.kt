@@ -2,6 +2,7 @@ package claudechat.ui
 
 import claudechat.git.Worktree
 import claudechat.git.WorktreeNames
+import claudechat.session.Chat
 import claudechat.session.ChatSpec
 import claudechat.session.Chats
 import claudechat.session.SessionSummary
@@ -44,15 +45,21 @@ object NewChatPopup {
             if (sessions.isEmpty()) {
                 place(JBPopupFactory.getInstance().createMessage("No past sessions in this project or its worktrees."))
             } else {
+                // The list is built on the EDT, so the open chats are current when it is shown.
+                val openChat = { s: SessionSummary -> NewChatChoices.openChatFor(s.id, openSessions(chats)) }
                 val text = { s: SessionSummary ->
-                    NewChatChoices.resumeText(s, chats.projectDir, DateFormatUtil::formatPrettyDateTime)
+                    NewChatChoices.resumeText(s, chats.projectDir, isOpen = openChat(s) != null, DateFormatUtil::formatPrettyDateTime)
                 }
                 place(listPopup(project, "Resume a Past Session", sessions, text) { s ->
-                    tabs.open(ChatSpec.resume(chats.projectDir, s))
+                    // A session already live in a tab is never resumed twice: two claude processes would write one transcript.
+                    val existing = openChat(s)
+                    if (existing == null || !tabs.select(existing)) tabs.open(ChatSpec.resume(chats.projectDir, s))
                 })
             }
         }
     }
+
+    private fun openSessions(chats: Chats): List<Pair<String?, Chat>> = chats.all().map { it.session.sessionId to it }
 
     private fun askWorktreeName(project: Project, existing: Set<String>): String? = Messages.showInputDialog(
         project,

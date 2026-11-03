@@ -36,6 +36,10 @@ object NewChatChoices {
         add(NewChatChoice.Resume)
     }
 
-    fun resumeText(s: SessionSummary, projectDir: String, time: (Long) -> String): String =
-        "${s.title} · ${ChatNames.folderLabel(s.folder, projectDir)} · ${time(s.modifiedMillis)}"
+    fun resumeText(s: SessionSummary, projectDir: String, isOpen: Boolean = false, time: (Long) -> String): String =
+        "${s.title} · ${ChatNames.folderLabel(s.folder, projectDir)} · ${time(s.modifiedMillis)}" + if (isOpen) " · open" else ""
+
+    /** The already-open chat running [sessionId], if any; resuming it a second time would write to the same transcript. */
+    fun <T> openChatFor(sessionId: String, openChats: List<Pair<String?, T>>): T? =
+        openChats.firstOrNull { it.first == sessionId }?.second
 }

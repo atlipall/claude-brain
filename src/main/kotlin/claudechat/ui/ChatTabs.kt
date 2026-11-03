@@ -32,6 +32,13 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
         return chat
     }
 
+    /** Selects [chat]'s tab; false when it has none. */
+    fun select(chat: Chat): Boolean {
+        val content = toolWindow.contentManager.contents.firstOrNull { it.getUserData(CHAT) === chat } ?: return false
+        toolWindow.contentManager.setSelectedContent(content, true)
+        return true
+    }
+
     fun selectedChat(): Chat? = toolWindow.contentManager.selectedContent?.getUserData(CHAT)
 
     /** Shows the New-chat popup; [place] positions it. */
