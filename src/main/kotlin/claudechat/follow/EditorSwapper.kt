@@ -2,6 +2,7 @@ package claudechat.follow
 
 import claudechat.git.canonicalPath
 import com.intellij.ide.ui.UISettings
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditor
@@ -14,25 +15,51 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 
-/** Swaps open editor tabs from one checkout to another (see [EditorSwapPlan]). EDT only. */
-class EditorSwapper(private val project: Project, private val mapper: CheckoutMapper) {
+/**
+ * Swaps open editor tabs from one checkout to another (see [EditorSwapPlan]). EDT only, in three phases: on the EDT
+ * the open tabs and carets are snapshotted; on a pooled thread every candidate counterpart is looked up (a VFS refresh,
+ * which must not run on the EDT or inside a read action); back on the EDT the planner runs on those results alone and
+ * the plan is applied. The three seams exist for tests.
+ */
+class EditorSwapper(
+    private val project: Project,
+    private val mapper: CheckoutMapper,
+    /** Runs the lookup phase; off the EDT. */
+    private val runInBackground: (Runnable) -> Unit = { ApplicationManager.getApplication().executeOnPooledThread(it) },
+    /** Runs the apply phase; on the EDT. */
+    private val runOnEdt: (Runnable) -> Unit = { ApplicationManager.getApplication().invokeLater(it, project.disposed) },
+    /** Finds the file at a path, refreshing the VFS so files it has not seen yet are found. Background phase only. */
+    private val lookup: (String) -> VirtualFile? = { LocalFileSystem.getInstance().refreshAndFindFileByPath(it) },
+) {
     private val manager get() = FileEditorManager.getInstance(project)
 
     private data class Swap(val old: VirtualFile, val new: VirtualFile, val caret: Caret?)
 
-    fun swap(from: Checkout, to: Checkout) {
+    /** Swaps the tabs of [from] for their counterparts in [to]; the result is dropped when [isCurrent] is false by then. */
+    fun swap(from: Checkout, to: Checkout, isCurrent: () -> Boolean = { true }) {
         val files = manager.openFiles.toList()
         if (files.isEmpty()) return
+        val carets = files.associateWith { caretOf(it) }
+        val candidates = files.mapNotNull { mapper.counterpart(it.path, from, to) }.distinct()
+        if (candidates.isEmpty()) return
+        // A file that lives in another file system (the in-memory one of light tests) looks its counterpart up there.
+        val other = files.firstOrNull { it.fileSystem !== LocalFileSystem.getInstance() }?.fileSystem
+        runInBackground {
+            val resolved: Map<String, VirtualFile?> = candidates.associateWith { lookup(it) ?: other?.findFileByPath(it) }
+            runOnEdt {
+                if (!project.isDisposed && isCurrent()) apply(from, to, resolved, carets)
+            }
+        }
+    }
+
+    /** EDT: plan with the looked-up [resolved] files (no VFS access) against the tabs open now, and carry it out. */
+    private fun apply(from: Checkout, to: Checkout, resolved: Map<String, VirtualFile?>, carets: Map<VirtualFile, Caret?>) {
+        val files = manager.openFiles.toList()
         val byPath = files.associateBy { canonicalPath(it.path) }
-        val local = LocalFileSystem.getInstance()
-        // Counterparts are real files: refreshing finds ones the VFS has not seen yet. A file that lives in another
-        // file system (the in-memory one of light tests) looks its counterpart up there.
-        val other = files.firstOrNull { it.fileSystem !== local }?.fileSystem
-        fun resolve(path: String): VirtualFile? = local.refreshAndFindFileByPath(path) ?: other?.findFileByPath(path)
-        val open = files.map { OpenFile(it.path, caretOf(it)) }
-        val swaps = EditorSwapPlan.plan(open, from, to, mapper) { resolve(it) != null }.mapNotNull { r ->
+        val open = files.map { OpenFile(it.path, carets[it]) }
+        val swaps = EditorSwapPlan.plan(open, from, to, mapper) { resolved[it] != null }.mapNotNull { r ->
             val old = byPath[canonicalPath(r.from)] ?: return@mapNotNull null
-            val new = resolve(r.to) ?: return@mapNotNull null
+            val new = resolved[r.to]?.takeIf { it.isValid } ?: return@mapNotNull null
             Swap(old, new, r.caret)
         }
         if (swaps.isEmpty()) return

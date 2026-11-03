@@ -33,7 +33,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         savedScopeName = FindSettings.getInstance().defaultScopeName
         savedFollow = settings.followCheckout
         settings.followCheckout = true
-        follower = CheckoutFollower(project).also { it.projectDir = root; it.excluded = { false }; it.dirExists = ::dirExists; it.offer = { offers++ } } // a fresh follower: IDE shows main
+        follower = CheckoutFollower(project).also { it.projectDir = root; it.excluded = { false }; it.dirExists = ::dirExists; it.offer = { offers++ }; it.swapBackground = { r -> r.run() }; it.swapOnEdt = { r -> r.run() } } // a fresh follower: IDE shows main
     }
 
     override fun tearDown() {
@@ -228,5 +228,29 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         follower.follow(main)
         follower.refresh()
         assertEquals(listOf("Claude: main"), scopeNames())
+    }
+
+    fun testSwapResultIsDroppedWhenTheTargetChangedBeforeItIsApplied() {
+        openMainFileWithCounterpart()
+        val queued = mutableListOf<Runnable>()
+        follower.swapBackground = { queued += it }
+        val main = chats.open(ChatSpec.inProject(root))
+        val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
+        follower.follow(wt)
+        follower.follow(main)
+        assertEquals(1, queued.size) // main -> wt1; wt1 -> main has no tab to look up
+        queued.forEach { it.run() }
+        assertEquals("main", follower.current?.name)
+        assertEquals(setOf("a.txt"), openPaths()) // the main -> wt1 result would have swapped the tab
+    }
+
+    fun testSwapIsNotAppliedBeforeTheBackgroundLookupFinishes() {
+        openMainFileWithCounterpart()
+        val queued = mutableListOf<Runnable>()
+        follower.swapBackground = { queued += it }
+        follower.follow(chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1")))
+        assertEquals(setOf("a.txt"), openPaths())
+        queued.single().run()
+        assertEquals(setOf(".claude/worktrees/wt1/a.txt"), openPaths())
     }
 }

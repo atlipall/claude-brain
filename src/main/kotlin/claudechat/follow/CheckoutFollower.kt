@@ -53,6 +53,13 @@ class CheckoutFollower(private val project: Project) : Disposable {
     /** Whether a checkout's folder exists on disk (tests inject it, as their files live in an in-memory file system). */
     var dirExists: (String) -> Boolean = { File(it).isDirectory }
 
+    /** Runs the swap's lookup phase off the EDT, and its apply phase on it (tests run both inline). */
+    var swapBackground: (Runnable) -> Unit = { ApplicationManager.getApplication().executeOnPooledThread(it) }
+    var swapOnEdt: (Runnable) -> Unit = { ApplicationManager.getApplication().invokeLater(it, project.disposed) }
+
+    /** Bumped by every swap request: a swap whose lookup finishes after a newer request is dropped. */
+    private var swapRequest = 0
+
     /** Set while the IDE shows a worktree whose folder was not there yet: the checkout its editors still belong to. */
     private var pendingSwapFrom: Checkout? = null
 
@@ -98,11 +105,11 @@ class CheckoutFollower(private val project: Project) : Disposable {
         if (target != shown) {
             // `claude --worktree` selects its tab before the folder exists: swap once refresh() sees the folder.
             pendingSwapFrom = null
-            if (!target.isMain && !dirExists(target.dir)) pendingSwapFrom = shown else EditorSwapper(project, mapper).swap(shown, target)
+            if (!target.isMain && !dirExists(target.dir)) pendingSwapFrom = shown else swap(mapper, shown, target)
         } else {
             val from = pendingSwapFrom
             if (from != null && dirExists(target.dir)) {
-                EditorSwapper(project, mapper).swap(from, target)
+                swap(mapper, from, target)
                 pendingSwapFrom = null
             }
         }
@@ -110,6 +117,12 @@ class CheckoutFollower(private val project: Project) : Disposable {
         val noScopes = !target.isMain && excluded()
         if (!noScopes && !leaveViews) applyViews(target) // excluded files match no scope: the Project view and Find would show nothing
         if (noScopes) offer(project)
+    }
+
+    /** Swaps editors without blocking the EDT; the result is applied only if no newer swap was requested and following is still on. */
+    private fun swap(mapper: CheckoutMapper, from: Checkout, to: Checkout) {
+        val request = ++swapRequest
+        EditorSwapper(project, mapper, swapBackground, swapOnEdt).swap(from, to) { request == swapRequest && enabled }
     }
 
     private fun applyViews(target: Checkout) {
