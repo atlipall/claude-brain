@@ -374,6 +374,23 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertNotNull(attachments[1].str("thumb"))
     }
 
+    fun testPreparerThatThrowsStillRemovesTheTileAndNotifies() {
+        bridge.preparer = { error("boom") }
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", TestImages.BLUE_PNG_BASE64)
+        assertEquals(true, lastAttachment().bool("failed"))
+        assertEquals(0, chat.attachments.size)
+        assertTrue(notices().single()!!.contains("Couldn't attach"))
+    }
+
+    fun testOutOfMemoryWhilePreparingIsRefusedAsTooLarge() {
+        bridge.preparer = { throw OutOfMemoryError("boom") }
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", TestImages.BLUE_PNG_BASE64)
+        assertEquals(true, lastAttachment().bool("failed"))
+        assertTrue(notices().single()!!.contains("too large to process"))
+    }
+
     // --- large histories ---
 
     fun testBatchesKeepOrderAndStayUnderTheLimit() {
@@ -416,6 +433,18 @@ class ChatBridgeTest : BasePlatformTestCase() {
         wtBridge.handle("""{"type":"resolveImages","reqId":1,"paths":["img/w.png"]}""")
         assertNotNull(wtPosted.single().obj("images")!!.str("img/w.png"))
         bridge.handle("""{"type":"resolveImages","reqId":2,"paths":["img/w.png"]}""")
+        assertTrue(posted.single().obj("images")!!.isEmpty())
+    }
+
+    fun testResolveImagesAnswersTheOthersWhenOnePathThrows() {
+        bridge.localImage = { path, _ -> if (path == "bad.png") error("boom") else "data:image/png;base64,AAAA" }
+        bridge.handle("""{"type":"resolveImages","reqId":9,"paths":["a.png","bad.png","b.png"]}""")
+        assertEquals(setOf("a.png", "b.png"), posted.single().obj("images")!!.keys)
+    }
+
+    fun testResolveImagesAnswersEvenWhenEveryPathThrows() {
+        bridge.localImage = { _, _ -> throw OutOfMemoryError("boom") }
+        bridge.handle("""{"type":"resolveImages","reqId":9,"paths":["a.png"]}""")
         assertTrue(posted.single().obj("images")!!.isEmpty())
     }
 

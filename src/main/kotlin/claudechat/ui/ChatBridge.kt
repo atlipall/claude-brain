@@ -20,6 +20,8 @@ import claudechat.session.SessionView
 import claudechat.session.toJson
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
@@ -45,7 +47,13 @@ class ChatBridge(
     @Volatile private var unsubscribe: (() -> Unit)? = null
 
     /** Runs image work (decoding, scaling, reading files) off the EDT. Tests make it synchronous. */
-    internal var offEdt: (() -> Unit) -> Unit = { task -> ApplicationManager.getApplication().executeOnPooledThread { task() } }
+    internal var offEdt: (() -> Unit) -> Unit = { task -> IMAGE_EXECUTOR.execute { task() } }
+
+    /** Validates and downscales image bytes. Tests replace it. */
+    internal var preparer: (ByteArray) -> Prepared = { Images.prepare(it) }
+
+    /** Display copy of a local image for the page (see [FileLinker.localImage]). Tests replace it. */
+    internal var localImage: (String, String?) -> String? = { path, cwd -> linker.localImage(path, cwd) }
 
     /** Brings results back to the EDT. Tests make it synchronous. */
     internal var onEdt: (() -> Unit) -> Unit = { task -> ApplicationManager.getApplication().invokeLater({ task() }, project.disposed) }
@@ -135,7 +143,15 @@ class ChatBridge(
                 val paths = strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS)
                 val cwd = chat.cwd
                 offEdt {
-                    val found = paths.mapNotNull { path -> linker.localImage(path, cwd)?.let { path to it } }
+                    val found = ArrayList<Pair<String, String>>()
+                    for (path in paths) {
+                        try {
+                            localImage(path, cwd)?.let { found += path to it }
+                        } catch (e: Throwable) {
+                            if (e is ControlFlowException) throw e
+                            // this path shows its alt text; the others still get answered
+                        }
+                    }
                     onEdt { post(imagesMessage(reqId, found)) }
                 }
             }
@@ -167,13 +183,22 @@ class ChatBridge(
     private fun prepare(id: String, name: String, read: () -> ByteArray?) {
         preparing += id
         offEdt {
+            var thumb = ""
             val outcome = try {
                 val bytes = read()
-                if (bytes == null) Prepared.Rejected("it is larger than 20 MB") else Images.prepare(bytes)
-            } catch (e: Exception) {
-                Prepared.Rejected(Images.UNREADABLE)
+                if (bytes == null) {
+                    Prepared.Rejected("it is larger than 20 MB")
+                } else {
+                    val prepared = preparer(bytes)
+                    if (prepared is Prepared.Ok) {
+                        thumb = Images.preview(prepared.image.bytes, Images.THUMB_EDGE, Images.THUMB_BYTES)?.dataUrl().orEmpty()
+                    }
+                    prepared
+                }
+            } catch (e: Throwable) {
+                if (e is ControlFlowException) throw e
+                Prepared.Rejected(if (e is OutOfMemoryError) "the image is too large to process" else Images.UNREADABLE)
             }
-            val thumb = (outcome as? Prepared.Ok)?.let { Images.preview(it.image.bytes, Images.THUMB_EDGE, Images.THUMB_BYTES)?.dataUrl() }.orEmpty()
             onEdt {
                 if (!preparing.remove(id)) return@onEdt // removed (×) or the page reloaded meanwhile
                 when (outcome) {
@@ -280,6 +305,9 @@ class ChatBridge(
 
     internal companion object {
         const val BATCH_CHARS = 2_000_000
+
+        /** All image work (decoding, scaling, reading files) runs here, one task at a time. */
+        private val IMAGE_EXECUTOR = AppExecutorUtil.createBoundedApplicationPoolExecutor("ClaudeChat images", 1)
         /** Local images one reply may ask for at a time. */
         const val MAX_IMAGE_PATHS = 20
 
