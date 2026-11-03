@@ -192,7 +192,7 @@ class ChatSession(
             connection?.send(CliMessages.allow(requestId, Questions.withAnswers(req.input, texts)))
             toolCalls[toolId]?.let { upsertTool(it.copy(status = ToolStatus.RUNNING, permissionRequestId = null, question = card.copy(answers = texts))) }
             if (pendingPermissions.isEmpty() && state == SessionState.AWAITING_PERMISSION) {
-                phase = Activity.Running(req.toolName)
+                phase = Activity.Thinking
                 setState(SessionState.RUNNING)
             }
             reportActivity()

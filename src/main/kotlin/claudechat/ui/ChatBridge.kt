@@ -144,7 +144,7 @@ class ChatBridge(
                 if (session.pendingQuestions(requestId) != null) session.respond(requestId, PermissionDecision.Deny("The user skipped the question."))
             }
             "setMode" -> PermissionMode.fromCli(msg.str("mode"))?.let(session::setPermissionMode)
-            "interrupt" -> session.interrupt()
+            "interrupt" -> chat.interrupt()
             "newChat" -> onNewChat()
             "restart" -> session.restart()
             "openFile" -> msg.str("target")?.let { linker.open(it, msg.long("line")?.toInt()) }

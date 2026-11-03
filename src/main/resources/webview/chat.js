@@ -352,7 +352,7 @@
   }
 
   function setActivity(msg) {
-    const phase = typeof msg.phase === 'string' && (msg.phase === 'running' || PHASE_LABEL[msg.phase]) ? msg.phase : null;
+    const phase = typeof msg.phase === 'string' && (msg.phase === 'running' || Object.prototype.hasOwnProperty.call(PHASE_LABEL, msg.phase)) ? msg.phase : null;
     if (!phase) {
       activityKey = null;
       stopActivityTimer();

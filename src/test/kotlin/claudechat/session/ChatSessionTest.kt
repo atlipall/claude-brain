@@ -455,6 +455,15 @@ class ChatSessionTest {
         assertEquals("Which colour do you prefer?", tool.toJson().obj("question")!!.arr("questions")!!.first().jsonObject.str("question"))
     }
 
+    @Test fun answeringAQuestionGoesBackToThinking() {
+        val s = session()
+        s.send("x")
+        ask()
+        assertEquals(Activity.Waiting, listener.activities.last())
+        assertTrue(s.answer("q1", blue()))
+        assertEquals(Activity.Thinking, listener.activities.last())
+    }
+
     @Test fun answerSendsAllowWithQuestionsAndAnswers() {
         val s = session()
         s.send("x")

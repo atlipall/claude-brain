@@ -292,6 +292,17 @@ class Chat(
         )
     }
 
+    /** Stops the turn, and drops messages still waiting for their editor context. EDT only. */
+    fun interrupt() {
+        if (outbox.isNotEmpty()) {
+            outbox.clear()
+            resolving = false
+            sendPending = false
+        }
+        session.interrupt()
+        publishActivity()
+    }
+
     fun dispose() {
         disposed = true
         outbox.clear()

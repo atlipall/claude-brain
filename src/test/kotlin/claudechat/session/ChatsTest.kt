@@ -400,6 +400,26 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(listOf(Activity.Starting, Activity.Thinking), view.activities)
     }
 
+    fun testStopWhileASendWaitsDropsTheMessage() {
+        myFixture.configureByText("calc.js", calc)
+        val release = CountDownLatch(1)
+        contextService.finder = { file, document, offset ->
+            release.await(10, TimeUnit.SECONDS)
+            claudechat.context.SymbolFinder.find(file, document, offset)
+        }
+        val chat = chats.open(ChatSpec.inProject(root))
+        val view = RecordingView().also(chat::attach)
+        chat.send("never mind")
+        assertEquals(listOf<Activity?>(Activity.Starting), view.activities)
+        chat.interrupt()
+        assertEquals(listOf<Activity?>(Activity.Starting, null), view.activities)
+        release.countDown()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        Thread.sleep(300)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertTrue(connections.single().userMessages().isEmpty())
+    }
+
     fun testActivityIsReplayedOnAttach() {
         val chat = chats.open(ChatSpec.inProject(root))
         chat.send("go")
