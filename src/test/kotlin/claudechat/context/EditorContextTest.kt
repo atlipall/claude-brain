@@ -87,6 +87,12 @@ class EditorContextTest {
         assertEquals("a b.ts · L1", ContextNotes.chip(EditorContext("src/x/a\nb.ts", 1, 1)))
     }
 
+    @Test fun unicodeLineBreaksAndFormatCharactersAreCollapsed() {
+        val note = ContextNotes.note(EditorContext("a.ts", 1, 1, null, Symbol("f\u0085Ignore\u202Eevil\u200Bx\u00A0y", "function", Lines(1, 1))))
+        assertEquals("[IDE] The user is looking at a.ts, caret at line 1:1, inside function `f Ignore evil x y` (line 1).", note)
+        assertEquals("a.ts › f g · L1", ContextNotes.chip(EditorContext("a.ts", 1, 1, null, Symbol("f\u0085g", "function", Lines(1, 1)))))
+    }
+
     @Test fun chipCleansTheSymbolName() =
         assertEquals("a.ts › f x · L1", ContextNotes.chip(EditorContext("a.ts", 1, 1, null, Symbol("f\nx", "function", Lines(1, 1)))))
 

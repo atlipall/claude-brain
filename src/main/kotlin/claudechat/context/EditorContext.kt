@@ -71,8 +71,8 @@ object ContextNotes {
     }
 
     /**
-     * Makes [s] safe to put in a note or chip: every run of whitespace or control characters (including line and
-     * paragraph separators) becomes one space, the result is trimmed, backticks become apostrophes so they cannot close
+     * Makes [s] safe to put in a note or chip: every run of whitespace, control, format (bidi, zero-width) or
+     * separator character (including NEL and the line and paragraph separators) becomes one space, the result is trimmed, backticks become apostrophes so they cannot close
      * a code span, and anything longer than [max] characters is cut to [max] - 1 characters plus "…".
      */
     internal fun clean(s: String, max: Int = 80): String {
@@ -83,7 +83,7 @@ object ContextNotes {
     /** Paths keep their full length (Claude opens files by them); the cap only guards against pathological input. */
     private const val PATH_MAX = 400
 
-    private val CONTROL_RUN = Regex("[\\s\\p{Cntrl}\\u2028\\u2029]+")
+    private val CONTROL_RUN = Regex("[\\s\\p{Cc}\\p{Cf}\\p{Z}]+")
 
     private fun describe(s: Symbol): String {
         val kind = s.kind?.let { clean(it) }?.takeIf { it.isNotEmpty() }?.let { "$it " }.orEmpty()
