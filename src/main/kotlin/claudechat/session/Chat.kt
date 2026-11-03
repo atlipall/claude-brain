@@ -11,6 +11,7 @@ import claudechat.image.PendingAttachments
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Receives one chat's updates. Methods may be called from any thread. */
 interface SessionView {
@@ -71,6 +72,10 @@ class Chat(
     private val background: (Runnable) -> Unit = { it.run() },
     /** Marks the files' state as each message goes out, so they can be reverted to it; null for none. */
     private val checkpoints: Checkpoints? = null,
+    /** The name shown until the user gives one (`main`, `main 2`, a worktree name). */
+    private val defaultName: String = spec.label,
+    /** Stores a name the user gave in the session's transcript (blank: none), marked archived or not. Called off the EDT. */
+    private val saveTitle: ((cwd: String, sessionId: String, title: String, archived: Boolean) -> Unit)? = null,
 ) {
     val label: String = spec.label
 
@@ -82,9 +87,14 @@ class Chat(
     @Volatile private var view: SessionView? = null
     private var pendingInsert: String? = null
 
-    /** The first message the user sent, or the first one of a resumed transcript. */
-    @Volatile var firstMessage: String? = history.filterIsInstance<ChatItem.UserText>().firstOrNull()?.text
+    /** The name the user gave this chat (or its resumed session); null for the default name. */
+    @Volatile var customTitle: String? = ChatNames.clean(spec.title)
         private set
+    /** True while [customTitle] waits to be saved, as when it changed before the session had an id. */
+    private val titleUnsaved = AtomicBoolean(false)
+    /** Held only by the background writes, so they write in order and never block the CLI reader thread. */
+    private val titleWriteLock = Any()
+    @Volatile private var archived = false
 
     /** Called on the EDT when [title] changes. */
     @Volatile var onTitleChanged: (() -> Unit)? = null
@@ -165,6 +175,7 @@ class Chat(
 
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
             if (state != SessionState.IDLE) suggestion = null
+            saveTitleIfReady()
             view?.state(state, sessionId, mode)
             val now = cwd
             if (now != knownCwd) {
@@ -184,7 +195,39 @@ class Chat(
      */
     val cwd: String get() = if (session.cwdReported) session.cwd else predictedCwd ?: session.cwd
 
-    val title: String get() = ChatNames.tabTitle(label, firstMessage)
+    val title: String get() = customTitle ?: defaultName
+
+    /** Renames the chat; a blank [name] restores the default. The name is saved with the session, now or once it has an id. EDT. */
+    fun rename(name: String) {
+        val clean = ChatNames.clean(name)
+        if (clean == customTitle) return
+        customTitle = clean
+        onTitleChanged?.invoke()
+        titleUnsaved.set(true)
+        saveTitleIfReady()
+    }
+
+    /**
+     * Marks the session archived (hidden from the resume list until resumed from the archived list); the caller closes
+     * the chat. False when there is nothing to archive: no session yet, as before the first message. EDT.
+     */
+    fun archive(): Boolean {
+        if (session.sessionId == null) return false
+        archived = true
+        titleUnsaved.set(true)
+        saveTitleIfReady()
+        return true
+    }
+
+    /** Saves an unsaved name once the session has an id (a new chat gets one with its first message). Any thread. */
+    private fun saveTitleIfReady() {
+        val save = saveTitle ?: return
+        val id = session.sessionId ?: return
+        if (!titleUnsaved.getAndSet(false)) return
+        val folder = cwd
+        // Reads the name when it runs, under the lock, so the last write is always the latest name.
+        background { synchronized(titleWriteLock) { save(folder, id, customTitle.orEmpty(), archived) } }
+    }
 
     fun start() {
         knownCwd = cwd
@@ -248,10 +291,6 @@ class Chat(
     fun send(text: String, images: List<Attachment> = emptyList()) {
         if (session.state == SessionState.DEAD) return
         if (text.isBlank() && images.isEmpty()) return
-        if (firstMessage == null) {
-            firstMessage = text.ifBlank { IMAGE_TITLE }
-            onTitleChanged?.invoke()
-        }
         val edits = editNote(this) // saves documents first
         outbox += Outgoing(text, edits, images)
         pump()
@@ -359,9 +398,5 @@ class Chat(
         sendPending = false
         attachments.clear()
         session.dispose()
-    }
-
-    private companion object {
-        const val IMAGE_TITLE = "[image]"
     }
 }

@@ -37,7 +37,7 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
                 if (!closed.get()) content.icon = if (chat.busy) AnimatedIcon.Default.INSTANCE else null
             }, project.disposed)
         }
-        chat.onTitleChanged = { content.displayName = chat.title } // Chat.send runs on the EDT
+        chat.onTitleChanged = { content.displayName = chat.title } // Chat.rename runs on the EDT
         val follower = CheckoutFollower.getInstance(project)
         chat.onCwdChanged = {
             ApplicationManager.getApplication().invokeLater({ follower.refresh() }, project.disposed)

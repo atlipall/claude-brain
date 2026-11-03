@@ -39,6 +39,14 @@
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt K"/>
             <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta shift alt K"/>
         </action>
+        <action id="claudechat.RenameChat" class="claudechat.ui.RenameChatAction"
+                text="Rename Chat…" description="Give this Tether chat a name (saved with its session)">
+            <add-to-group group-id="ToolWindowContextMenu" anchor="last"/>
+        </action>
+        <action id="claudechat.ArchiveChat" class="claudechat.ui.ArchiveChatAction"
+                text="Archive Chat" description="Close this Tether chat and move its session to Archived sessions">
+            <add-to-group group-id="ToolWindowContextMenu" anchor="after" relative-to-action="claudechat.RenameChat"/>
+        </action>
         <action id="claudechat.SendConsoleToTether" class="claudechat.ide.SendConsoleToTether"
                 text="Send to Tether" description="Put the selected console output (or all of it) into the Tether chat">
             <add-to-group group-id="ConsoleView.PopupMenu" anchor="last"/>

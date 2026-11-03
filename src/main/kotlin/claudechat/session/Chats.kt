@@ -22,6 +22,7 @@ import com.intellij.util.EnvironmentUtil
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.execution.ParametersListUtil
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -72,6 +73,8 @@ class Chats(private val project: Project) : Disposable {
             ide = ide,
             checkpoints = checkpoints,
             background = { AppExecutorUtil.getAppExecutorService().execute(it) },
+            defaultName = ChatNames.defaultName(spec.label, chats.map { it.title }),
+            saveTitle = ::saveTitle,
         )
         tracker.register(chat.id)
         chats += chat
@@ -93,6 +96,17 @@ class Chats(private val project: Project) : Disposable {
     }
 
     fun closeAll() = all().forEach(::close)
+
+    /** Takes [session] out of the archive, keeping its name. Off the EDT (writes its transcript). */
+    fun unarchive(session: SessionSummary) = saveTitle(session.folder, session.id, session.customTitle.orEmpty(), archived = false)
+
+    private fun saveTitle(cwd: String, sessionId: String, title: String, archived: Boolean) {
+        try {
+            store.saveTitle(cwd, sessionId, title, archived)
+        } catch (e: IOException) {
+            LOG.warn("Couldn't save the name of session $sessionId in its transcript", e)
+        }
+    }
 
     private fun defaultMode(): PermissionMode? = PermissionMode.fromCli(ClaudeChatSettings.getInstance().state.defaultMode)
 

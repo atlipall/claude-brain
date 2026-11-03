@@ -35,25 +35,31 @@ object NewChatPopup {
                 background(project, { chats.worktrees.existingNames(worktrees) }) { existing ->
                     askWorktreeName(project, existing)?.let { tabs.open(ChatSpec.newWorktree(chats.projectDir, it)) }
                 }
-            NewChatChoice.Resume -> showResume(project, tabs, worktrees, place)
+            NewChatChoice.Resume -> showResume(project, tabs, worktrees, place, archived = false)
+            NewChatChoice.Archived -> showResume(project, tabs, worktrees, place, archived = true)
         }
     }
 
-    private fun showResume(project: Project, tabs: ChatTabs, worktrees: List<Worktree>?, place: (JBPopup) -> Unit) {
+    /** The past sessions, or with [archived] the archived ones (resuming one unarchives it). */
+    private fun showResume(project: Project, tabs: ChatTabs, worktrees: List<Worktree>?, place: (JBPopup) -> Unit, archived: Boolean) {
         val chats = Chats.getInstance(project)
-        background(project, { chats.store.listAll(chats.worktrees.knownFolders(worktrees)) }) { sessions ->
+        background(project, { chats.store.listAll(chats.worktrees.knownFolders(worktrees), archived = archived) }) { sessions ->
             if (sessions.isEmpty()) {
-                place(JBPopupFactory.getInstance().createMessage("No past sessions in this project or its worktrees."))
+                val what = if (archived) "archived sessions" else "past sessions"
+                place(JBPopupFactory.getInstance().createMessage("No $what in this project or its worktrees."))
             } else {
                 // The list is built on the EDT, so the open chats are current when it is shown.
                 val openChat = { s: SessionSummary -> NewChatChoices.openChatFor(s.id, openSessions(chats)) }
                 val text = { s: SessionSummary ->
                     NewChatChoices.resumeText(s, chats.projectDir, isOpen = openChat(s) != null, DateFormatUtil::formatPrettyDateTime)
                 }
-                place(listPopup(project, "Resume a Past Session", sessions, text) { s ->
+                val title = if (archived) "Resume an Archived Session" else "Resume a Past Session"
+                place(listPopup(project, title, sessions, text) { s ->
                     // A session already live in a tab is never resumed twice: two claude processes would write one transcript.
                     val existing = openChat(s)
-                    if (existing == null || !tabs.select(existing)) tabs.open(ChatSpec.resume(chats.projectDir, s))
+                    if (existing != null && tabs.select(existing)) return@listPopup
+                    val resume = { tabs.open(ChatSpec.resume(chats.projectDir, s)) }
+                    if (archived) background(project, { chats.unarchive(s) }) { resume() } else resume()
                 })
             }
         }

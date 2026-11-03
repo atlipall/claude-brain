@@ -1,6 +1,7 @@
 package claudechat.session
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -45,6 +46,74 @@ class SessionStoreTest {
         assertEquals(
             listOf(SessionSummary("new", "second question", 2_000_000, cwd), SessionSummary("old", "first question", 1_000_000, cwd)),
             store.list(cwd))
+    }
+
+    @Test fun listReadsTheLastCustomTitle() {
+        val store = SessionStore(tmp.root)
+        write(store, "s", 1_000_000, user("first"),
+            """{"type":"custom-title","customTitle":"Old name","sessionId":"s"}""", user("mentions custom-title"),
+            """{"type":"custom-title","customTitle":"New  name","sessionId":"s"}""")
+        assertEquals(SessionSummary("s", "first", 1_000_000, cwd, customTitle = "New name"), store.list(cwd).single())
+    }
+
+    @Test fun blankCustomTitleMeansNone() {
+        val store = SessionStore(tmp.root)
+        write(store, "s", 1, user("first"), """{"type":"custom-title","customTitle":"Named","sessionId":"s"}""",
+            """{"type":"custom-title","customTitle":"","sessionId":"s"}""")
+        assertEquals(null, store.list(cwd).single().customTitle)
+    }
+
+    @Test fun saveTitleAppendsALineTheListReads() {
+        val store = SessionStore(tmp.root)
+        val file = write(store, "s", 1, user("first")) // no trailing newline
+        store.saveTitle(cwd, "s", "Login \"fix\"")
+        store.saveTitle(cwd, "s", "Login fix 2")
+        val lines = file.readLines()
+        assertEquals(3, lines.size)
+        assertEquals("""{"type":"custom-title","customTitle":"Login \"fix\"","sessionId":"s"}""", lines[1])
+        assertEquals("Login fix 2", store.list(cwd).single().customTitle)
+        assertEquals(listOf(ChatItem.UserText("h-0", "first")), store.transcript(cwd, "s"))
+    }
+
+    @Test fun archivedSessionsAreListedOnlyOnRequest() {
+        val store = SessionStore(tmp.root)
+        write(store, "a", 2_000_000, user("old work"), """{"type":"custom-title","customTitle":"[archived] Login fix","sessionId":"a"}""")
+        write(store, "b", 1_000_000, user("current"))
+        assertEquals(listOf("b"), store.list(cwd).map { it.id })
+        assertEquals(SessionSummary("a", "old work", 2_000_000, cwd, "Login fix", archived = true), store.list(cwd, archived = true).single())
+        assertEquals(listOf("a"), store.listAll(listOf(cwd), archived = true).map { it.id })
+    }
+
+    @Test fun archiveAndUnarchiveKeepTheName() {
+        val store = SessionStore(tmp.root)
+        val file = write(store, "s", 1, user("first"))
+        store.saveTitle(cwd, "s", "Login fix", archived = true)
+        assertTrue(file.readLines().last().contains("\"customTitle\":\"[archived] Login fix\""))
+        assertEquals("Login fix", store.list(cwd, archived = true).single().customTitle)
+        store.saveTitle(cwd, "s", "Login fix")
+        assertEquals(SessionSummary("s", "first", file.lastModified(), cwd, "Login fix"), store.list(cwd).single())
+    }
+
+    @Test fun archivingAnUnnamedSessionWritesTheBareMarker() {
+        val store = SessionStore(tmp.root)
+        val file = write(store, "s", 1, user("first"))
+        store.saveTitle(cwd, "s", "", archived = true)
+        assertTrue(file.readLines().last().contains("\"customTitle\":\"[archived]\""))
+        assertEquals(null, store.list(cwd, archived = true).single().customTitle)
+    }
+
+    @Test fun sessionWithATitleButNoMessageIsListedUnderItsTitle() {
+        val store = SessionStore(tmp.root)
+        write(store, "s", 1, """{"type":"custom-title","customTitle":"[archived] Login fix","sessionId":"s"}""")
+        assertEquals(SessionSummary("s", "Login fix", 1, cwd, "Login fix", archived = true), store.list(cwd, archived = true).single())
+    }
+
+    @Test fun listSeesATitleAddedAfterTheFirstRead() {
+        val store = SessionStore(tmp.root)
+        val file = write(store, "s", 1, user("first"))
+        assertEquals(null, store.list(cwd).single().customTitle)
+        store.saveTitle(cwd, "s", "Login fix")
+        assertEquals("Login fix", store.list(cwd).single().customTitle)
     }
 
     @Test fun listOfUnknownProjectIsEmpty() = assertEquals(emptyList<SessionSummary>(), SessionStore(tmp.root).list("/nowhere"))

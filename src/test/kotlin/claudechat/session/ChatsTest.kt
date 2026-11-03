@@ -169,17 +169,74 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(folder, launches.single().cwd)
         val view = RecordingView().also(chat::attach)
         assertEquals(listOf(ChatItem.UserText("h-0", "earlier")), view.resets.single())
-        assertEquals("wt-1 · earlier", chat.title)
+        assertEquals("wt-1", chat.title)
     }
 
-    fun testFirstSentMessageSetsTitleOnce() {
+    fun testResumedSessionKeepsItsName() {
+        File(chats.store.projectDir(root).apply { mkdirs() }, "abc.jsonl")
+            .writeText("""{"type":"user","message":{"role":"user","content":"earlier"}}""")
+        val chat = chats.open(ChatSpec.resume(root, chats.store.list(root).single().copy(customTitle = "Login fix")))
+        assertEquals("Login fix", chat.title)
+    }
+
+    fun testSendingDoesNotRenameAndSecondChatInAFolderIsNumbered() {
+        val a = chats.open(ChatSpec.inProject(root))
+        a.send("Fix the flaky login test in the auth module")
+        assertEquals("main", a.title)
+        assertEquals("main 2", chats.open(ChatSpec.inProject(root)).title)
+    }
+
+    fun testRenameChangesTitleAndBlankRestoresDefault() {
         val chat = chats.open(ChatSpec.inProject(root))
         var changes = 0
         chat.onTitleChanged = { changes++ }
-        chat.send("Fix the flaky login test in the auth module")
-        chat.send("and another")
-        assertEquals("main · Fix the flaky login test in th…", chat.title)
+        chat.rename("  Login   fix ")
+        chat.rename("Login fix")
+        assertEquals("Login fix", chat.title)
         assertEquals(1, changes)
+        chat.rename(" ")
+        assertEquals("main", chat.title)
+        assertEquals(2, changes)
+    }
+
+    fun testRenameIsSavedOnceTheSessionHasAnId() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.rename("Login fix")
+        val transcript = File(chats.store.projectDir(root), "sid-1.jsonl")
+        chat.send("go")
+        connections.single().emit(Fx.init(sessionId = "sid-1", cwd = root))
+        awaitTitle(transcript, "Login fix")
+        chat.rename("Login fix 2")
+        awaitTitle(transcript, "Login fix 2")
+    }
+
+    fun testArchiveSavesTheNameMarkedArchived() {
+        val chat = chats.open(ChatSpec.inProject(root))
+        chat.rename("Login fix")
+        chat.send("go")
+        connections.single().emit(Fx.init(sessionId = "sid-1", cwd = root))
+        assertTrue(chat.archive())
+        awaitTitle(File(chats.store.projectDir(root), "sid-1.jsonl"), "[archived] Login fix")
+    }
+
+    fun testChatWithoutASessionHasNothingToArchive() =
+        assertFalse(chats.open(ChatSpec.inProject(root)).archive())
+
+    fun testUnarchiveKeepsTheName() {
+        val file = File(chats.store.projectDir(root).apply { mkdirs() }, "abc.jsonl")
+        file.writeText("""{"type":"user","message":{"role":"user","content":"earlier"}}""" + "\n")
+        chats.store.saveTitle(root, "abc", "Login fix", archived = true)
+        chats.unarchive(chats.store.list(root, archived = true).single())
+        assertEquals("Login fix", chats.store.list(root).single().customTitle)
+    }
+
+    private fun awaitTitle(transcript: File, title: String) {
+        val deadline = System.currentTimeMillis() + 5000
+        while (System.currentTimeMillis() < deadline) {
+            if (transcript.isFile && transcript.readLines().lastOrNull()?.contains("\"customTitle\":\"$title\"") == true) return
+            Thread.sleep(10)
+        }
+        fail("$title was never saved to $transcript")
     }
 
     fun testCwdChangeIsReportedOnlyWhenTheFolderChanges() {
@@ -574,7 +631,7 @@ class ChatsTest : BasePlatformTestCase() {
         val chat = chats.open(ChatSpec.inProject(root))
         chat.send("", listOf(attachment("a")))
         assertEquals(listOf(listOf(TestImages.BLUE_PNG_BASE64)), connections.single().userImages())
-        assertEquals("main · [image]", chat.title)
+        assertEquals("main", chat.title)
     }
 
     fun testBlankMessageWithoutImagesIsIgnored() {

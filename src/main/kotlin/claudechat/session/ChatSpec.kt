@@ -4,9 +4,16 @@ import claudechat.git.canonicalPath
 
 /**
  * How a chat starts. [cwd] is the launch directory. For a new worktree it is the project and [worktree]
- * names the worktree claude creates (the chat then moves to the folder system/init reports).
+ * names the worktree claude creates (the chat then moves to the folder system/init reports). [title] is the name the
+ * user gave a resumed session, if any.
  */
-data class ChatSpec(val label: String, val cwd: String, val worktree: String? = null, val resumeId: String? = null) {
+data class ChatSpec(
+    val label: String,
+    val cwd: String,
+    val worktree: String? = null,
+    val resumeId: String? = null,
+    val title: String? = null,
+) {
     companion object {
         const val MAIN = "main"
 
@@ -17,20 +24,24 @@ data class ChatSpec(val label: String, val cwd: String, val worktree: String? = 
         fun existingWorktree(path: String) = ChatSpec(ChatNames.lastSegment(path), path)
 
         fun resume(projectDir: String, session: SessionSummary) =
-            ChatSpec(ChatNames.folderLabel(session.folder, projectDir), session.folder, resumeId = session.id)
+            ChatSpec(ChatNames.folderLabel(session.folder, projectDir), session.folder, resumeId = session.id, title = session.customTitle)
     }
 }
 
 object ChatNames {
-    private const val TITLE_CHARS = 30
+    /** A chat's name until the user renames it: [label], or `label 2`, `label 3`… when [taken] has it. */
+    fun defaultName(label: String, taken: Collection<String>): String =
+        generateSequence(1) { it + 1 }.map { if (it == 1) label else "$label $it" }.first { it !in taken }
 
-    /** `label` alone, or `label · <first ~30 characters of the first message>`. */
-    fun tabTitle(label: String, firstMessage: String?): String {
-        val text = firstMessage?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
-        if (text.isEmpty()) return label
-        val short = if (text.length > TITLE_CHARS) text.take(TITLE_CHARS).trimEnd() + "…" else text
-        return "$label · $short"
-    }
+    /** How other Claude apps mark an archived session: its custom title starts with this. */
+    const val ARCHIVED = "[archived]"
+
+    /**
+     * A name as typed or stored, whitespace collapsed and without the [ARCHIVED] mark (a name must not archive its
+     * session); null when blank (the chat goes back to its default name).
+     */
+    fun clean(name: String?): String? =
+        name?.replace(Regex("\\s+"), " ")?.trim()?.removePrefix(ARCHIVED)?.trim()?.takeIf { it.isNotEmpty() }
 
     /** `main` for the project folder, otherwise the folder's name (a worktree name). */
     fun folderLabel(folder: String, projectDir: String): String =

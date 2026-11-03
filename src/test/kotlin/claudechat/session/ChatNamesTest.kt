@@ -4,16 +4,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ChatNamesTest {
-    @Test fun titleIsLabelUntilAMessageIsSent() = assertEquals("main", ChatNames.tabTitle("main", null))
+    @Test fun defaultNameIsLabelNumberedWhenTaken() {
+        assertEquals("main", ChatNames.defaultName("main", emptyList()))
+        assertEquals("main 2", ChatNames.defaultName("main", listOf("main", "wt-1")))
+        assertEquals("main 3", ChatNames.defaultName("main", listOf("main", "main 2")))
+        assertEquals("main 2", ChatNames.defaultName("main", listOf("main", "main 3")))
+    }
 
-    @Test fun titleAddsShortFirstMessageWithWhitespaceCollapsed() =
-        assertEquals("wt-1 · fix the build", ChatNames.tabTitle("wt-1", "fix the\n  build"))
-
-    @Test fun longFirstMessageIsCutAtThirtyCharacters() = assertEquals(
-        "main · Fix the flaky login test in th…",
-        ChatNames.tabTitle("main", "Fix the flaky login test in the auth module"))
-
-    @Test fun blankMessageKeepsLabel() = assertEquals("main", ChatNames.tabTitle("main", "   "))
+    @Test fun cleanCollapsesWhitespaceAndBlankIsNone() {
+        assertEquals("fix the build", ChatNames.clean("  fix the\n  build "))
+        assertEquals(null, ChatNames.clean("   "))
+        assertEquals(null, ChatNames.clean(null))
+        assertEquals("foo", ChatNames.clean(" [archived]  foo"))
+        assertEquals(null, ChatNames.clean("[archived]"))
+    }
 
     @Test fun folderLabel() {
         assertEquals("main", ChatNames.folderLabel("/p/", "/p"))
@@ -36,8 +40,8 @@ class ChatNamesTest {
         assertEquals(ChatSpec("wt-2", "/p", worktree = "wt-2"), ChatSpec.newWorktree("/p", "wt-2"))
         assertEquals(ChatSpec("co", "/x/co"), ChatSpec.existingWorktree("/x/co"))
         assertEquals(
-            ChatSpec("wt-1", "/p/.claude/worktrees/wt-1", resumeId = "s1"),
-            ChatSpec.resume("/p", SessionSummary("s1", "t", 0, "/p/.claude/worktrees/wt-1")))
+            ChatSpec("wt-1", "/p/.claude/worktrees/wt-1", resumeId = "s1", title = "Login fix"),
+            ChatSpec.resume("/p", SessionSummary("s1", "t", 0, "/p/.claude/worktrees/wt-1", customTitle = "Login fix")))
         assertEquals(ChatSpec("main", "/p", resumeId = "s2"), ChatSpec.resume("/p", SessionSummary("s2", "t", 0, "/p")))
     }
 }

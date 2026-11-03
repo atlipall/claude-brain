@@ -12,7 +12,7 @@ class NewChatChoicesTest {
     private val detached = Worktree("/elsewhere/co", null, isMain = false)
 
     @Test fun withoutGitOffersProjectAndResumeOnly() = assertEquals(
-        listOf(NewChatChoice.Open("In this project", ChatSpec.inProject("/p")), NewChatChoice.Resume),
+        listOf(NewChatChoice.Open("In this project", ChatSpec.inProject("/p")), NewChatChoice.Resume, NewChatChoice.Archived),
         NewChatChoices.build("/p", null))
 
     @Test fun withGitOffersNewWorktreeAndEachLinkedWorktree() = assertEquals(
@@ -22,15 +22,16 @@ class NewChatChoicesTest {
             NewChatChoice.Open("In worktree wt-1 (worktree-wt-1)", ChatSpec("wt-1", "/p/.claude/worktrees/wt-1")),
             NewChatChoice.Open("In worktree co", ChatSpec("co", "/elsewhere/co")),
             NewChatChoice.Resume,
+            NewChatChoice.Archived,
         ),
         NewChatChoices.build("/p", listOf(main, wt, detached)))
 
     @Test fun worktreeThatIsTheProjectItselfIsNotListed() = assertEquals(
-        listOf(NewChatChoice.Open("In this project", ChatSpec.inProject("/p/wt")), NewChatChoice.NewWorktree, NewChatChoice.Resume),
+        listOf(NewChatChoice.Open("In this project", ChatSpec.inProject("/p/wt")), NewChatChoice.NewWorktree, NewChatChoice.Resume, NewChatChoice.Archived),
         NewChatChoices.build("/p/wt", listOf(Worktree("/p", "main", true), Worktree("/p/wt", "feature", false))))
 
     @Test fun worktreeSpelledDifferentlyFromTheProjectIsNotListed() = assertEquals(
-        listOf(NewChatChoice.Open("In this project", ChatSpec.inProject("/p/wt")), NewChatChoice.NewWorktree, NewChatChoice.Resume),
+        listOf(NewChatChoice.Open("In this project", ChatSpec.inProject("/p/wt")), NewChatChoice.NewWorktree, NewChatChoice.Resume, NewChatChoice.Archived),
         NewChatChoices.build("/p/wt", listOf(Worktree("/p/wt/", "feature", false), Worktree("/p/./wt", "feature", false))))
 
     @Test fun openChatForFindsTheChatHoldingTheSession() {
@@ -49,5 +50,7 @@ class NewChatChoicesTest {
             "fix bug · wt-1 · T5",
             NewChatChoices.resumeText(SessionSummary("s", "fix bug", 5, "/p/.claude/worktrees/wt-1"), "/p") { "T$it" })
         assertEquals("hello · main · T7", NewChatChoices.resumeText(SessionSummary("s", "hello", 7, "/p"), "/p") { "T$it" })
+        assertEquals("Login fix · main · T7",
+            NewChatChoices.resumeText(SessionSummary("s", "hello", 7, "/p", customTitle = "Login fix"), "/p") { "T$it" })
     }
 }

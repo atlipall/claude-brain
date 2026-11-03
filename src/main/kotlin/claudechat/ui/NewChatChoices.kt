@@ -19,6 +19,10 @@ sealed interface NewChatChoice {
     data object Resume : NewChatChoice {
         override val text = "Resume a past session…"
     }
+
+    data object Archived : NewChatChoice {
+        override val text = "Archived sessions…"
+    }
 }
 
 object NewChatChoices {
@@ -34,10 +38,11 @@ object NewChatChoices {
             }
         }
         add(NewChatChoice.Resume)
+        add(NewChatChoice.Archived)
     }
 
     fun resumeText(s: SessionSummary, projectDir: String, isOpen: Boolean = false, time: (Long) -> String): String =
-        "${s.title} · ${ChatNames.folderLabel(s.folder, projectDir)} · ${time(s.modifiedMillis)}" + if (isOpen) " · open" else ""
+        "${s.customTitle ?: s.title} · ${ChatNames.folderLabel(s.folder, projectDir)} · ${time(s.modifiedMillis)}" + if (isOpen) " · open" else ""
 
     /** The already-open chat running [sessionId], if any; resuming it a second time would write to the same transcript. */
     fun <T> openChatFor(sessionId: String, openChats: List<Pair<String?, T>>): T? =
