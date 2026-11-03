@@ -67,6 +67,18 @@ class SessionStore(private val claudeHome: File) {
         return items
     }
 
+    /** The uuid of the transcript's newest main-conversation assistant message (subagents' are skipped), or null. */
+    fun lastAssistantUuid(cwd: String, sessionId: String): String? {
+        val file = transcriptFile(cwd, sessionId)
+        if (!file.isFile) return null
+        return file.useLines { lines ->
+            lines.mapNotNull(::parseJsonObject)
+                .filter { it.str("type") == "assistant" && it.bool("isSidechain") != true }
+                .mapNotNull { it.str("uuid") }
+                .lastOrNull()
+        }
+    }
+
     /** When the session began: the first timestamp in its transcript (epoch millis), or null. */
     fun startedAt(cwd: String, sessionId: String): Long? {
         val file = transcriptFile(cwd, sessionId)

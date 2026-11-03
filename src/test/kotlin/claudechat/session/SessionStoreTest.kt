@@ -220,4 +220,17 @@ class SessionStoreTest {
         assertEquals(null, store.startedAt(cwd, "s1"))
         assertEquals(null, store.startedAt(cwd, "missing"))
     }
+
+    @Test fun lastAssistantUuidIsTheNewestMainConversationAnswer() {
+        val store = SessionStore(tmp.root)
+        write(store, "s1", 1000,
+            user("hi"),
+            """{"type":"assistant","uuid":"a-1","message":{"role":"assistant","content":[{"type":"text","text":"one"}]}}""",
+            """{"type":"assistant","uuid":"a-2","message":{"role":"assistant","content":[{"type":"text","text":"two"}]}}""",
+            """{"type":"assistant","uuid":"side","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"sub"}]}}""",
+            """{"type":"custom-title","customTitle":"x"}""",
+        )
+        assertEquals("a-2", store.lastAssistantUuid(cwd, "s1"))
+        assertEquals(null, store.lastAssistantUuid(cwd, "missing"))
+    }
 }

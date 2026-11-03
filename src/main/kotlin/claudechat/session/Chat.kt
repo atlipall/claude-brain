@@ -50,6 +50,8 @@ class Chat(
     val id: Int,
     spec: ChatSpec,
     history: List<ChatItem>,
+    /** The uuid of the resumed transcript's newest assistant message; null for a new chat. */
+    resumeAnchor: String? = null,
     connector: (SessionLaunch) -> CliConnection,
     initialMode: PermissionMode?,
     private val editNote: (Chat) -> String?,
@@ -185,7 +187,7 @@ class Chat(
         }
     }
 
-    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background)
+    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background, resumeAnchor)
 
     private val predictedCwd: String? = spec.worktree?.let { "${spec.cwd.trimEnd('/')}/.claude/worktrees/$it" }
 

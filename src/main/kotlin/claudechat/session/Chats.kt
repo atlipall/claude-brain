@@ -61,6 +61,7 @@ class Chats(private val project: Project) : Disposable {
             id = ids.incrementAndGet(),
             spec = spec,
             history = history,
+            resumeAnchor = spec.resumeId?.let { store.lastAssistantUuid(spec.cwd, it) },
             connector = connector,
             initialMode = defaultMode(),
             editNote = { c -> listOfNotNull(checkpoints.consumeNote(c.id), tracker.consumeNote(c.id, c.cwd)).joinToString("\n\n").ifEmpty { null } },
