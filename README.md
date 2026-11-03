@@ -1,4 +1,4 @@
-# Claude Chat for WebStorm
+# Tether for Claude Code
 
 A personal JetBrains plugin (built for WebStorm 2026.2) that gives the
 [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI a native chat panel inside the IDE.
@@ -8,7 +8,7 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
 
 ## Features
 
-- **Native chat panel.** A "Claude Chat" tool window with streaming replies, markdown, tool calls,
+- **Native chat panel.** A "Tether" tool window with streaming replies, markdown, tool calls,
   and permission prompts (Allow / Allow for session / Deny with a reason). Stop, restart and
   permission mode (Ask before edits / Accept edits / Plan / Auto) are in the header.
 - **Several chats at once.** One tab per chat, each with its own `claude` process. The `+` button
@@ -35,7 +35,7 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   5 MB each, large ones downscaled). Images Claude reads, and local project images referenced in its
   replies, are shown inline. Remote images are never loaded.
 - **Up/Down recall** of previously sent messages, per project, across restarts.
-- **Add to Claude Chat** (Cmd+Shift+Option+K, or the editor context menu) inserts `@path#Lx-y`
+- **Add to Tether** (Cmd+Shift+Option+K, or the editor context menu) inserts `@path#Lx-y`
   for the current selection.
 
 ## Requirements
@@ -73,7 +73,7 @@ Project view / Find scope are left alone.
 
 ## Settings
 
-Settings → Tools → **Claude Chat**:
+Settings → Tools → **Tether**:
 
 | Setting | Default |
 |---|---|
