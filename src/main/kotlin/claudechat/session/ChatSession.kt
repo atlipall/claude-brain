@@ -61,6 +61,14 @@ private const val CONTEXT_PREFIX = "context"
 /** Most images of one tool result converted to display copies; further ones show as "[image]". */
 private const val MAX_TOOL_IMAGES = 6
 
+/** Longest agent prompt or report kept; longer ones are cut and end with "…". */
+internal const val MAX_AGENT_TEXT = 100_000
+
+/** The call a subagent ends with; its input is the report, which the card shows from the task events instead. */
+private const val HANDBACK = "SubagentHandback"
+
+private fun capped(text: String?) = text?.let { if (it.length > MAX_AGENT_TEXT) it.take(MAX_AGENT_TEXT) + "\u2026" else it }
+
 /** Longest prompt suggestion passed on; longer ones are dropped rather than cut, since a cut prompt is a wrong one. */
 internal const val MAX_SUGGESTION_CHARS = 2000
 
@@ -107,6 +115,8 @@ class ChatSession(
     private val deniedToolUses = HashSet<String>()
     private val sessionAllowedTools = HashSet<String>()
     private val diffs = HashMap<String, FileDiff>()
+    /** What is known about each subagent, by its Agent call's id (task events may arrive before the call's item). */
+    private val agents = HashMap<String, AgentInfo>()
     /** Tool calls started and not yet answered (id to name), oldest first. */
     private val runningTools = LinkedHashMap<String, String>()
     /** The phase of the running turn, null between turns; [Activity.Waiting] is derived from the open requests. */
@@ -330,22 +340,44 @@ class ChatSession(
             is CliEvent.BackgroundTasks -> { backgroundTasks = event.count; reportActivity() }
             is CliEvent.ThinkingStart -> { phase = Activity.Thinking; reportActivity() }
             is CliEvent.BlockStop -> streamed.remove("${event.messageId}:${event.index}")?.let { emit(it.copy(streaming = false)) }
-            is CliEvent.AssistantText ->
-                if (event.messageId !in streamedMessages) emit(ChatItem.AssistantText(nextId("text"), event.text, false))
+            is CliEvent.AssistantText -> when {
+                // A subagent's messages arrive whole; only the main conversation's are streamed.
+                event.parentId != null -> emit(ChatItem.AssistantText(nextId("text"), event.text, false, event.parentId))
+                event.messageId !in streamedMessages -> emit(ChatItem.AssistantText(nextId("text"), event.text, false))
+            }
             is CliEvent.ToolUse -> {
+                if (event.parentId != null && event.name == HANDBACK) return
                 val base = toolCalls[event.toolUseId]
                     ?: ChatItem.ToolCall(event.toolUseId, event.name, event.input, null, ToolStatus.RUNNING, null, null, false)
-                upsertTool(base.copy(name = event.name, input = event.input, filePath = filePathOf(event.input)))
-                runningTools[event.toolUseId] = event.name
-                phase = Activity.Running(event.name)
-                reportActivity()
+                upsertTool(base.copy(
+                    name = event.name, input = event.input, filePath = filePathOf(event.input),
+                    parentId = event.parentId ?: base.parentId, agent = agents[event.toolUseId] ?: base.agent,
+                ))
+                // The strip follows the main conversation; a subagent's tools show in its card.
+                if (event.parentId == null) {
+                    runningTools[event.toolUseId] = event.name
+                    phase = Activity.Running(event.name)
+                    reportActivity()
+                }
+            }
+            is CliEvent.TaskStarted -> updateAgent(event.toolUseId) {
+                it.copy(subagentType = event.subagentType, background = event.background, prompt = capped(event.prompt))
+            }
+            is CliEvent.TaskProgress -> updateAgent(event.toolUseId) {
+                it.copy(toolUses = event.toolUses ?: it.toolUses, durationMs = event.durationMs ?: it.durationMs, lastTool = event.lastTool)
+            }
+            is CliEvent.TaskDone -> updateAgent(event.toolUseId) {
+                it.copy(
+                    state = if (event.status == "completed") AgentState.DONE else AgentState.FAILED,
+                    toolUses = event.toolUses ?: it.toolUses, durationMs = event.durationMs ?: it.durationMs,
+                    lastTool = null, report = capped(event.report) ?: it.report,
+                )
             }
             is CliEvent.PermissionRequest -> onPermissionRequest(event)
             is CliEvent.ToolResult -> onToolResult(event, copies.orEmpty())
             is CliEvent.UserText -> Unit
             is CliEvent.Result -> onResult(event)
             is CliEvent.PromptSuggestion -> onSuggestion(event.text)
-            is CliEvent.TaskStarted, is CliEvent.TaskProgress, is CliEvent.TaskDone -> Unit
             is CliEvent.Ignored -> Unit
             is CliEvent.Malformed -> log("Malformed line from claude: ${event.line.take(200)}")
         }
@@ -378,9 +410,11 @@ class ChatSession(
     }
 
     private fun onToolResult(event: CliEvent.ToolResult, copies: List<String>) {
-        runningTools.remove(event.toolUseId)
-        phase = runningTools.entries.lastOrNull()?.let { Activity.Running(it.value) } ?: Activity.Thinking
-        reportActivity()
+        if (event.parentId == null) {
+            runningTools.remove(event.toolUseId)
+            phase = runningTools.entries.lastOrNull()?.let { Activity.Running(it.value) } ?: Activity.Thinking
+            reportActivity()
+        }
         val tool = toolCalls[event.toolUseId] ?: return
         val status = when {
             event.toolUseId in deniedToolUses -> ToolStatus.DENIED
@@ -455,6 +489,12 @@ class ChatSession(
         emit(ChatItem.Notice(nextId("notice"), text, isError = true))
         setState(SessionState.DEAD)
         reportActivity()
+    }
+
+    private fun updateAgent(toolUseId: String, change: (AgentInfo) -> AgentInfo) {
+        val info = change(agents[toolUseId] ?: AgentInfo(null, false, null, AgentState.RUNNING))
+        agents[toolUseId] = info
+        toolCalls[toolUseId]?.let { upsertTool(it.copy(agent = info)) }
     }
 
     private fun requestContextUsage() {
