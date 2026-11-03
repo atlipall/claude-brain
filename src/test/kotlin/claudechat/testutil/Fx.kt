@@ -48,8 +48,10 @@ object Fx {
     fun subagentPrompt(parent: String, text: String) =
         """{"type":"user","message":{"role":"user","content":[{"type":"text","text":${q(text)}}]},"parent_tool_use_id":"$parent","session_id":"sess-1","uuid":"u22"}"""
 
-    fun subagentToolResult(parent: String, toolUseId: String, content: String) =
-        """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"$toolUseId","type":"tool_result","content":${q(content)}}]},"parent_tool_use_id":"$parent","session_id":"sess-1","uuid":"u23"}"""
+    fun subagentToolResult(parent: String, toolUseId: String, content: String, toolUseResultJson: String? = null): String {
+        val tur = if (toolUseResultJson != null) ""","tool_use_result":$toolUseResultJson""" else ""
+        return """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"$toolUseId","type":"tool_result","content":${q(content)}}]},"parent_tool_use_id":"$parent","session_id":"sess-1","uuid":"u23"$tur}"""
+    }
 
     fun subagentTextDelta(parent: String, msg: String, text: String) =
         """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":${q(text)}}},"session_id":"sess-1","parent_tool_use_id":"$parent","uuid":"u24","api_message_id":"$msg"}"""

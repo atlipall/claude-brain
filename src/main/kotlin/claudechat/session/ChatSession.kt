@@ -67,6 +67,9 @@ data class FileDiff(val filePath: String, val originalContent: String)
 /** Longest base64 string accepted for a tool-result image (about 5 MB of bytes); longer ones show as "[image]". */
 private const val MAX_TOOL_IMAGE_BASE64 = 7_000_000
 
+/** Most turns whose file diffs are kept; older turns' lists still show but no longer open diffs. */
+private const val MAX_TURN_DIFFS = 50
+
 /** Name of the in-process MCP server that serves [IdeHost.tools]; Claude sees its tools as `mcp__tether__<name>`. */
 internal const val IDE_SERVER = "tether"
 private const val IDE_TOOL_PREFIX = "mcp__${IDE_SERVER}__"
@@ -142,6 +145,12 @@ class ChatSession(
     private val deniedToolUses = HashSet<String>()
     private val sessionAllowedTools = HashSet<String>()
     private val diffs = HashMap<String, FileDiff>()
+    /** The running turn's edits; summed up on its [ChatItem.TurnResult]. */
+    private val turnEdits = TurnEdits()
+    /** Each recent turn's file diffs, by its result item's id, oldest first. */
+    private val turnDiffs = object : LinkedHashMap<String, List<FileDiff>>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<FileDiff>>) = size > MAX_TURN_DIFFS
+    }
     /** What is known about each subagent, by its Agent call's id (task events may arrive before the call's item). */
     private val agents = HashMap<String, AgentInfo>()
     /** Tool calls started and not yet answered (id to name), oldest first. */
@@ -368,6 +377,9 @@ class ChatSession(
 
     fun diffFor(toolUseId: String): FileDiff? = synchronized(lock) { diffs[toolUseId] }
 
+    /** The diffs of the files the turn ended by result item [resultId] edited, in its list's order; empty when unknown. */
+    fun turnDiffs(resultId: String): List<FileDiff> = synchronized(lock) { turnDiffs[resultId].orEmpty() }
+
     /** Display copies for a tool result's images: at most [MAX_TOOL_IMAGES] are converted, the rest show as "[image]". */
     private fun displayCopiesOf(event: CliEvent): List<String>? =
         (event as? CliEvent.ToolResult)?.images?.mapIndexed { i, block -> if (i < MAX_TOOL_IMAGES) displayCopy(block) else "" }
@@ -538,7 +550,10 @@ class ChatSession(
         }
         val diffPath = event.filePath ?: tool.filePath
         val hasDiff = event.hasOriginalFile && diffPath != null && !event.isError
-        if (hasDiff) diffs[tool.id] = FileDiff(diffPath, event.originalFile ?: "")
+        if (hasDiff) {
+            diffs[tool.id] = FileDiff(diffPath, event.originalFile ?: "")
+            turnEdits.record(diffPath, event.originalFile)
+        }
         upsertTool(tool.copy(
             status = status,
             permissionRequestId = null,
@@ -569,10 +584,13 @@ class ChatSession(
         phase = null
         if (interruptRequested) {
             interruptRequested = false
+            turnEdits.clear()
             emit(ChatItem.Notice(nextId("notice"), "Interrupted", isError = false))
         } else {
             val text = if (event.isError) event.text ?: event.errors.joinToString("\n") else null
-            emit(ChatItem.TurnResult(nextId("result"), event.isError, text, event.durationMs, event.costUsd))
+            val result = ChatItem.TurnResult(nextId("result"), event.isError, text, event.durationMs, event.costUsd)
+            emit(result)
+            addEditedFiles(result, turnEdits.take())
         }
         requestContextUsage()
         val next = queue.removeFirstOrNull()
@@ -585,6 +603,20 @@ class ChatSession(
             setState(SessionState.IDLE)
         }
         reportActivity()
+    }
+
+    /** Re-sends [result] with the files the turn edited; the disk reads and diffs run in [background], off the lock. */
+    private fun addEditedFiles(result: ChatItem.TurnResult, originals: Map<String, String?>) {
+        if (originals.isEmpty()) return
+        val gen = generation
+        background {
+            val edited = TurnEdits.summarize(originals)
+            if (edited.isNotEmpty()) synchronized(lock) {
+                if (gen != generation) return@synchronized
+                turnDiffs[result.id] = edited.map { it.second }
+                emit(result.copy(files = edited.map { it.first }))
+            }
+        }
     }
 
     /** A suggestion that arrives once the next turn has begun is stale, so it is dropped. */
@@ -602,6 +634,7 @@ class ChatSession(
         contextRequestId = null
         pendingPermissions.clear()
         runningTools.clear()
+        turnEdits.clear()
         dropQueue()
         backgroundTasks = 0
         endAgents { true }

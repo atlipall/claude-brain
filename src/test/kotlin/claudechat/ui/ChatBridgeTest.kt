@@ -100,6 +100,28 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(listOf(chat), shown)
     }
 
+    fun testATurnsFileOpensItsDiffsAtThatFile() {
+        val a = java.io.File.createTempFile("turn-a", ".txt").apply { writeText("2\n"); deleteOnExit() }
+        val b = java.io.File.createTempFile("turn-b", ".txt").apply { writeText("2\n"); deleteOnExit() }
+        val shown = mutableListOf<Pair<List<String>, Int>>()
+        bridge.showTurnDiffs = { diffs, index -> shown += diffs.map { it.filePath } to index }
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"send","text":"go"}""")
+        for ((id, file) in listOf("t1" to a, "t2" to b)) connections[0].emit(
+            Fx.toolUse("m1", id, "Edit", """{"file_path":${Fx.q(file.path)}}"""),
+            Fx.toolResult(id, "ok", toolUseResultJson = Fx.editResult(file.path, "1\n")),
+        )
+        connections[0].emit(Fx.result())
+        // The files are added off the session lock, in a second update of the result item.
+        fun withFiles() = posted.lastOrNull { it.str("type") == "item" && it.obj("item")!!.arr("files") != null }?.obj("item")
+        val deadline = System.currentTimeMillis() + 5000
+        while (withFiles() == null && System.currentTimeMillis() < deadline) PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        val result = withFiles()!!
+        bridge.handle("""{"type":"openTurnDiff","id":${Fx.q(result.str("id")!!)},"index":1}""")
+        bridge.handle("""{"type":"openTurnDiff","id":"result-unknown","index":0}""")
+        assertEquals(listOf(listOf(a.path, b.path) to 1), shown)
+    }
+
     fun testANewChatRecordsWhenItStarted() {
         val before = System.currentTimeMillis()
         val started = chats.open(ChatSpec.inProject(root)).startedAt!!
