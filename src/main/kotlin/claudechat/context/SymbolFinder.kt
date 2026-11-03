@@ -33,7 +33,7 @@ object SymbolFinder {
             var model: StructureViewModel? = null
             try {
                 model = builder.createStructureViewModel(null)
-                Symbols.pick(path(model.root, document, offset))
+                Symbols.pick(path(model.root, file, document, offset))
             } finally {
                 model?.let(Disposer::dispose)
             }
@@ -53,12 +53,12 @@ object SymbolFinder {
         }
 
     /** From the root's children down: at each level the smallest child whose element contains [offset]. */
-    private fun path(root: TreeElement, document: Document, offset: Int): List<StructureHit> {
+    private fun path(root: TreeElement, file: PsiFile, document: Document, offset: Int): List<StructureHit> {
         val hits = mutableListOf<StructureHit>()
         var node = root
         repeat(MAX_DEPTH) {
             val (child, psi) = node.children
-                .mapNotNull { element -> psiOf(element)?.takeIf { it.textRange?.containsOffset(offset) == true }?.let { element to it } }
+                .mapNotNull { element -> psiOf(element, file)?.takeIf { it.textRange?.containsOffset(offset) == true }?.let { element to it } }
                 .minByOrNull { candidate -> candidate.second.textRange.length }
                 ?: return hits
             hit(child, psi, document)?.let(hits::add)
@@ -67,8 +67,9 @@ object SymbolFinder {
         return hits
     }
 
-    private fun psiOf(element: TreeElement): PsiElement? =
-        ((element as? StructureViewTreeElement)?.value as? PsiElement)?.takeIf { it.isValid }
+    /** The element's PSI, only when it lies in [file]: its text range means nothing against another file's offsets. */
+    private fun psiOf(element: TreeElement, file: PsiFile): PsiElement? =
+        ((element as? StructureViewTreeElement)?.value as? PsiElement)?.takeIf { it.isValid && it.containingFile == file }
 
     private fun hit(element: TreeElement, psi: PsiElement, document: Document): StructureHit? {
         val name = (psi as? PsiNamedElement)?.name?.takeIf { it.isNotBlank() }
