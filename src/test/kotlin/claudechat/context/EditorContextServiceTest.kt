@@ -164,7 +164,7 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         myFixture.openFileInEditor(myFixture.addFileToProject("src/a.js", "function f() {}\n").virtualFile)
         assertEquals("src/a.js", service.contextFor(root)!!.path)
         assertEquals("src/a.js", service.contextFor("$root/.claude/worktrees/wt1")!!.path)
-        assertNull(service.contextFor("$root/.claude/worktrees/wt2"))
+        assertEquals("src/a.js", service.contextFor("$root/.claude/worktrees/wt2")!!.path) // not created yet: the main-relative path
         assertNull(service.contextFor("/elsewhere"))
         assertEquals("a.js", service.contextFor("$root/src")!!.path)
     }

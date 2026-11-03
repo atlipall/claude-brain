@@ -24,7 +24,7 @@ class ContextPathsTest {
     @Test fun worktreeChatNamesTheCounterpartOfAMainFile() {
         val asked = mutableListOf<String>()
         assertEquals("src/a.ts", forChat("/p/src/a.ts", "/p/.claude/worktrees/wt1") { asked += it; true })
-        assertEquals(listOf("/p/.claude/worktrees/wt1/src/a.ts"), asked)
+        assertEquals(listOf("/p/.claude/worktrees/wt1", "/p/.claude/worktrees/wt1/src/a.ts"), asked)
     }
 
     @Test fun mainChatNamesTheCounterpartOfAWorktreeFile() =
@@ -34,8 +34,18 @@ class ContextPathsTest {
         assertEquals("a.ts", forChat("/p/.claude/worktrees/wt2/a.ts", "/p/.claude/worktrees/wt1"))
 
     @Test fun noCounterpartNoContext() {
-        assertNull(forChat("/p/src/new.ts", "/p/.claude/worktrees/wt1", none))
+        val wt = "/p/.claude/worktrees/wt1"
+        val folderOnly = { path: String -> path == wt }
+        assertNull(forChat("/p/src/new.ts", wt, folderOnly))
         assertNull(forChat("/p/.claude/worktrees/wt1/new.ts", "/p", none))
+    }
+
+    @Test fun newWorktreeChatBeforeItsFolderExistsUsesTheMainRelativePath() {
+        val asked = mutableListOf<String>()
+        assertEquals("src/a.ts", forChat("/p/src/a.ts", "/p/.claude/worktrees/new1") { asked += it; false })
+        assertEquals(listOf("/p/.claude/worktrees/new1"), asked)
+        assertNull(forChat("/p/.claude/worktrees/wt2/a.ts", "/p/.claude/worktrees/new1", none))
+        assertNull(forChat("/other/a.ts", "/p/.claude/worktrees/new1", none))
     }
 
     @Test fun filesOutsideTheChatsFolderHaveNoContext() {

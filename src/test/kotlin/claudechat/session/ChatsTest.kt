@@ -274,7 +274,8 @@ class ChatsTest : BasePlatformTestCase() {
         wt1.send("a")
         wt2.send("b")
         assertEquals(listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\na"), connections[0].userMessages())
-        assertEquals(listOf("b"), connections[1].userMessages())
+        // wt2's folder does not exist yet; git creates it from HEAD, so the main-relative path will hold there
+        assertEquals(listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\nb"), connections[1].userMessages())
     }
 
     fun testFailingContextCaptureStillSendsTheMessage() {

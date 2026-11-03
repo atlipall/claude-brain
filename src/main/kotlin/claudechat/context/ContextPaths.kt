@@ -18,6 +18,9 @@ object ContextPaths {
         val chat = (mapper.place(cwd) as? Placement.Followable)?.checkout
         val home = chat?.let { mapper.checkoutOf(path) }
         if (chat != null && home != null && home != chat) {
+            // A new worktree chat works in a predicted folder that git creates on the first message, from HEAD: until
+            // then a main file's path relative to main is the path it will have there.
+            if (home.isMain && !exists(chat.dir)) return relativeTo(path, home.dir)
             return mapper.counterpart(path, home, chat)?.takeIf(exists)?.let { relativeTo(it, chat.dir) }
         }
         return relativeTo(path, chat?.dir ?: canonicalPath(cwd))
