@@ -8,6 +8,7 @@ import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
+import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.io.File
 import java.io.IOException
@@ -150,6 +151,34 @@ class FileLinkerTest : BasePlatformTestCase() {
             assertNull(linker.localImage(png.path, root))
         } finally {
             dir.deleteRecursively()
+        }
+    }
+
+    fun testBackslashParentSegmentsAndVeryLongPathsAreRefused() {
+        binary("docs/blue.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+        assertNull(linker.localImage("docs\\..\\docs\\blue.png", root))
+        assertNull(linker.localImage("docs/..\\docs/blue.png", root))
+        assertNull(linker.localImage("docs/" + "a/".repeat(500) + "blue.png", root))
+    }
+
+    fun testSymlinkInsideTheProjectPointingOutsideIsRefused() {
+        val inside = Files.createTempDirectory("img-root").toFile().canonicalFile
+        val outside = Files.createTempDirectory("img-secret").toFile().canonicalFile
+        VfsRootAccess.allowRootAccess(testRootDisposable, inside.path, outside.path)
+        val rootFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(inside)!!
+        PsiTestUtil.addContentRoot(module, rootFile)
+        try {
+            File(inside, "own.png").writeBytes(TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+            File(outside, "secret.png").writeBytes(TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+            Files.createSymbolicLink(File(inside, "link.png").toPath(), File(outside, "secret.png").toPath())
+            LocalFileSystem.getInstance().refreshAndFindFileByIoFile(File(outside, "secret.png"))
+            assertEquals(blueUrl, linker.localImage("own.png", null))
+            assertNull(linker.localImage("link.png", null))
+            assertNull(linker.localImage("link.png", inside.path))
+        } finally {
+            PsiTestUtil.removeContentEntry(module, rootFile)
+            inside.deleteRecursively()
+            outside.deleteRecursively()
         }
     }
 }

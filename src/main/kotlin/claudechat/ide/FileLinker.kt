@@ -39,17 +39,26 @@ class FileLinker(private val project: Project) {
     /**
      * A `data:` URL for a local image Claude's markdown shows (`![alt](path)`), or null. The file is found like [resolve]
      * finds one (relative to [cwd] first, then the content roots; it must be project content or lie under [cwd]); the
-     * path may not contain a `..` segment or a URL scheme; the file must be at most 5 MB and a PNG, JPEG, GIF or WebP by
+     * path may not contain a `..` segment (split on both slashes), a URL scheme or be over 1000 characters; the file, symbolic links resolved, must still lie under a content root or [cwd]; the file must be at most 5 MB and a PNG, JPEG, GIF or WebP by
      * its magic bytes. The page gets a display copy (at most 800 px and 512 KB). Reads the file: never call it on the EDT.
      */
     fun localImage(candidate: String, cwd: String?): String? {
         val raw = candidate.trim()
-        if (raw.isEmpty() || SCHEME.containsMatchIn(raw) || raw.split('/').any { it == ".." }) return null
+        if (raw.isEmpty() || raw.length > MAX_IMAGE_PATH || SCHEME.containsMatchIn(raw) || raw.split('/', '\\').any { it == ".." }) return null
         val file = findFile(raw, cwd) ?: return null
+        if (!resolvesInside(file, cwd)) return null
         if (file.length > Images.MAX_BYTES) return null
         val bytes = try { file.contentsToByteArray() } catch (e: IOException) { return null }
         if (bytes.size > Images.MAX_BYTES) return null
         return Images.preview(bytes)?.dataUrl()
+    }
+
+    /** Whether the file, with symbolic links resolved, lies under a (canonical) content root or the chat folder. */
+    private fun resolvesInside(file: VirtualFile, cwd: String?): Boolean {
+        val roots = ReadAction.compute<List<String>, RuntimeException> {
+            ProjectRootManager.getInstance(project).contentRoots.map { it.path }
+        }
+        return (roots + listOfNotNull(cwd)).any { isUnder(file.path, it) }
     }
 
     private fun findFile(raw: String, cwd: String?): VirtualFile? {
@@ -132,6 +141,7 @@ class FileLinker(private val project: Project) {
         else LocalFileSystem.getInstance().refreshAndFindFileByPath(target)
 
     companion object {
+        private const val MAX_IMAGE_PATH = 1000
         private val SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
 
         fun getInstance(project: Project): FileLinker = project.service()
