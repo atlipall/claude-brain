@@ -16,4 +16,13 @@
         <toolWindow id="Claude Chat" anchor="right" icon="AllIcons.Toolwindows.ToolWindowMessages"
                     factoryClass="claudechat.ui.ChatToolWindowFactory"/>
     </extensions>
+
+    <actions>
+        <action id="claudechat.AddToChat" class="claudechat.ide.AddToChatAction"
+                text="Add to Claude Chat" description="Insert a reference to this file or selection into the Claude chat">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt K"/>
+            <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta shift alt K"/>
+        </action>
+    </actions>
 </idea-plugin>
