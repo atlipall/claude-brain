@@ -24,6 +24,8 @@ sealed interface ChatItem {
         val permissionRequestId: String?,
         val resultPreview: String?,
         val hasDiff: Boolean,
+        /** Images in the tool's result as `data:` URLs of display copies ("" for one that can't be shown). */
+        val images: List<String> = emptyList(),
     ) : ChatItem
     data class TurnResult(override val id: String, val isError: Boolean, val text: String?, val durationMs: Long?, val costUsd: Double?) : ChatItem
     data class Notice(override val id: String, val text: String, val isError: Boolean) : ChatItem
@@ -47,6 +49,7 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
             put("permissionRequestId", item.permissionRequestId)
             put("resultPreview", item.resultPreview)
             put("hasDiff", item.hasDiff)
+            if (item.images.isNotEmpty()) put("images", JsonArray(item.images.map(::JsonPrimitive)))
         }
         is ChatItem.TurnResult -> {
             put("kind", "result")

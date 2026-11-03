@@ -81,4 +81,11 @@ class WebAssetsTest {
         assertTrue(page.contains("img-src data:;"))
         assertTrue(page.contains("if (item.text) el.append(document.createTextNode(item.text));"))
     }
+
+    @Test fun pageShowsToolResultImagesAndBatchedHistory() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("case 'items': msg.items.forEach(upsert); break;"))
+        assertTrue(page.contains("h('div', { class: 'tool-images' }, ...images.map((src) => imageOrAlt(src, '[image]')))"))
+        assertTrue(page.contains(".tool-images img { display: block; max-width: 100%; max-height: 400px;"))
+    }
 }

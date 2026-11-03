@@ -26,6 +26,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -196,10 +197,18 @@ class ChatBridge(
         preparing.clear()
     }
 
-    override fun reset(items: List<ChatItem>) = post(buildJsonObject {
-        put("type", "reset")
-        put("items", JsonArray(items.map { it.toJson() }))
-    }.toString())
+    /** One `reset` message, then `items` messages, each at most [BATCH_CHARS] long (images make items large). */
+    override fun reset(items: List<ChatItem>) {
+        val batches = batches(items.map { it.toJson() }, BATCH_CHARS)
+        post(buildJsonObject {
+            put("type", "reset")
+            put("items", JsonArray(batches.firstOrNull().orEmpty()))
+        }.toString())
+        for (batch in batches.drop(1)) post(buildJsonObject {
+            put("type", "items")
+            put("items", JsonArray(batch))
+        }.toString())
+    }
 
     override fun item(item: ChatItem) = post(buildJsonObject {
         put("type", "item")
@@ -249,6 +258,24 @@ class ChatBridge(
     }.toString()
 
     internal companion object {
+        const val BATCH_CHARS = 2_000_000
+
+        /** Consecutive groups of [items] whose JSON adds up to at most [limit] characters; a larger item goes alone. */
+        fun batches(items: List<JsonObject>, limit: Int): List<List<JsonObject>> {
+            val out = mutableListOf<MutableList<JsonObject>>()
+            var size = 0
+            for (item in items) {
+                val length = item.toString().length
+                if (out.isEmpty() || size + length > limit) {
+                    out += mutableListOf<JsonObject>()
+                    size = 0
+                }
+                out.last() += item
+                size += length
+            }
+            return out
+        }
+
         private val ID = Regex("[A-Za-z0-9_-]{1,32}")
 
         /** A file name for notices: plain text, one line, at most 80 characters. */

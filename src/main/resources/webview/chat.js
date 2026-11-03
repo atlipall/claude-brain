@@ -58,6 +58,7 @@
     receive(msg) {
       switch (msg.type) {
         case 'reset': items.clear(); log.textContent = ''; msg.items.forEach(upsert); break;
+        case 'items': msg.items.forEach(upsert); break;
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
         case 'resolved': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.paths); break; }
@@ -167,6 +168,8 @@
     head.append(h('span', { class: 'badge' }, TOOL_STATUS[t.status] || t.status));
     if (t.hasDiff) head.append(h('button', { class: 'link', 'data-action': 'diff', 'data-id': t.id }, 'View diff'));
     el.append(head);
+    const images = Array.isArray(t.images) ? t.images : [];
+    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
     const details = inputDetails(t);
     if (details) el.append(details);
     if (t.status === 'awaiting_permission' && t.permissionRequestId) el.append(permissionCard(t));

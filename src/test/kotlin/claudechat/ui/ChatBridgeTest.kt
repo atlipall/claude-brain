@@ -23,6 +23,8 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class ChatBridgeTest : BasePlatformTestCase() {
     private val posted = mutableListOf<JsonObject>()
@@ -355,5 +357,22 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals("blue.png", shown.str("name"))
         assertEquals("data:image/png;base64,${TestImages.BLUE_PNG_BASE64}", shown.str("thumb"))
         assertEquals(1, chat.attachments.size)
+    }
+
+    // --- large histories ---
+
+    fun testBatchesKeepOrderAndStayUnderTheLimit() {
+        val items = (1..5).map { buildJsonObject { put("id", "i$it"); put("pad", "xxxxxxxxxx") } } // 30 characters each
+        assertEquals(listOf(listOf("i1", "i2"), listOf("i3", "i4"), listOf("i5")), ChatBridge.batches(items, 70).map { b -> b.map { it.str("id") } })
+        assertEquals(5, ChatBridge.batches(items, 20).size) // an item over the limit goes alone
+        assertEquals(1, ChatBridge.batches(items, 1_000).size)
+        assertTrue(ChatBridge.batches(emptyList(), 70).isEmpty())
+    }
+
+    fun testEmptyChatStillGetsOneReset() {
+        bridge.handle("""{"type":"ready"}""")
+        val reset = posted.single { it.str("type") == "reset" }
+        assertTrue(reset.arr("items")!!.isEmpty())
+        assertTrue(posted.none { it.str("type") == "items" })
     }
 }

@@ -25,6 +25,13 @@ class ChatItemTest {
             ChatItem.ToolCall("t1", "Edit", input, "/p/a.ts", ToolStatus.AWAITING_PERMISSION, "r1", null, false).toJson().toString())
     }
 
+    @Test fun toolWithImages() {
+        val input = buildJsonObject { put("file_path", JsonPrimitive("/p/a.png")) }
+        assertEquals(
+            """{"id":"t1","kind":"tool","name":"Read","input":{"file_path":"/p/a.png"},"filePath":"/p/a.png","status":"done","permissionRequestId":null,"resultPreview":"","hasDiff":false,"images":["data:image/png;base64,AAAA",""]}""",
+            ChatItem.ToolCall("t1", "Read", input, "/p/a.png", ToolStatus.DONE, null, "", false, listOf("data:image/png;base64,AAAA", "")).toJson().toString())
+    }
+
     @Test fun result() = assertEquals(
         """{"id":"r1","kind":"result","isError":false,"text":null,"durationMs":5566,"costUsd":0.19}""",
         ChatItem.TurnResult("r1", false, null, 5566, 0.19).toJson().toString())

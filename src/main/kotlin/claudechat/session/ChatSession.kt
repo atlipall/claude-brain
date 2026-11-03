@@ -7,8 +7,11 @@ import claudechat.cli.CliParser
 import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.cli.str
+import claudechat.cli.ImageBlock
 import claudechat.image.Image
+import claudechat.image.Images
 import kotlinx.serialization.json.JsonObject
+import java.util.Base64
 
 enum class SessionState { IDLE, RUNNING, AWAITING_PERMISSION, DEAD }
 
@@ -25,6 +28,9 @@ sealed interface PermissionDecision {
 }
 
 data class FileDiff(val filePath: String, val originalContent: String)
+
+/** Longest base64 string accepted for a tool-result image (about 5 MB of bytes); longer ones show as "[image]". */
+private const val MAX_TOOL_IMAGE_BASE64 = 7_000_000
 
 /** One conversation with one claude process (respawned with --resume on restart). Thread-safe. */
 class ChatSession(
@@ -246,7 +252,26 @@ class ChatSession(
         val diffPath = event.filePath ?: tool.filePath
         val hasDiff = event.hasOriginalFile && diffPath != null && !event.isError
         if (hasDiff) diffs[tool.id] = FileDiff(diffPath, event.originalFile ?: "")
-        upsertTool(tool.copy(status = status, permissionRequestId = null, resultPreview = event.content.take(4000), hasDiff = hasDiff))
+        upsertTool(tool.copy(
+            status = status,
+            permissionRequestId = null,
+            resultPreview = event.content.take(4000),
+            hasDiff = hasDiff,
+            images = event.images.map(::displayCopy),
+        ))
+    }
+
+    /**
+     * A display copy (at most 800 px and 512 KB) of an image the CLI returned, as a `data:` URL; "" when the block
+     * is not a usable image. The CLI's claimed media type and its raw base64 never reach the page: the bytes are
+     * decoded, sniffed and re-encoded by [Images.preview], and the URL is built from the re-encoded type.
+     * Runs on the CLI reader thread.
+     */
+    private fun displayCopy(block: ImageBlock): String {
+        if (block.data.length > MAX_TOOL_IMAGE_BASE64) return ""
+        val bytes = try { Base64.getDecoder().decode(block.data) } catch (e: IllegalArgumentException) { return "" }
+        if (bytes.size > Images.MAX_INPUT_BYTES) return ""
+        return Images.preview(bytes)?.dataUrl().orEmpty()
     }
 
     private fun onResult(event: CliEvent.Result) {

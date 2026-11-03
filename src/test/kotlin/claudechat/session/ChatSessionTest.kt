@@ -230,6 +230,24 @@ class ChatSessionTest {
         assertNull(s.diffFor("t1"))
     }
 
+    @Test fun readOfAnImageShowsItInTheToolRow() {
+        val s = session()
+        s.send("x")
+        conn.emit(Fx.toolUse("m1", "t1", "Read", """{"file_path":"/p/blue.png"}"""), Fx.readImageResult("t1", TestImages.BLUE_PNG_BASE64))
+        val tool = listener.latest<ChatItem.ToolCall>()
+        assertEquals(ToolStatus.DONE, tool.status)
+        assertEquals(listOf("data:image/png;base64,${TestImages.BLUE_PNG_BASE64}"), tool.images)
+        assertEquals("", tool.resultPreview)
+        assertFalse(tool.hasDiff)
+    }
+
+    @Test fun anImageBlockThatIsNotAnImageShowsNothing() {
+        val s = session()
+        s.send("x")
+        conn.emit(Fx.toolUse("m1", "t1", "Read", """{"file_path":"/p/x.png"}"""), Fx.readImageResult("t1", "AAAA"), Fx.readImageResult("t1", "%%%"))
+        assertEquals(listOf(""), listener.latest<ChatItem.ToolCall>().images)
+    }
+
     // --- control ---
 
     @Test fun interruptSendsControlRequestAndShowsNotice() {
