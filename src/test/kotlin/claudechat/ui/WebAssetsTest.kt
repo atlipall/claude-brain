@@ -41,4 +41,16 @@ class WebAssetsTest {
         assertTrue(page.contains("ArrowUp"))
         assertTrue(page.contains("ArrowDown"))
     }
+
+    @Test fun pageShowsTheContextChipAsPlainText() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("<div id=\"context\" hidden><span id=\"context-text\"></span>"))
+        assertTrue(page.contains("case 'context': setContext(msg.text, msg.off); break;"))
+        assertTrue(page.contains("contextText.textContent ="))
+        assertFalse(page.contains("contextText.innerHTML"))
+        assertFalse(page.contains("contextEl.innerHTML"))
+        assertTrue(page.contains("send({ type: 'contextOff', off: true })"))
+        assertTrue(page.contains("send({ type: 'contextOff', off: false })"))
+        assertTrue(page.contains("#context[hidden] { display: none; }"))
+    }
 }

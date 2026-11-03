@@ -15,6 +15,9 @@ interface SessionView {
 
     /** What the IDE window shows for this chat (`IDE: <checkout>`); empty hides it. */
     fun checkout(text: String) {}
+
+    /** The editor-context chip: empty [text] hides it; [off] shows it muted (left out of the next message). */
+    fun context(text: String, off: Boolean) {}
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -84,12 +87,15 @@ class Chat(
         session.start()
     }
 
+    /** EDT only (the chip reads the editor). */
     fun attach(view: SessionView) {
         this.view = view
         view.reset(synchronized(lock) { items.values.toList() })
         view.state(session.state, session.sessionId, session.mode)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)
+        shownContext = HIDDEN // a new page shows no chip yet
+        refreshContext()
     }
 
     fun detach(view: SessionView) {
@@ -114,6 +120,18 @@ class Chat(
     /** Leaves the editor context out of the next message ([off]) or puts it back. EDT only. */
     fun skipContext(off: Boolean) {
         contextOff = off
+        refreshContext()
+    }
+
+    /** The chip text and muted state the page shows. EDT only. */
+    private var shownContext = HIDDEN
+
+    /** Recomputes the chip and tells the page when its text or muted state changed. EDT only. */
+    fun refreshContext() {
+        val next = editorContext(this)?.let(ContextNotes::chip).orEmpty() to contextOff
+        if (next == shownContext) return
+        shownContext = next
+        view?.context(next.first, next.second)
     }
 
     /**
@@ -130,7 +148,12 @@ class Chat(
         val context = if (contextOff) null else editorContext(this)?.let(ContextNotes::note)
         contextOff = false
         session.send(text, listOfNotNull(edits, context).joinToString("\n\n").ifEmpty { null })
+        refreshContext() // the chip is live again
     }
 
     fun dispose() = session.dispose()
+
+    private companion object {
+        val HIDDEN = "" to false
+    }
 }

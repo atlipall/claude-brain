@@ -9,6 +9,9 @@
   const restartBtn = document.getElementById('restart');
   const statusEl = document.getElementById('status');
   const checkoutEl = document.getElementById('checkout');
+  const contextEl = document.getElementById('context');
+  const contextText = document.getElementById('context-text');
+  const contextOffBtn = document.getElementById('context-off');
   const pendingResolve = new Map();
   let reqSeq = 0;
   let history = [];  // sent messages, oldest first (shared by every tab, kept by the IDE)
@@ -53,6 +56,7 @@
         case 'theme': applyTheme(msg); break;
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
         case 'checkout': setCheckout(msg.text); break;
+        case 'context': setContext(msg.text, msg.off); break;
       }
     }
   };
@@ -176,6 +180,17 @@
     checkoutEl.hidden = !checkoutEl.textContent;
   }
 
+  // Plain text only: file and symbol names from the editor never become markup.
+  function setContext(text, off) {
+    const t = typeof text === 'string' ? text : '';
+    const muted = off === true;
+    contextEl.hidden = !t;
+    contextEl.classList.toggle('off', muted);
+    contextEl.title = muted ? '' : t;
+    contextText.textContent = muted ? 'context off for next message — click to restore' : t;
+    contextOffBtn.hidden = muted;
+  }
+
   function insertText(text) {
     recall = -1;
     const start = input.selectionStart, end = input.selectionEnd;
@@ -252,6 +267,8 @@
   stopBtn.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
+  contextOffBtn.addEventListener('click', (e) => { e.stopPropagation(); send({ type: 'contextOff', off: true }); });
+  contextEl.addEventListener('click', () => { if (contextEl.classList.contains('off')) send({ type: 'contextOff', off: false }); });
 
   // Capture phase: no anchor click or form submit reaches the browser's default navigation.
   document.addEventListener('auxclick', (e) => { if (e.target.closest('a')) e.preventDefault(); }, true);

@@ -2,6 +2,7 @@ package claudechat.ui
 
 import claudechat.cli.PermissionMode
 import claudechat.cli.arr
+import claudechat.cli.bool
 import claudechat.cli.long
 import claudechat.cli.parseJsonObject
 import claudechat.cli.str
@@ -64,6 +65,7 @@ class ChatBridge(
             "openDiff" -> msg.str("toolUseId")?.let { id -> session.diffFor(id)?.let(linker::showDiff) }
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))
+            "contextOff" -> msg.bool("off")?.let(chat::skipContext) // booleans only
         }
     }
 
@@ -98,6 +100,12 @@ class ChatBridge(
     override fun checkout(text: String) = post(buildJsonObject {
         put("type", "checkout")
         put("text", text)
+    }.toString())
+
+    override fun context(text: String, off: Boolean) = post(buildJsonObject {
+        put("type", "context")
+        put("text", text)
+        put("off", off)
     }.toString())
 
     private fun historyMessage(entries: List<String>) = buildJsonObject {

@@ -2,6 +2,8 @@ package claudechat.settings
 
 import claudechat.cli.PermissionMode
 import claudechat.follow.CheckoutFollower
+import claudechat.session.Chat
+import claudechat.session.Chats
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.project.ProjectManager
@@ -17,8 +19,11 @@ class ClaudeChatConfigurable : BoundConfigurable("Claude Chat") {
 
     override fun apply() {
         super.apply()
-        // Only projects whose chat tool window is open have a follower.
-        ProjectManager.getInstance().openProjects.forEach { it.serviceIfCreated<CheckoutFollower>()?.refresh() }
+        // Only projects whose chat tool window is open have a follower and chats.
+        ProjectManager.getInstance().openProjects.forEach { project ->
+            project.serviceIfCreated<CheckoutFollower>()?.refresh()
+            project.serviceIfCreated<Chats>()?.all()?.forEach(Chat::refreshContext)
+        }
     }
 
     override fun createPanel(): DialogPanel = panel {

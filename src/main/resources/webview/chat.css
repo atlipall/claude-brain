@@ -37,3 +37,10 @@ pre.del { background: var(--del); }
 .result.error, .notice.error { color: var(--danger); white-space: pre-wrap; }
 .notice { color: var(--muted); font-style: italic; white-space: pre-wrap; }
 details summary { cursor: pointer; color: var(--muted); }
+
+#context { display: flex; align-items: center; gap: 4px; align-self: flex-start; max-width: calc(100% - 16px); margin: 6px 8px 0; padding: 1px 2px 1px 8px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: .9em; }
+#context[hidden] { display: none; }
+#context-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#context.off { cursor: pointer; font-style: italic; opacity: .75; padding-right: 8px; }
+#context-off { background: none; border: none; color: var(--muted); padding: 0 4px; line-height: 1; }
+#context-off:hover { color: var(--fg); }

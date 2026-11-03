@@ -42,6 +42,10 @@ class Chats(private val project: Project) : Disposable {
     private val tracker = EditTracker.getInstance(project) // also starts recording saves before the first message
     private val context = EditorContextService.getInstance(project) // also starts tracking the focused editor
 
+    init {
+        context.addListener(this) { all().forEach(Chat::refreshContext) }
+    }
+
     fun all(): List<Chat> = chats.toList()
 
     fun mainSpec(): ChatSpec = ChatSpec.inProject(projectDir)

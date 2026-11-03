@@ -1,15 +1,19 @@
 package claudechat.ui
 
 import claudechat.cli.arr
+import claudechat.cli.bool
 import claudechat.cli.obj
 import claudechat.cli.parseJsonObject
 import claudechat.cli.str
+import claudechat.context.EditorContextService
 import claudechat.session.Chat
 import claudechat.session.ChatSpec
 import claudechat.session.Chats
 import claudechat.session.PromptHistory
 import claudechat.session.SessionState
+import claudechat.settings.ClaudeChatSettings
 import claudechat.testutil.FakeConnection
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.serialization.json.JsonObject
@@ -24,17 +28,37 @@ class ChatBridgeTest : BasePlatformTestCase() {
     private val chats get() = Chats.getInstance(project)
     private val root get() = ProjectRootManager.getInstance(project).contentRoots.first().path
 
+    private val settings get() = ClaudeChatSettings.getInstance().state
+    private val contextService get() = EditorContextService.getInstance(project)
+    private val manager get() = FileEditorManager.getInstance(project)
+    private var savedAttach = true
+    private lateinit var savedSchedule: (Runnable) -> Unit
+
     override fun setUp() {
         super.setUp()
         PromptHistory.getInstance(project).clear()
         chats.closeAll()
+        manager.openFiles.forEach(manager::closeFile) // no editor, no chip, unless a test opens one
+        savedAttach = settings.attachEditorContext
+        settings.attachEditorContext = true
+        savedSchedule = contextService.schedule
+        contextService.schedule = { it.run() }
         chats.connector = { FakeConnection().also { connections += it } }
         chat = chats.open(ChatSpec.inProject(root))
         bridge = ChatBridge(project, chat, { newChatRequests++ }) { posted += parseJsonObject(it)!! }
     }
 
     override fun tearDown() {
-        try { bridge.dispose(); chat.detach(bridge); chats.closeAll() } finally { super.tearDown() }
+        try {
+            bridge.dispose()
+            chat.detach(bridge)
+            chats.closeAll()
+            manager.openFiles.forEach(manager::closeFile)
+            settings.attachEditorContext = savedAttach
+            contextService.schedule = savedSchedule
+        } finally {
+            super.tearDown()
+        }
     }
 
     private fun types() = posted.map { it.str("type") }
@@ -144,5 +168,68 @@ class ChatBridgeTest : BasePlatformTestCase() {
         val before = posted.size
         PromptHistory.getInstance(project).add("later")
         assertEquals(before, posted.size)
+    }
+
+    fun testReadyPostsTheEditorContextChip() {
+        myFixture.configureByText("calc.js", "function total(a) {\n  return a<caret> + 1;\n}\n")
+        bridge.handle("""{"type":"ready"}""")
+        val msg = posted.last()
+        assertEquals("context", msg.str("type"))
+        assertEquals("calc.js › total · L2", msg.str("text"))
+        assertEquals(false, msg.bool("off"))
+    }
+
+    fun testContextOffMutesTheChipAndSkipsOneMessage() {
+        myFixture.configureByText("a.txt", "x")
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"contextOff","off":true}""")
+        assertEquals("a.txt · L1", posted.last().str("text"))
+        assertEquals(true, posted.last().bool("off"))
+        bridge.handle("""{"type":"send","text":"hello"}""")
+        val sent = connections[0].userMessages().single()
+        assertTrue(sent.endsWith("hello"))
+        assertFalse(sent, sent.contains("The user is looking at"))
+        assertEquals(false, posted.last { it.str("type") == "context" }.bool("off"))
+    }
+
+    fun testContextOffCanBeUndone() {
+        myFixture.configureByText("a.txt", "x")
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"contextOff","off":true}""")
+        bridge.handle("""{"type":"contextOff","off":false}""")
+        assertEquals(false, posted.last().bool("off"))
+        bridge.handle("""{"type":"send","text":"hello"}""")
+        assertTrue(connections[0].userMessages().single().contains("[IDE] The user is looking at a.txt, caret at line 1:1."))
+    }
+
+    fun testNonBooleanContextOffIsIgnored() {
+        myFixture.configureByText("a.txt", "x")
+        bridge.handle("""{"type":"ready"}""")
+        val count = posted.size
+        bridge.handle("""{"type":"contextOff","off":"yes"}""")
+        bridge.handle("""{"type":"contextOff"}""")
+        assertEquals(count, posted.size)
+        assertFalse(chat.contextOff)
+    }
+
+    fun testCaretMovesUpdateTheChipOnlyWhenItsTextChanges() {
+        myFixture.configureByText("a.txt", "one\ntwo\n")
+        bridge.handle("""{"type":"ready"}""")
+        assertEquals("a.txt · L1", posted.last().str("text"))
+        myFixture.editor.caretModel.moveToOffset(5)
+        assertEquals("a.txt · L2", posted.last().str("text"))
+        val count = posted.size
+        myFixture.editor.caretModel.moveToOffset(6) // same line, same chip
+        assertEquals(count, posted.size)
+    }
+
+    fun testSettingOffHidesTheChip() {
+        myFixture.configureByText("a.txt", "x")
+        bridge.handle("""{"type":"ready"}""")
+        assertEquals("a.txt · L1", posted.last().str("text"))
+        settings.attachEditorContext = false
+        chat.refreshContext()
+        assertEquals("context", posted.last().str("type"))
+        assertEquals("", posted.last().str("text"))
     }
 }
