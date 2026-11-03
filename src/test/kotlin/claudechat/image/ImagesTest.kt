@@ -66,6 +66,14 @@ class ImagesTest {
         }
     }
 
+    @Test fun jpegWithDataAfterTheEndMarkerIsAccepted() {
+        val whole = TestImages.noiseIn(64, 64, "jpeg")
+        assertTrue(Images.prepare(whole + ByteArray(1024) { (it * 7).toByte() }) is Prepared.Ok)
+        assertTrue(Images.prepare(whole + "\n".toByteArray()) is Prepared.Ok)
+        assertTrue(Images.preview(whole + "\n".toByteArray()) != null)
+        assertTrue(Images.prepare(whole.copyOf(whole.size / 2)) is Prepared.Rejected)
+    }
+
     @Test fun aLongEdgeOver2000IsScaledDownKeepingTheFormat() {
         val png = ok(Images.prepare(TestImages.solid(3000, 1500)))
         assertEquals(ImageType.PNG, png.type)

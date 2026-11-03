@@ -120,17 +120,18 @@ object Images {
     }
 
     private fun decode(bytes: ByteArray): BufferedImage? {
-        // The JPEG reader accepts a cut-off file with only a warning; it must end with the end-of-image marker.
+        // The JPEG reader accepts a cut-off file with only a warning; it must contain the end-of-image marker.
         if (ImageType.sniff(bytes) == ImageType.JPEG && !endsWithJpegEoi(bytes)) return null
         return try {
             ImageIO.read(MemoryCacheImageInputStream(ByteArrayInputStream(bytes))) // ImageIO closes the stream
         } catch (e: Exception) { null }
     }
 
+    /** A JPEG is complete when an end-of-image marker (FFD9) follows its last start-of-scan marker (FFDA); data after it is fine. */
     private fun endsWithJpegEoi(b: ByteArray): Boolean {
-        var end = b.size
-        while (end > 2 && b[end - 1].toInt() == 0) end-- // some encoders pad with zeros
-        return end >= 2 && (b[end - 2].toInt() and 0xFF) == 0xFF && (b[end - 1].toInt() and 0xFF) == 0xD9
+        fun marker(i: Int, code: Int) = (b[i].toInt() and 0xFF) == 0xFF && (b[i + 1].toInt() and 0xFF) == code
+        val lastSos = (b.size - 2 downTo 0).firstOrNull { marker(it, 0xDA) } ?: return false
+        return (lastSos + 2 until b.size - 1).any { marker(it, 0xD9) }
     }
 
     private fun fit(source: BufferedImage, type: ImageType, maxEdge: Int, maxBytes: Int): Image? {

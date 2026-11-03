@@ -145,15 +145,18 @@ class ChatBridge(
                 val cwd = chat.cwd
                 offEdt {
                     val found = ArrayList<Pair<String, String>>()
-                    for (path in paths) {
-                        try {
-                            localImage(path, cwd)?.let { found += path to it }
-                        } catch (e: Throwable) {
-                            if (e is ControlFlowException) throw e
-                            // this path shows its alt text; the others still get answered
+                    try {
+                        for (path in paths) {
+                            try {
+                                localImage(path, cwd)?.let { found += path to it }
+                            } catch (e: Throwable) {
+                                if (e is ControlFlowException) throw e
+                                // this path shows its alt text; the others still get answered
+                            }
                         }
+                    } finally {
+                        onEdt { post(imagesMessage(reqId, found)) } // also when a cancellation is being rethrown
                     }
-                    onEdt { post(imagesMessage(reqId, found)) }
                 }
             }
         }
@@ -197,7 +200,10 @@ class ChatBridge(
                     prepared
                 }
             } catch (e: Throwable) {
-                if (e is ControlFlowException) throw e
+                if (e is ControlFlowException) {
+                    onEdt { if (preparing.remove(id)) refuse(id, "Couldn't attach $name: cancelled.") }
+                    throw e
+                }
                 Prepared.Rejected(if (e is OutOfMemoryError) "the image is too large to process" else Images.UNREADABLE)
             }
             onEdt {
