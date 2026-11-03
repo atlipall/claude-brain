@@ -26,7 +26,8 @@ class ClaudeProcess(
 
     override fun start(onLine: (String) -> Unit, onExit: (exitCode: Int, stderrTail: String) -> Unit) {
         val builder = ProcessBuilder(command).directory(workDir)
-        builder.environment().putAll(env)
+        val childEnv = childEnvironment(builder.environment(), env)
+        builder.environment().apply { clear(); putAll(childEnv) }
         val p = builder.start()
         process = p
 
@@ -99,7 +100,13 @@ class ClaudeProcess(
         }
     }
 
-    private companion object {
-        val CLOSE = Any()
+    companion object {
+        private val CLOSE = Any()
+
+        /** Variables that would make claude bill an API account instead of the user's logged-in subscription. */
+        private val STRIPPED = listOf("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+        internal fun childEnvironment(base: Map<String, String>, extra: Map<String, String>): Map<String, String> =
+            (base + extra) - STRIPPED.toSet()
     }
 }

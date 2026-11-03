@@ -96,4 +96,24 @@ class ClaudeProcessTest {
         assertTrue(exited.await(5, TimeUnit.SECONDS))
         assertEquals(listOf("b", "c"), lines.toList())
     }
+
+    @Test fun childEnvironmentDropsAnthropicCredentials() {
+        val env = ClaudeProcess.childEnvironment(
+            mapOf("PATH" to "/bin", "ANTHROPIC_API_KEY" to "k"),
+            mapOf("ANTHROPIC_AUTH_TOKEN" to "t", "X" to "1"),
+        )
+        assertEquals(mapOf("PATH" to "/bin", "X" to "1"), env)
+    }
+
+    @Test fun spawnedProcessSeesNoApiKey() {
+        val lines = CopyOnWriteArrayList<String>()
+        val exited = CountDownLatch(1)
+        val p = ClaudeProcess(
+            listOf("/bin/sh", "-c", "echo \"\${ANTHROPIC_API_KEY-unset}\""), tmp,
+            mapOf("ANTHROPIC_API_KEY" to "x"),
+        )
+        p.start(onLine = { lines += it }, onExit = { _, _ -> exited.countDown() })
+        assertTrue(exited.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf("unset"), lines.toList())
+    }
 }
