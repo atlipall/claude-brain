@@ -24,8 +24,10 @@ class ClaudeChatSettings : SimplePersistentStateComponent<ClaudeChatSettings.Sta
         var ideTools by property(true)
         /** After each of Claude's edits, the IDE checks the file and tells Claude about errors in it. */
         var checkEdits by property(true)
-        /** Command line of the ACP agent New Chat offers besides Claude; empty offers none. */
+        /** Command line of the ACP agent the message box offers besides Claude; empty offers none. */
         var acpCommand by string("hermes acp")
+        /** The agent last selected in a new chat's message box (`claude` or `acp`); the next new chat starts with it. */
+        var lastAgent by string("")
     }
 
     companion object {

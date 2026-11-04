@@ -14,6 +14,7 @@ import claudechat.image.Prepared
 import claudechat.image.Uploads
 import claudechat.context.ContextNotes
 import claudechat.session.Activity
+import claudechat.session.Agent
 import claudechat.session.Chat
 import claudechat.session.ChatItem
 import claudechat.session.ChatSession
@@ -155,6 +156,7 @@ class ChatBridge(
                 if (claude.pendingQuestions(requestId) != null) claude.respond(requestId, PermissionDecision.Deny("The user skipped the question."))
             }
             "setMode" -> msg.str("mode")?.let(session::setMode)
+            "setAgent" -> msg.str("agent")?.let(chat::selectAgent)
             "interrupt" -> chat.interrupt()
             "queueSendNow" -> msg.str("id")?.let(session::sendNow)
             "queueEdit" -> msg.str("id")?.let(chat::editQueued)
@@ -196,7 +198,7 @@ class ChatBridge(
         val id = "k${++pickSeq}"
         val name = displayName(file.name)
         if (slotsUsed() >= Images.MAX_PER_MESSAGE) {
-            session.notice("Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
+            chat.notice("Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
             return
         }
         post(buildJsonObject {
@@ -249,7 +251,7 @@ class ChatBridge(
     /** Tells the page the attachment is gone and the chat why. */
     private fun refuse(id: String, notice: String) {
         uploads.cancel(id)
-        session.notice(notice)
+        chat.notice(notice)
         post(buildJsonObject {
             put("type", "attachment")
             put("id", id)
@@ -300,6 +302,13 @@ class ChatBridge(
     override fun modes(modes: List<Choice>) = post(buildJsonObject {
         put("type", "modes")
         put("modes", JsonArray(modes.map { it.toJson() }))
+    }.toString())
+
+    override fun agent(agents: List<Agent>, selected: Agent, locked: Boolean) = post(buildJsonObject {
+        put("type", "agent")
+        put("agents", JsonArray(agents.map { Choice(it.id, it.name).toJson() }))
+        put("selected", selected.id)
+        put("locked", locked)
     }.toString())
 
     override fun activity(activity: Activity?) = post(activityMessage(activity))

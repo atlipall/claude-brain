@@ -25,28 +25,6 @@ class NewChatChoicesTest {
         ),
         NewChatChoices.build("/p", listOf(main, wt, detached)))
 
-    @Test fun acpAgentAddsTheProjectAndEachLinkedWorktree() {
-        val hermes = listOf("/opt/bin/hermes", "acp")
-        assertEquals(
-            listOf(
-                NewChatChoice.Open("In this project", ChatSpec.inProject("/p")),
-                NewChatChoice.NewWorktree,
-                NewChatChoice.Open("In worktree wt-1 (worktree-wt-1)", ChatSpec("wt-1", "/p/.claude/worktrees/wt-1")),
-                NewChatChoice.Open("In this project with hermes", ChatSpec("main (hermes)", "/p", acp = hermes)),
-                NewChatChoice.Open("In worktree wt-1 (worktree-wt-1) with hermes", ChatSpec("wt-1 (hermes)", "/p/.claude/worktrees/wt-1", acp = hermes)),
-                NewChatChoice.Resume,
-            ),
-            NewChatChoices.build("/p", listOf(main, wt), hermes))
-    }
-
-    @Test fun acpAgentWithoutGitOffersTheProjectOnly() = assertEquals(
-        listOf(
-            NewChatChoice.Open("In this project", ChatSpec.inProject("/p")),
-            NewChatChoice.Open("In this project with hermes", ChatSpec("main (hermes)", "/p", acp = listOf("hermes", "acp"))),
-            NewChatChoice.Resume,
-        ),
-        NewChatChoices.build("/p", null, listOf("hermes", "acp")))
-
     @Test fun worktreeThatIsTheProjectItselfIsNotListed() = assertEquals(
         listOf(NewChatChoice.Open("In this project", ChatSpec.inProject("/p/wt")), NewChatChoice.NewWorktree, NewChatChoice.Resume),
         NewChatChoices.build("/p/wt", listOf(Worktree("/p", "main", true), Worktree("/p/wt", "feature", false))))

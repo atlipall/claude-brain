@@ -171,4 +171,20 @@ class WebAssetsTest {
         assertFalse(body.contains("innerHTML"))
         assertFalse(body.contains("marked"))
     }
+
+    @Test fun composerHasTheAgentAndModeSelectorsBesideAttachAndSend() {
+        val page = WebAssets.page()
+        val composer = page.substring(page.indexOf("<footer id=\"composer\">"), page.indexOf("</footer>"))
+        val order = listOf("id=\"input\"", "id=\"agent\"", "id=\"mode\"", "id=\"attach\"", "id=\"send\"").map(composer::indexOf)
+        assertTrue(order.all { it >= 0 } && order == order.sorted())
+        assertFalse(page.substring(page.indexOf("<header id=\"bar\">"), page.indexOf("</header>")).contains("id=\"mode\""))
+        assertTrue(page.contains("case 'agent': setAgent(msg); break;"))
+        assertTrue(page.contains("send({ type: 'setAgent', agent: agentSel.value })"))
+    }
+
+    @Test fun sharedLabelsDoNotNameClaude() {
+        val page = WebAssets.page()
+        assertFalse(page.contains("Message Claude"))
+        assertFalse(page.contains("Stop Claude"))
+    }
 }

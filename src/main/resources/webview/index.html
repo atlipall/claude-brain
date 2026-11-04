@@ -8,12 +8,6 @@
 <body>
 <header id="bar">
   <button id="new-chat" title="Start a new chat">New chat</button>
-  <select id="mode" title="Permission mode">
-    <option value="default">Ask before edits</option>
-    <option value="acceptEdits">Accept edits</option>
-    <option value="plan">Plan only</option>
-    <option value="auto">Auto</option>
-  </select>
   <button id="show-changes" title="Show everything changed in this checkout: since main on a branch, otherwise since this session started">Diff</button>
   <span id="checkout" hidden></span>
   <span id="status"></span>
@@ -22,12 +16,17 @@
 </header>
 <main id="log"></main>
 <div id="queue" hidden></div>
-<div id="activity" hidden><span id="activity-dots" class="dots"><span></span><span></span><span></span></span><span id="activity-label" class="label"></span><span id="activity-secs" class="secs"></span><button id="activity-stop" class="stop" title="Stop Claude">Stop</button></div>
+<div id="activity" hidden><span id="activity-dots" class="dots"><span></span><span></span><span></span></span><span id="activity-label" class="label"></span><span id="activity-secs" class="secs"></span><button id="activity-stop" class="stop" title="Stop">Stop</button></div>
 <div id="attachments" hidden></div>
 <footer id="composer">
-  <textarea id="input" rows="3" placeholder="Message Claude (Enter to send, Shift+Enter for a new line)"></textarea>
-  <button id="attach" title="Attach images">📎</button>
-  <button id="send">Send</button>
+  <textarea id="input" rows="3" placeholder="Message (Enter to send, Shift+Enter for a new line)"></textarea>
+  <div id="controls">
+    <select id="agent" title="Agent for this chat"></select>
+    <select id="mode" title="Permission mode" hidden></select>
+    <span class="grow"></span>
+    <button id="attach" title="Attach images">📎</button>
+    <button id="send">Send</button>
+  </div>
 </footer>
 <script>/*INLINE:marked*/</script>
 <script>/*INLINE:purify*/</script>

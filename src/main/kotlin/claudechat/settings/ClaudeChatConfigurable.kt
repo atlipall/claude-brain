@@ -50,7 +50,7 @@ class ClaudeChatConfigurable : BoundConfigurable("Tether") {
             textField()
                 .bindText({ state.acpCommand.orEmpty() }, { state.acpCommand = it })
                 .align(AlignX.FILL)
-                .comment("An Agent Client Protocol agent that New Chat offers besides Claude, e.g. hermes acp. Empty offers none. " +
+                .comment("An Agent Client Protocol agent that the message box offers besides Claude, e.g. hermes acp. Empty offers none. " +
                     "The agent keeps its own credentials, model and approval rules. IDE tools, edit checks, new worktrees and " +
                     "resuming past sessions are for Claude only.")
         }

@@ -4,19 +4,14 @@ import claudechat.git.canonicalPath
 
 /**
  * How a chat starts. [cwd] is the launch directory. For a new worktree it is the project and [worktree]
- * names the worktree claude creates (the chat then moves to the folder system/init reports). [acp] is the command
- * line of the ACP agent the chat runs instead of Claude.
+ * names the worktree claude creates (the chat then moves to the folder system/init reports).
  */
 data class ChatSpec(
     val label: String,
     val cwd: String,
     val worktree: String? = null,
     val resumeId: String? = null,
-    val acp: List<String>? = null,
 ) {
-    /** The same chat with the ACP agent [command] (not empty), named after its executable. */
-    fun withAcp(command: List<String>) = copy(label = "$label (${agentName(command)})", acp = command)
-
     companion object {
         const val MAIN = "main"
 
@@ -28,8 +23,16 @@ data class ChatSpec(
 
         fun resume(projectDir: String, session: SessionSummary) =
             ChatSpec(ChatNames.folderLabel(session.folder, projectDir), session.folder, resumeId = session.id)
+    }
+}
 
-        fun agentName(command: List<String>): String = command.first().substringAfterLast('/')
+/** What a chat runs: Claude, or the ACP agent started from the command line [acp]. */
+data class Agent(val id: String, val name: String, val acp: List<String>? = null) {
+    companion object {
+        val CLAUDE = Agent("claude", "Claude")
+
+        /** Named after its executable: `/opt/bin/hermes acp` is Hermes. */
+        fun acp(command: List<String>) = Agent("acp", command.first().substringAfterLast('/').replaceFirstChar(Char::uppercase), command)
     }
 }
 

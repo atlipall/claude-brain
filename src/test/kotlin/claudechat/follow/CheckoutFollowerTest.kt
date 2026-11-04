@@ -115,7 +115,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
     }
 
     fun testSelectedChatMovingOutsideIsReflected() {
-        val wt = chats.open(ChatSpec.newWorktree(root, "wt2"))
+        val wt = chats.open(ChatSpec.newWorktree(root, "wt2")).also { it.start() }
         follower.follow(wt)
         assertEquals("IDE: wt2", wt.checkoutText)
         connections.single().emit(Fx.init(cwd = "/elsewhere/wt2"))

@@ -21,7 +21,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
             toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(label, null, false))
             return
         }
-        toolWindow.setTitleActions(listOf(NewChatAction()))
+        toolWindow.setTitleActions(listOf(NewChatAction(), WorkspaceChatAction()))
         val tabs = ChatTabs(project, toolWindow)
         // Registered before the first tab so selecting it is followed too.
         val follower = CheckoutFollower.getInstance(project)
@@ -36,7 +36,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
             }
         })
         tabs.open(Chats.getInstance(project).mainSpec())
-        // Showing the tool window after every tab was closed starts a fresh main chat.
+        // Showing the tool window after every tab was closed opens a new main chat (a draft: no process yet).
         project.messageBus.connect(toolWindow.disposable).subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
             override fun toolWindowShown(shown: ToolWindow) {
                 if (shown.id == ID && shown.contentManager.contentCount == 0) tabs.open(Chats.getInstance(project).mainSpec())

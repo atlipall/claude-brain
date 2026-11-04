@@ -27,8 +27,7 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
         val closed = java.util.concurrent.atomic.AtomicBoolean(false)
         Disposer.register(content) { closed.set(true); chat.onBusyChanged = null; registry.close(chat) }
         content.putUserData(ToolWindow.SHOW_CONTENT_ICON, true) // the busy icon is drawn only for contents that ask for icons
-        lateinit var panel: ChatPanel
-        panel = ChatPanel(project, chat, onNewChat = { newChat { it.showInCenterOf(panel.browser.component) } }, parent = content)
+        val panel = ChatPanel(project, chat, onNewChat = ::newChat, parent = content)
         content.component = panel.browser.component
         content.preferredFocusableComponent = panel.browser.component
         // The busy icon follows chat.busy, read again on the EDT so a late callback never shows a stale state.
@@ -56,8 +55,13 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
 
     fun selectedChat(): Chat? = toolWindow.contentManager.selectedContent?.getUserData(CHAT)
 
-    /** Shows the New-chat popup; [place] positions it. */
-    fun newChat(place: (JBPopup) -> Unit) = NewChatPopup.show(project, this, place)
+    /** Opens a new chat in the project. */
+    fun newChat() {
+        open(chats.mainSpec())
+    }
+
+    /** Shows the popup of checkouts and past sessions; [place] positions it. */
+    fun chooseWorkspace(place: (JBPopup) -> Unit) = NewChatPopup.show(project, this, place)
 
     companion object {
         val CHAT: Key<Chat> = Key.create("claudechat.chat")

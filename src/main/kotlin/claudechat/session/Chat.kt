@@ -11,6 +11,7 @@ import claudechat.image.PendingAttachments
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Receives one chat's updates. Methods may be called from any thread. */
 interface SessionView {
@@ -18,8 +19,11 @@ interface SessionView {
     fun item(item: ChatItem)
     fun state(state: SessionState, sessionId: String?, mode: String?)
 
-    /** The modes the agent offers (only an ACP agent reports them); empty hides the selector. */
+    /** The modes the agent offers; empty hides the selector. */
     fun modes(modes: List<Choice>) {}
+
+    /** The agents the chat offers and the selected one; [locked] once it has started. */
+    fun agent(agents: List<Agent>, selected: Agent, locked: Boolean) {}
     fun insert(text: String)
 
     /** What the IDE window shows for this chat (`IDE: <checkout>`); empty hides it. */
@@ -47,13 +51,16 @@ interface Checkpoints {
     fun revert(chat: Chat, itemId: String)
 }
 
-/** One chat tab's model: its own [AgentSession] and agent process, the items shown so far, and the page showing them. */
+/**
+ * One chat tab's model: its own [AgentSession] and agent process, the items shown so far, and the page showing them.
+ * A new chat is a draft until [start]: its agent can change, and no process runs.
+ */
 class Chat(
     val id: Int,
-    spec: ChatSpec,
+    private val spec: ChatSpec,
     history: List<ChatItem>,
-    connector: (SessionLaunch) -> CliConnection,
-    initialMode: PermissionMode?,
+    private val connector: (SessionLaunch) -> CliConnection,
+    private val initialMode: PermissionMode?,
     private val editNote: (Chat) -> String?,
     /**
      * Where the user is looking, as this chat names the file; null for none (or when the setting is off). EDT, cheap:
@@ -65,17 +72,22 @@ class Chat(
      * once. Null means [editorContext] is already complete.
      */
     private val resolveContext: ((Chat, (EditorContext?) -> Unit) -> Unit)? = null,
-    log: (String) -> Unit = {},
+    private val log: (String) -> Unit = {},
     /** When the session began (epoch millis): now for a new chat, the transcript's start for a resumed one. */
     val startedAt: Long? = null,
     /** Tools and edit checks the IDE lends this chat's Claude; null for none. */
-    ide: IdeHost? = null,
+    private val ide: IdeHost? = null,
     /** Runs IDE work off the CLI reader thread and outside the session lock. */
     private val background: (Runnable) -> Unit = { it.run() },
     /** Marks the files' state as each message goes out, so they can be reverted to it; null for none. */
     private val checkpoints: Checkpoints? = null,
-    /** Makes this chat's session when it is not Claude's (an ACP agent); null runs Claude through [connector]. */
-    agent: ((ChatListener) -> AgentSession)? = null,
+    /** The agents the draft can run, Claude first. */
+    val agents: List<Agent> = listOf(Agent.CLAUDE),
+    agent: Agent = agents.first(),
+    /** Makes an ACP agent's session from its command line. */
+    private val acpSession: (List<String>, ChatListener) -> AgentSession = { _, _ -> error("No ACP agent is configured.") },
+    /** Called on the EDT when the user selects an agent for the draft. */
+    private val onAgentSelected: (Agent) -> Unit = {},
 ) {
     val label: String = spec.label
 
@@ -113,7 +125,8 @@ class Chat(
     @Volatile private var suggestion: String? = null
     /** The session's queued messages (replayed on attach). */
     @Volatile private var queued: List<QueuedMessage> = emptyList()
-    @Volatile private var modes: List<Choice>? = null
+    @Volatile private var modes: List<Choice> = emptyList()
+    private val draftNotices = AtomicInteger()
 
     private val activityLock = Any()
     private var sessionActivity: Activity? = null
@@ -185,8 +198,21 @@ class Chat(
         }
     }
 
-    val session: AgentSession = agent?.invoke(listener)
-        ?: ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background)
+    @Volatile var agent: Agent = agent
+        private set
+
+    /** False while the chat is a draft: no process, and the agent can change. */
+    @Volatile var started = false
+        private set
+
+    @Volatile var session: AgentSession = newSession(agent)
+        private set
+
+    private fun newSession(agent: Agent): AgentSession {
+        modes = if (agent.acp == null) CLAUDE_MODES else emptyList()
+        return agent.acp?.let { acpSession(it, listener) }
+            ?: ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background)
+    }
 
     private val predictedCwd: String? = spec.worktree?.let { "${spec.cwd.trimEnd('/')}/.claude/worktrees/$it" }
 
@@ -198,17 +224,45 @@ class Chat(
 
     val title: String get() = ChatNames.tabTitle(label, firstMessage)
 
+    /** Starts the agent's process. A resumed chat starts when it opens, a new one with its first message. EDT. */
     fun start() {
+        if (started) return
+        started = true
         knownCwd = cwd
         session.start()
+        view?.agent(agents, agent, true)
+    }
+
+    /** Runs [id] instead in this draft; false once started or when it is not offered. Starts no process. EDT. */
+    fun selectAgent(id: String): Boolean {
+        val chosen = agents.firstOrNull { it.id == id }
+        if (chosen == null || started) return false
+        if (chosen != agent) {
+            agent = chosen
+            session = newSession(chosen)
+        }
+        onAgentSelected(chosen)
+        view?.let(::showAgent)
+        return true
+    }
+
+    private fun showAgent(view: SessionView) {
+        view.agent(agents, agent, started)
+        view.modes(modes)
+        view.state(session.state, session.sessionId, session.modeId)
+    }
+
+    /** Shows [text] in the chat. A draft numbers its own notices: the session that will run may still change. */
+    fun notice(text: String, isError: Boolean = true) {
+        if (started) session.notice(text, isError)
+        else listener.onItem(ChatItem.Notice("draft-notice-${draftNotices.incrementAndGet()}", text, isError))
     }
 
     /** EDT only. */
     fun attach(view: SessionView) {
         this.view = view
         view.reset(synchronized(lock) { items.values.toList() })
-        modes?.let(view::modes)
-        view.state(session.state, session.sessionId, session.modeId)
+        showAgent(view)
         synchronized(activityLock) { shownActivity }?.let(view::activity)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         contextUsage?.let(view::context)
@@ -253,6 +307,7 @@ class Chat(
 
     /**
      * EDT only (the edit note saves documents, the context reads the editor). Ignored while the session is dead.
+     * The first message starts the agent; if that fails at once, [text] goes back into the message box.
      * Claude gets the edit note, then the editor-context note, then [text], then the [images]; the chat shows [text]
      * under the images' thumbnails. Image bytes are dropped once the line is written to the CLI.
      * The edit note is taken now. When the symbol at the caret is not cached the message goes
@@ -261,6 +316,10 @@ class Chat(
     fun send(text: String, images: List<Attachment> = emptyList()) {
         if (session.state == SessionState.DEAD) return
         if (text.isBlank() && images.isEmpty()) return
+        if (!started) {
+            start()
+            if (session.state == SessionState.DEAD) return insert(text)
+        }
         if (firstMessage == null) {
             firstMessage = text.ifBlank { IMAGE_TITLE }
             onTitleChanged?.invoke()
@@ -376,5 +435,6 @@ class Chat(
 
     private companion object {
         const val IMAGE_TITLE = "[image]"
+        val CLAUDE_MODES = PermissionMode.entries.map { Choice(it.cli, it.label) }
     }
 }

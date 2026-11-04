@@ -5,6 +5,7 @@
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const modeSel = document.getElementById('mode');
+  const agentSel = document.getElementById('agent');
   const activityEl = document.getElementById('activity');
   const activityDots = document.getElementById('activity-dots');
   const activityLabel = document.getElementById('activity-label');
@@ -28,6 +29,7 @@
   let draft = '';    // what the box held before recall started
   let suggestion = '';  // the predicted next prompt shown in the empty box; Tab takes it
   let idle = false;     // the last state was IDLE: a suggestion that lands later than a new turn's state is stale
+  let agentName = 'the agent';
 
   const STATUS = { DEAD: 'Stopped' }; // the header says nothing else; the strip above the input shows the turn
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
@@ -84,6 +86,7 @@
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
         case 'modes': setModes(msg.modes); break;
+        case 'agent': setAgent(msg); break;
         case 'activity': setActivity(msg); break;
         case 'resolved': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.paths); break; }
         case 'images': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.images || {}); break; }
@@ -196,7 +199,7 @@
       el.classList.add('queued');
       el.prepend(h('div', { class: 'queued-bar' },
           h('span', { class: 'queued-label' }, 'Queued'),
-          h('button', { class: 'link', 'data-action': 'queueSendNow', 'data-id': m.id, title: 'Stop Claude and send this now' }, 'Send now'),
+          h('button', { class: 'link', 'data-action': 'queueSendNow', 'data-id': m.id, title: 'Stop ' + agentName + ' and send this now' }, 'Send now'),
           // the images could not go back to the tray, so only a text message can be edited
           images.length ? null : h('button', { class: 'link', 'data-action': 'queueEdit', 'data-id': m.id, title: 'Move back into the message box' }, 'Edit'),
           h('button', { class: 'link', 'data-action': 'queueRemove', 'data-id': m.id, title: 'Don’t send this' }, 'Remove')));
@@ -573,7 +576,7 @@
     if (!idle) setSuggestion('');
   }
 
-  // Only an ACP agent sends its modes; they replace Claude's, and none hides the selector.
+  // None hides the selector.
   function setModes(modes) {
     const list = Array.isArray(modes) ? modes : [];
     modeSel.textContent = '';
@@ -581,11 +584,26 @@
     modeSel.hidden = !list.length;
   }
 
-  const PLACEHOLDER = input.placeholder;
+  // A chat that has started keeps its agent; the selector then only names it.
+  function setAgent(msg) {
+    const agents = Array.isArray(msg.agents) ? msg.agents : [];
+    agentSel.textContent = '';
+    agents.forEach((a) => agentSel.append(h('option', { value: a.id }, a.label)));
+    agentSel.value = msg.selected;
+    const current = agents.find((a) => a.id === msg.selected);
+    agentName = current ? String(current.label) : 'the agent';
+    agentSel.disabled = !!msg.locked || agents.length < 2;
+    agentSel.title = msg.locked ? 'This chat runs ' + agentName + '. Start a new chat for another agent.' : 'Agent for this chat';
+    placeholder = 'Message ' + agentName + ' (Enter to send, Shift+Enter for a new line)';
+    activityStop.title = 'Stop ' + agentName;
+    setSuggestion(suggestion);
+  }
+
+  let placeholder = input.placeholder;
   // Only offered into an empty box while idle; typing, sending or a new turn takes it away.
   function setSuggestion(text) {
     suggestion = idle && !input.value ? text : '';
-    input.placeholder = suggestion ? suggestion + '   (Tab to use)' : PLACEHOLDER;
+    input.placeholder = suggestion ? suggestion + '   (Tab to use)' : placeholder;
   }
 
   function acceptSuggestion() {
@@ -824,6 +842,7 @@
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
+  agentSel.addEventListener('change', () => send({ type: 'setAgent', agent: agentSel.value }));
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
   // Pasted image data (Cmd+V of a screenshot) anywhere on the page becomes an attachment; text pastes are untouched.

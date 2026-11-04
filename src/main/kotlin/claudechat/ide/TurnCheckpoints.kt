@@ -68,14 +68,14 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
         }
         // A turn's edits in flight would land after the revert; the user stops it (and sees what it did) first.
         if (chat.busy) {
-            Messages.showInfoMessage(project, "Claude is still working. Stop it, or wait for it to finish, then revert.", "Revert to Before This Message")
+            Messages.showInfoMessage(project, "${chat.agent.name} is still working. Stop it, or wait for it to finish, then revert.", "Revert to Before This Message")
             return
         }
         val dir = LocalFileSystem.getInstance().refreshAndFindFileByPath(checkpoint.dir) ?: return
         val answer = Messages.showYesNoDialog(
             project,
             "Revert every file in ${dir.presentableUrl} to how it was before “${checkpoint.message}”?\n\n" +
-                "This undoes Claude's changes from that message on, and your own changes since then too. " +
+                "This undoes ${chat.agent.name}'s changes from that message on, and your own changes since then too. " +
                 "You can undo the revert from Local History.",
             "Revert to Before This Message", "Revert", "Cancel", Messages.getWarningIcon(),
         )

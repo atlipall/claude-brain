@@ -49,9 +49,9 @@ object CheckoutDiff {
                 val base = base
                 val changes = changes
                 when {
-                    base == null -> chat.session.notice("Can't show changes: $cwd is not in a git repository with commits.")
-                    changes == null -> chat.session.notice("Can't show changes: git failed in ${base.root}.")
-                    changes.isEmpty() -> chat.session.notice("No changes since ${base.label}.", isError = false)
+                    base == null -> chat.notice("Can't show changes: $cwd is not in a git repository with commits.")
+                    changes == null -> chat.notice("Can't show changes: git failed in ${base.root}.")
+                    changes.isEmpty() -> chat.notice("No changes since ${base.label}.", isError = false)
                     else -> AbstractVcsHelper.getInstance(project).showWhatDiffersBrowser(changes, base.title)
                 }
             }

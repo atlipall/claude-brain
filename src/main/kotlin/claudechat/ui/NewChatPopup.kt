@@ -15,13 +15,13 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.util.text.DateFormatUtil
 
-/** The New-chat popups. Their contents are computed off the EDT (git, transcript files); [place] shows them. */
+/** The popups that open a chat in a checkout or resume one. Their contents are computed off the EDT (git, transcript files); [place] shows them. */
 object NewChatPopup {
     fun show(project: Project, tabs: ChatTabs, place: (JBPopup) -> Unit) {
         val chats = Chats.getInstance(project)
         background(project, { chats.worktrees.list() }) { worktrees ->
-            val choices = NewChatChoices.build(chats.projectDir, worktrees, chats.acpCommand())
-            place(listPopup(project, "New Chat", choices, NewChatChoice::text) { choice ->
+            val choices = NewChatChoices.build(chats.projectDir, worktrees)
+            place(listPopup(project, "Chat in Workspace", choices, NewChatChoice::text) { choice ->
                 chosen(project, tabs, choice, worktrees, place)
             })
         }

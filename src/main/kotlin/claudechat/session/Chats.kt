@@ -58,12 +58,17 @@ class Chats(private val project: Project) : Disposable {
     fun mainSpec(): ChatSpec = ChatSpec.inProject(projectDir)
 
     /** The configured ACP agent's command line; null when none is set. */
-    fun acpCommand(): List<String>? =
+    private fun acpCommand(): List<String>? =
         ParametersListUtil.parse(ClaudeChatSettings.getInstance().state.acpCommand.orEmpty()).takeIf { it.isNotEmpty() }
 
-    /** Creates and starts a chat (a resumed one shows its transcript). EDT. */
+    /**
+     * Creates a chat. A resumed one shows its transcript and starts at once; a new one is a draft with the agent last
+     * selected, and starts with its first message. New worktrees and resumed sessions are Claude's only. EDT.
+     */
     fun open(spec: ChatSpec): Chat {
         val history = spec.resumeId?.let { store.transcript(spec.cwd, it) }.orEmpty()
+        val acp = acpCommand()?.takeIf { spec.worktree == null && spec.resumeId == null }?.let(Agent::acp)
+        val agents = listOfNotNull(Agent.CLAUDE, acp)
         lateinit var chat: Chat
         val ide = ChatIdeHost(project, projectDir) { chat.cwd } // asked only once the chat runs
         chat = Chat(
@@ -82,9 +87,12 @@ class Chats(private val project: Project) : Disposable {
             ide = ide,
             checkpoints = checkpoints,
             background = { AppExecutorUtil.getAppExecutorService().execute(it) },
-            agent = spec.acp?.let { command ->
-                { listener -> AcpSession({ JsonAcpClient(acpConnector(command, spec.cwd)) }, listener, spec.cwd, ChatSpec.agentName(command)) { LOG.info(it) } }
+            agents = agents,
+            agent = agents.firstOrNull { it.id == ClaudeChatSettings.getInstance().state.lastAgent } ?: Agent.CLAUDE,
+            acpSession = { command, listener ->
+                AcpSession({ JsonAcpClient(acpConnector(command, spec.cwd)) }, listener, spec.cwd, Agent.acp(command).name) { LOG.info(it) }
             },
+            onAgentSelected = { ClaudeChatSettings.getInstance().state.lastAgent = it.id },
         )
         tracker.register(chat.id)
         chats += chat
@@ -92,7 +100,7 @@ class Chats(private val project: Project) : Disposable {
         if (spec.resumeId == null && spec.worktree == null) {
             AppExecutorUtil.getAppExecutorService().execute { chat.startCommit = DiffBases().head(spec.cwd) }
         }
-        chat.start()
+        if (spec.resumeId != null) chat.start()
         return chat
     }
 

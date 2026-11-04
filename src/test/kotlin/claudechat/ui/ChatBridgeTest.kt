@@ -31,6 +31,7 @@ import kotlinx.serialization.json.put
 class ChatBridgeTest : BasePlatformTestCase() {
     private val posted = mutableListOf<JsonObject>()
     private val connections = mutableListOf<FakeConnection>()
+    private val acp = mutableListOf<Pair<List<String>, FakeConnection>>()
     private var newChatRequests = 0
     private lateinit var chat: Chat
     private lateinit var bridge: ChatBridge
@@ -42,6 +43,9 @@ class ChatBridgeTest : BasePlatformTestCase() {
     private val manager get() = FileEditorManager.getInstance(project)
     private var savedAttach = true
     private lateinit var savedSchedule: (Runnable) -> Unit
+    private var savedAcpCommand: String? = null
+    private var savedLastAgent: String? = null
+    private lateinit var savedAcpConnector: (List<String>, String) -> claudechat.cli.CliConnection
 
     override fun setUp() {
         super.setUp()
@@ -53,6 +57,12 @@ class ChatBridgeTest : BasePlatformTestCase() {
         savedSchedule = contextService.schedule
         contextService.schedule = { it.run() }
         chats.connector = { FakeConnection().also { connections += it } }
+        savedAcpConnector = chats.acpConnector
+        chats.acpConnector = { command, _ -> FakeConnection().also { acp += command to it } }
+        savedAcpCommand = settings.acpCommand
+        settings.acpCommand = "hermes acp"
+        savedLastAgent = settings.lastAgent
+        settings.lastAgent = ""
         chat = chats.open(ChatSpec.inProject(root))
         bridge = ChatBridge(project, chat, { newChatRequests++ }) { posted += parseJsonObject(it)!! }
         bridge.offEdt = { it() }
@@ -67,6 +77,9 @@ class ChatBridgeTest : BasePlatformTestCase() {
             manager.openFiles.forEach(manager::closeFile)
             settings.attachEditorContext = savedAttach
             contextService.schedule = savedSchedule
+            chats.acpConnector = savedAcpConnector
+            settings.acpCommand = savedAcpCommand
+            settings.lastAgent = savedLastAgent
         } finally {
             super.tearDown()
         }
@@ -77,13 +90,14 @@ class ChatBridgeTest : BasePlatformTestCase() {
     fun testReadySendsThemeHistoryResetAndState() {
         PromptHistory.getInstance(project).add("earlier")
         bridge.handle("""{"type":"ready"}""")
-        assertEquals(listOf("theme", "history", "reset", "state"), types())
+        assertEquals(listOf("theme", "history", "reset", "agent", "modes", "state"), types())
         assertEquals(listOf(JsonPrimitive("earlier")), posted[1].arr("entries")!!.toList())
         assertEquals("IDLE", posted.last().str("state"))
     }
 
     fun testSendReachesThisChatsCliOnly() {
-        val other = chats.open(ChatSpec("wt-1", "$root/.claude/worktrees/wt-1"))
+        chat.start()
+        val other = chats.open(ChatSpec("wt-1", "$root/.claude/worktrees/wt-1")).also { it.start() }
         bridge.handle("""{"type":"ready"}""")
         bridge.handle("""{"type":"send","text":"hello"}""")
         assertTrue(connections[0].userMessages().single().endsWith("hello"))
@@ -158,50 +172,90 @@ class ChatBridgeTest : BasePlatformTestCase() {
     }
 
     fun testSetModeGoesToThisChat() {
-        chats.open(ChatSpec.inProject(root))
+        chat.start()
+        chats.open(ChatSpec.inProject(root)).start()
         bridge.handle("""{"type":"setMode","mode":"plan"}""")
         assertEquals("set_permission_mode", connections[0].sentJson().last().obj("request")!!.str("subtype"))
         assertEquals("initialize", connections[1].sentJson().last().obj("request")!!.str("subtype"))
     }
 
     fun testAcpChatShowsTheAgentsModesAndAnswersWithItsOptions() {
-        val saved = chats.acpConnector
-        val acp = mutableListOf<Pair<List<String>, FakeConnection>>()
-        chats.acpConnector = { command, _ -> FakeConnection().also { acp += command to it } }
-        val acpChat = chats.open(ChatSpec.inProject(root).withAcp(listOf("hermes", "acp")))
-        val acpPosted = mutableListOf<JsonObject>()
-        val acpBridge = ChatBridge(project, acpChat, {}) { acpPosted += parseJsonObject(it)!! }
-        try {
-            val (command, conn) = acp.single()
-            PlatformTestUtil.waitWithEventsDispatching("initialize was not sent", { conn.sent.isNotEmpty() }, 10)
-            fun reply(method: String, result: String) {
-                val id = conn.sentJson().last { it.str("method") == method }["id"]
-                conn.emit("""{"jsonrpc":"2.0","id":$id,"result":$result}""")
-            }
-            reply("initialize", """{"protocolVersion":1,"agentCapabilities":{}}""")
-            reply("session/new", """{"sessionId":"s1","modes":{"currentModeId":"default","availableModes":[{"id":"default","name":"Default"},{"id":"accept_edits","name":"Accept edits"}]}}""")
-
-            acpBridge.handle("""{"type":"ready"}""")
-            acpBridge.handle("""{"type":"setMode","mode":"accept_edits"}""")
-            conn.emit("""{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"perm-check-1","title":"Run ls"},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"}]}}""")
-            val card = acpPosted.last { it.str("type") == "item" }.obj("item")!!
-            acpBridge.handle("""{"type":"answer","requestId":"${card.str("permissionRequestId")}","answers":{}}""")
-            acpBridge.handle("""{"type":"permission","requestId":"${card.str("permissionRequestId")}","optionId":"allow_once"}""")
-
-            assertEquals(listOf("hermes", "acp"), command)
-            assertEquals("main (hermes)", acpChat.label)
-            val modes = acpPosted.last { it.str("type") == "modes" }.arr("modes")!!.map { it.jsonObject.str("id") }
-            assertEquals(listOf("default", "accept_edits"), modes)
-            assertEquals("default", acpPosted.last { it.str("type") == "state" }.str("mode"))
-            assertEquals("accept_edits", conn.sentJson().last { it.str("method") == "session/set_mode" }.obj("params")!!.str("modeId"))
-            assertEquals(listOf("allow_once"), card.arr("choices")!!.map { it.jsonObject.str("id") })
-            val answer = conn.sentJson().single { it.str("method") == null && it["id"].toString() == "0" }
-            assertEquals("allow_once", answer.obj("result")!!.obj("outcome")!!.str("optionId"))
-        } finally {
-            acpBridge.dispose()
-            chats.close(acpChat)
-            chats.acpConnector = saved
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"setAgent","agent":"acp"}""")
+        bridge.handle("""{"type":"send","text":"hello"}""")
+        val (command, conn) = acp.single()
+        PlatformTestUtil.waitWithEventsDispatching("initialize was not sent", { conn.sent.isNotEmpty() }, 10)
+        fun reply(method: String, result: String) {
+            val id = conn.sentJson().last { it.str("method") == method }["id"]
+            conn.emit("""{"jsonrpc":"2.0","id":$id,"result":$result}""")
         }
+        reply("initialize", """{"protocolVersion":1,"agentCapabilities":{}}""")
+        reply("session/new", """{"sessionId":"s1","modes":{"currentModeId":"default","availableModes":[{"id":"default","name":"Default"},{"id":"accept_edits","name":"Accept edits"}]}}""")
+
+        bridge.handle("""{"type":"setMode","mode":"accept_edits"}""")
+        conn.emit("""{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"perm-check-1","title":"Run ls"},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"}]}}""")
+        val card = posted.last { it.str("type") == "item" }.obj("item")!!
+        bridge.handle("""{"type":"answer","requestId":"${card.str("permissionRequestId")}","answers":{}}""")
+        bridge.handle("""{"type":"permission","requestId":"${card.str("permissionRequestId")}","optionId":"allow_once"}""")
+
+        assertEquals(listOf("hermes", "acp"), command)
+        assertTrue(connections.isEmpty())
+        assertEquals("main", chat.label)
+        val modes = posted.last { it.str("type") == "modes" }.arr("modes")!!.map { it.jsonObject.str("id") }
+        assertEquals(listOf("default", "accept_edits"), modes)
+        assertEquals("default", posted.last { it.str("type") == "state" }.str("mode"))
+        assertEquals("accept_edits", conn.sentJson().last { it.str("method") == "session/set_mode" }.obj("params")!!.str("modeId"))
+        assertEquals(listOf("allow_once"), card.arr("choices")!!.map { it.jsonObject.str("id") })
+        val answer = conn.sentJson().single { it.str("method") == null && it["id"].toString() == "0" }
+        assertEquals("allow_once", answer.obj("result")!!.obj("outcome")!!.str("optionId"))
+    }
+
+    private fun lastAgent() = posted.last { it.str("type") == "agent" }
+
+    fun testADraftShowsItsAgentsAndClaudesModesButNoSession() {
+        bridge.handle("""{"type":"ready"}""")
+        val agent = lastAgent()
+        assertEquals(listOf("claude", "acp"), agent.arr("agents")!!.map { it.jsonObject.str("id") })
+        assertEquals(listOf("Claude", "Hermes"), agent.arr("agents")!!.map { it.jsonObject.str("label") })
+        assertEquals("claude", agent.str("selected"))
+        assertEquals(false, agent.bool("locked"))
+        val modes = posted.last { it.str("type") == "modes" }.arr("modes")!!.map { it.jsonObject.str("id") }
+        assertEquals(listOf("default", "acceptEdits", "plan", "auto"), modes)
+        assertTrue(posted.last { it.str("type") == "state" }["sessionId"] is kotlinx.serialization.json.JsonNull)
+        assertTrue(posted.none { it.str("type") == "usage" || it.str("type") == "activity" })
+        assertTrue(connections.isEmpty())
+    }
+
+    fun testSwitchingTheDraftsAgentStartsNoProcessAndHidesClaudesModes() {
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"setAgent","agent":"acp"}""")
+        assertEquals("acp", lastAgent().str("selected"))
+        assertTrue(posted.last { it.str("type") == "modes" }.arr("modes")!!.isEmpty())
+        bridge.handle("""{"type":"setAgent","agent":"claude"}""")
+        assertEquals("claude", lastAgent().str("selected"))
+        assertEquals(4, posted.last { it.str("type") == "modes" }.arr("modes")!!.size)
+        assertTrue(connections.isEmpty())
+        assertTrue(acp.isEmpty())
+    }
+
+    fun testTheFirstSendLocksTheAgent() {
+        bridge.handle("""{"type":"ready"}""")
+        bridge.handle("""{"type":"send","text":"hello"}""")
+        bridge.handle("""{"type":"setAgent","agent":"acp"}""")
+        assertEquals(true, lastAgent().bool("locked"))
+        assertEquals("claude", lastAgent().str("selected"))
+        assertEquals(1, connections.size)
+        assertTrue(acp.isEmpty())
+    }
+
+    fun testAnAttachedImageSurvivesAnAgentChange() {
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", TestImages.RED_PNG_BASE64)
+        bridge.handle("""{"type":"setAgent","agent":"acp"}""")
+        bridge.handle("""{"type":"setAgent","agent":"claude"}""")
+        bridge.handle("""{"type":"send","text":"what color?","attachments":["p1"]}""")
+        assertEquals(listOf(listOf(TestImages.RED_PNG_BASE64)), connections.single().userImages())
+        assertTrue(acp.isEmpty())
     }
 
     fun testNewChatAsksTheTabs() {
@@ -226,7 +280,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         bridge.handle("""{"type":"listSessions"}""")
         bridge.handle("""{"type":"resume","sessionId":"abc"}""")
         assertTrue(posted.isEmpty())
-        assertEquals(1, connections.size)
+        assertTrue(connections.isEmpty())
     }
 
     fun testResolvePathsUsesTheChatsFolder() {
@@ -256,6 +310,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
     }
 
     fun testSendToADeadChatIsNotRemembered() {
+        chat.start()
         connections[0].exit(1, "boom")
         assertEquals(SessionState.DEAD, chat.session.state)
         bridge.handle("""{"type":"send","text":"ignored"}""")
@@ -274,7 +329,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
     fun testReadyReplaysTheCheckout() {
         chat.showCheckout("IDE: main")
         bridge.handle("""{"type":"ready"}""")
-        assertEquals(listOf("theme", "history", "reset", "state", "checkout"), types())
+        assertEquals(listOf("theme", "history", "reset", "agent", "modes", "state", "checkout"), types())
     }
 
     fun testDisposedBridgeStopsReceivingHistory() {
@@ -347,7 +402,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
 
     fun testBlankMessageWithUnknownAttachmentsIsIgnored() {
         bridge.handle("""{"type":"send","text":"  ","attachments":["nope", 3]}""")
-        assertTrue(connections[0].userMessages().isEmpty())
+        assertTrue(connections.isEmpty())
     }
 
     fun testMagicBytesDecideTheType() {
