@@ -4,6 +4,7 @@ import claudechat.follow.CheckoutFollower
 import claudechat.session.Chat
 import claudechat.session.ChatSpec
 import claudechat.session.Chats
+import claudechat.session.Transcript
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
@@ -18,7 +19,7 @@ import com.intellij.ui.content.ContentFactory
 class ChatTabs(private val project: Project, private val toolWindow: ToolWindow) {
     private val chats get() = Chats.getInstance(project)
 
-    fun open(spec: ChatSpec, resumed: Chats.Resumed? = chats.read(spec)): Chat {
+    fun open(spec: ChatSpec, resumed: Transcript? = chats.read(spec)): Chat {
         val registry = chats // captured: the service may be unreachable while the project is closing
         val chat = registry.open(spec, resumed)
         val content = ContentFactory.getInstance().createContent(null, chat.title, false)

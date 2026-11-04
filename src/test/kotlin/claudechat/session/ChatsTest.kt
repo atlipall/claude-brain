@@ -142,8 +142,8 @@ class ChatsTest : BasePlatformTestCase() {
         val chat = chats.open(spec, resumed)
         assertEquals("abc", launches.single().resumeId)
         assertEquals(resumed.startedAt, chat.startedAt)
-        assertTrue(resumed.history.isNotEmpty())
-        assertEquals(resumed.history, RecordingView().also(chat::attach).resets.first())
+        assertTrue(resumed.items.isNotEmpty())
+        assertEquals(resumed.items, RecordingView().also(chat::attach).resets.first())
     }
 
     fun testOpenLaunchesInTheSpecFolder() {

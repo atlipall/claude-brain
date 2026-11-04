@@ -3,6 +3,7 @@ package claudechat.ui
 import claudechat.follow.CheckoutFollower
 import claudechat.session.ChatSpec
 import claudechat.session.Chats
+import claudechat.session.Transcript
 import claudechat.session.OpenChats
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.ControlFlowException
@@ -73,7 +74,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
     }
 
     /** The saved sessions that can be resumed, each read; one that fails is left out (logged). Off the EDT. */
-    private fun readRestorable(chats: Chats): List<Pair<ChatSpec, Chats.Resumed?>> = try {
+    private fun readRestorable(chats: Chats): List<Pair<ChatSpec, Transcript?>> = try {
         chats.restorableSpecs().mapNotNull { spec ->
             try {
                 spec to chats.read(spec)

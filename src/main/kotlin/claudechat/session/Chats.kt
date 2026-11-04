@@ -61,24 +61,19 @@ class Chats(private val project: Project) : Disposable {
         store.summary(cwd, id)?.takeUnless { it.archived }?.let { ChatSpec.resume(projectDir, it) }
     }
 
-    /** What resuming a session reads from its transcript. */
-    class Resumed(val history: List<ChatItem>, val anchor: String?, val startedAt: Long?)
-
     /** [spec]'s transcript as [open] needs it; null for a new chat. Reads the whole transcript: off the EDT if it can. */
-    fun read(spec: ChatSpec): Resumed? = spec.resumeId?.let { id ->
-        Resumed(store.transcript(spec.cwd, id), store.lastAssistantUuid(spec.cwd, id), store.startedAt(spec.cwd, id))
-    }
+    fun read(spec: ChatSpec): Transcript? = spec.resumeId?.let { store.read(spec.cwd, it) }
 
     /** Creates and starts a chat (a resumed one shows its transcript, [resumed] when already [read]). EDT. */
-    fun open(spec: ChatSpec, resumed: Resumed? = read(spec)): Chat {
-        val history = resumed?.history.orEmpty()
+    fun open(spec: ChatSpec, resumed: Transcript? = read(spec)): Chat {
+        val history = resumed?.items.orEmpty()
         lateinit var chat: Chat
         val ide = ChatIdeHost(project, projectDir) { chat.cwd } // asked only once the chat runs
         chat = Chat(
             id = ids.incrementAndGet(),
             spec = spec,
             history = history,
-            resumeAnchor = resumed?.anchor,
+            resumeAnchor = resumed?.lastAssistantUuid,
             connector = connector,
             initialMode = defaultMode(),
             editNote = { c -> listOfNotNull(checkpoints.consumeNote(c.id), tracker.consumeNote(c.id, c.cwd)).joinToString("\n\n").ifEmpty { null } },

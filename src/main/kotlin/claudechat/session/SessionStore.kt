@@ -28,6 +28,9 @@ data class SessionSummary(
     val archived: Boolean = false,
 )
 
+/** What a session's transcript holds for resuming it (see [SessionStore.read]). */
+data class Transcript(val items: List<ChatItem>, val lastAssistantUuid: String?, val startedAt: Long?)
+
 /** Reads Claude Code's on-disk session transcripts (~/.claude/projects/<encoded cwd>/<id>.jsonl). */
 class SessionStore(private val claudeHome: File) {
     fun projectDir(cwd: String): File = File(File(claudeHome, "projects"), cwd.replace(NON_ALNUM, "-"))
@@ -55,43 +58,31 @@ class SessionStore(private val claudeHome: File) {
     fun summary(cwd: String, sessionId: String): SessionSummary? =
         transcriptFile(cwd, sessionId).takeIf { it.isFile }?.let { cachedSummary(it, cwd) }
 
-    fun transcript(cwd: String, sessionId: String): List<ChatItem> {
+    /**
+     * Everything resuming [sessionId] needs from its transcript, from one pass over it: the messages shown, the uuid of
+     * the newest main-conversation assistant message (subagents' are skipped) and the first timestamp (epoch millis).
+     * Empty when the transcript is missing.
+     */
+    fun read(cwd: String, sessionId: String): Transcript {
         val file = transcriptFile(cwd, sessionId)
-        if (!file.isFile) return emptyList()
+        if (!file.isFile) return Transcript(emptyList(), null, null)
         val items = mutableListOf<ChatItem>()
+        var lastAssistant: String? = null
+        var startedAt: Long? = null
         file.useLines { lines ->
             for (line in lines) {
                 val obj = parseJsonObject(line) ?: continue
+                if (startedAt == null) startedAt = obj.str("timestamp")?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
                 when (obj.str("type")) {
                     "user" -> userText(obj)?.let { items += ChatItem.UserText("h-${items.size}", it) }
-                    "assistant" -> assistantText(obj)?.let { items += ChatItem.AssistantText("h-${items.size}", it, false) }
+                    "assistant" -> {
+                        assistantText(obj)?.let { items += ChatItem.AssistantText("h-${items.size}", it, false) }
+                        if (obj.bool("isSidechain") != true) obj.str("uuid")?.let { lastAssistant = it }
+                    }
                 }
             }
         }
-        return items
-    }
-
-    /** The uuid of the transcript's newest main-conversation assistant message (subagents' are skipped), or null. */
-    fun lastAssistantUuid(cwd: String, sessionId: String): String? {
-        val file = transcriptFile(cwd, sessionId)
-        if (!file.isFile) return null
-        return file.useLines { lines ->
-            lines.mapNotNull(::parseJsonObject)
-                .filter { it.str("type") == "assistant" && it.bool("isSidechain") != true }
-                .mapNotNull { it.str("uuid") }
-                .lastOrNull()
-        }
-    }
-
-    /** When the session began: the first timestamp in its transcript (epoch millis), or null. */
-    fun startedAt(cwd: String, sessionId: String): Long? {
-        val file = transcriptFile(cwd, sessionId)
-        if (!file.isFile) return null
-        return file.useLines { lines ->
-            lines.mapNotNull { parseJsonObject(it)?.str("timestamp") }
-                .mapNotNull { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
-                .firstOrNull()
-        }
+        return Transcript(items, lastAssistant, startedAt)
     }
 
     /**

@@ -72,7 +72,7 @@ class SessionStoreTest {
         assertEquals(3, lines.size)
         assertEquals("""{"type":"custom-title","customTitle":"Login \"fix\"","sessionId":"s"}""", lines[1])
         assertEquals("Login fix 2", store.list(cwd).single().customTitle)
-        assertEquals(listOf(ChatItem.UserText("h-0", "first")), store.transcript(cwd, "s"))
+        assertEquals(listOf(ChatItem.UserText("h-0", "first")), store.read(cwd, "s").items)
     }
 
     @Test fun archivedSessionsAreListedOnlyOnRequest() {
@@ -128,7 +128,7 @@ class SessionStoreTest {
                 ChatItem.UserText("h-2", "next one"),
                 ChatItem.AssistantText("h-3", "ok", false),
             ),
-            store.transcript(cwd, "s1"))
+            store.read(cwd, "s1").items)
     }
 
     @Test fun transcriptStripsEveryIdeNote() {
@@ -148,7 +148,7 @@ class SessionStoreTest {
                 ChatItem.AssistantText("h-3", "b", false),
                 ChatItem.AssistantText("h-4", "c", false),
             ),
-            store.transcript(cwd, "s1"))
+            store.read(cwd, "s1").items)
     }
 
     @Test fun listTitleUsesTheCleanedText() {
@@ -194,7 +194,7 @@ class SessionStoreTest {
                 ChatItem.UserText("h-4", "[image]"),
                 ChatItem.AssistantText("h-5", "b", false),
             ),
-            store.transcript(cwd, "s1"))
+            store.read(cwd, "s1").items)
     }
 
     @Test fun listTitleOfAnImageMessage() {
@@ -211,14 +211,14 @@ class SessionStoreTest {
             """{"type":"attachment","timestamp":"2026-11-03T09:34:21.196Z"}""",
             """{"type":"user","timestamp":"2026-11-03T09:35:41.577Z","message":{"role":"user","content":"hi"}}""",
         )
-        assertEquals(java.time.Instant.parse("2026-11-03T09:34:21.196Z").toEpochMilli(), store.startedAt(cwd, "s1"))
+        assertEquals(java.time.Instant.parse("2026-11-03T09:34:21.196Z").toEpochMilli(), store.read(cwd, "s1").startedAt)
     }
 
     @Test fun startedAtIsNullWithoutTranscriptOrTimestamp() {
         val store = SessionStore(tmp.root)
         write(store, "s1", 1_000_000, user("hi"), """{"type":"user","timestamp":"yesterday"}""")
-        assertEquals(null, store.startedAt(cwd, "s1"))
-        assertEquals(null, store.startedAt(cwd, "missing"))
+        assertEquals(null, store.read(cwd, "s1").startedAt)
+        assertEquals(null, store.read(cwd, "missing").startedAt)
     }
 
     @Test fun lastAssistantUuidIsTheNewestMainConversationAnswer() {
@@ -230,7 +230,7 @@ class SessionStoreTest {
             """{"type":"assistant","uuid":"side","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"sub"}]}}""",
             """{"type":"custom-title","customTitle":"x"}""",
         )
-        assertEquals("a-2", store.lastAssistantUuid(cwd, "s1"))
-        assertEquals(null, store.lastAssistantUuid(cwd, "missing"))
+        assertEquals("a-2", store.read(cwd, "s1").lastAssistantUuid)
+        assertEquals(null, store.read(cwd, "missing").lastAssistantUuid)
     }
 }
