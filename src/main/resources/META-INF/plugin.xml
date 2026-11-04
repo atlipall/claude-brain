@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>local.claudechat</id>
+    <id>local.tether</id>
     <name>Tether for Claude Code</name>
     <vendor>local</vendor>
     <description><![CDATA[
@@ -16,38 +16,38 @@
     <depends optional="true" config-file="tether-tests.xml">intellij.testRunner.plugin</depends>
 
     <extensionPoints>
-        <extensionPoint qualifiedName="local.claudechat.problemSource" interface="claudechat.ide.tools.ProblemSource" dynamic="true"/>
+        <extensionPoint qualifiedName="local.tether.problemSource" interface="tether.ide.tools.ProblemSource" dynamic="true"/>
     </extensionPoints>
 
     <extensions defaultExtensionNs="com.intellij">
-        <applicationConfigurable parentId="tools" id="claudechat.settings" displayName="Tether"
-                                 instance="claudechat.settings.ClaudeChatConfigurable"/>
+        <applicationConfigurable parentId="tools" id="tether.settings" displayName="Tether"
+                                 instance="tether.settings.TetherConfigurable"/>
         <toolWindow id="Tether" anchor="right" icon="/icons/tether.svg"
-                    canCloseContents="true" factoryClass="claudechat.ui.ChatToolWindowFactory"/>
+                    canCloseContents="true" factoryClass="tether.ui.ChatToolWindowFactory"/>
         <notificationGroup id="Tether" displayType="STICKY_BALLOON"/>
         <intentionAction>
             <language/>
-            <className>claudechat.ide.FixWithTether</className>
+            <className>tether.ide.FixWithTether</className>
             <category>Tether</category>
         </intentionAction>
     </extensions>
 
     <actions>
-        <action id="claudechat.AddToChat" class="claudechat.ide.AddToChatAction"
+        <action id="tether.AddToChat" class="tether.ide.AddToChatAction"
                 text="Add to Tether" description="Insert a reference to this file or selection into the Tether chat">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt K"/>
             <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta shift alt K"/>
         </action>
-        <action id="claudechat.RenameChat" class="claudechat.ui.RenameChatAction"
+        <action id="tether.RenameChat" class="tether.ui.RenameChatAction"
                 text="Rename Chat…" description="Give this Tether chat a name (saved with its session)">
             <add-to-group group-id="ToolWindowContextMenu" anchor="last"/>
         </action>
-        <action id="claudechat.ArchiveChat" class="claudechat.ui.ArchiveChatAction"
+        <action id="tether.ArchiveChat" class="tether.ui.ArchiveChatAction"
                 text="Archive Chat" description="Close this Tether chat and move its session to Archived sessions">
-            <add-to-group group-id="ToolWindowContextMenu" anchor="after" relative-to-action="claudechat.RenameChat"/>
+            <add-to-group group-id="ToolWindowContextMenu" anchor="after" relative-to-action="tether.RenameChat"/>
         </action>
-        <action id="claudechat.SendConsoleToTether" class="claudechat.ide.SendConsoleToTether"
+        <action id="tether.SendConsoleToTether" class="tether.ide.SendConsoleToTether"
                 text="Send to Tether" description="Put the selected console output (or all of it) into the Tether chat">
             <add-to-group group-id="ConsoleView.PopupMenu" anchor="last"/>
         </action>

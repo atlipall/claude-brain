@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the Claude Chat plugin and installs it into your local WebStorm.
+# Builds the Tether plugin and installs it into your local WebStorm.
 #
 # Usage: ./install.sh [--no-build] [--force] [--config-dir <dir>]
 #   --no-build      install the existing build/distributions zip without rebuilding
@@ -43,14 +43,14 @@ if [ "$build" -eq 1 ]; then
   ./gw buildPlugin -q
 fi
 
-zip=$(ls build/distributions/claude-chat-*.zip 2>/dev/null | sort -V | tail -n 1 || true)
+zip=$(ls build/distributions/tether-*.zip 2>/dev/null | sort -V | tail -n 1 || true)
 if [ -z "$zip" ]; then
   echo "No plugin zip in build/distributions. Run without --no-build." >&2
   exit 1
 fi
 
 mkdir -p "$plugins_dir"
-rm -rf "$plugins_dir/claude-chat"
+rm -rf "$plugins_dir/tether" "$plugins_dir/claude-chat" # claude-chat: the folder before the rename
 unzip -q -o "$zip" -d "$plugins_dir"
-echo "Installed $(basename "$zip") into $plugins_dir/claude-chat"
+echo "Installed $(basename "$zip") into $plugins_dir/tether"
 echo "Start (or restart) WebStorm to load it."

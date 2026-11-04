@@ -80,10 +80,10 @@ Quit WebStorm, then from the project root:
 
 Or manually, after `./gw buildPlugin`, either:
 
-- Settings → Plugins → ⚙️ → **Install Plugin from Disk…** → `build/distributions/claude-chat-0.1.0.zip`, and restart; or
+- Settings → Plugins → ⚙️ → **Install Plugin from Disk…** → `build/distributions/tether-0.1.0.zip`, and restart; or
 - with WebStorm closed, unzip it into the plugins folder:
   ```sh
-  unzip -o build/distributions/claude-chat-0.1.0.zip \
+  unzip -o build/distributions/tether-0.1.0.zip \
     -d "$HOME/Library/Application Support/JetBrains/WebStorm2026.2/plugins"
   ```
 
@@ -115,7 +115,7 @@ There is no system Java needed: `./gw` runs Gradle with WebStorm's bundled JBR
 
 ```sh
 ./gw test          # unit + platform tests
-./gw buildPlugin   # build/distributions/claude-chat-0.1.0.zip
+./gw buildPlugin   # build/distributions/tether-0.1.0.zip
 ./gw runIde        # sandbox WebStorm with the plugin loaded
 ```
 
@@ -126,7 +126,7 @@ Stack: Kotlin, IntelliJ Platform Gradle Plugin 2.x, JCEF for the chat page (plai
 Layout:
 
 ```
-src/main/kotlin/claudechat/
+src/main/kotlin/tether/
   cli/        CLI protocol, process transport, command line
   session/    chats, sessions, transcripts, prompt history
   context/    editor context (file, caret, enclosing symbol)

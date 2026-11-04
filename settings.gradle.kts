@@ -1,1 +1,1 @@
-rootProject.name = "claude-chat"
+rootProject.name = "tether"
