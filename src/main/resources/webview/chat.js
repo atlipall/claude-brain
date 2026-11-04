@@ -610,6 +610,26 @@
     if (!idle) setSuggestion('');
   }
 
+  // Grows the box to fit its text (capped by max-height in the CSS) so the log above gives way.
+  // Its height with no inline height is the resting height the buttons keep.
+  // All reads come before any write, so each call lays the page out once.
+  let inputRest = '';
+  function fitInput() {
+    input.style.height = 'auto';
+    const rest = input.offsetHeight, borders = rest - input.clientHeight, fit = input.scrollHeight + borders;
+    if (inputRest !== rest + 'px') input.parentElement.style.setProperty('--input-rest', inputRest = rest + 'px');
+    input.style.height = fit + 'px';
+  }
+  let resizeFrame = 0;
+  window.addEventListener('resize', () => { cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(fitInput); });
+
+  // Every programmatic change of the box's text goes through here, so its height follows.
+  function setInput(text, caret = text.length) {
+    input.value = text;
+    input.setSelectionRange(caret, caret);
+    fitInput();
+  }
+
   const PLACEHOLDER = input.placeholder;
   // Only offered into an empty box while idle; typing, sending or a new turn takes it away.
   function setSuggestion(text) {
@@ -620,8 +640,7 @@
   function acceptSuggestion() {
     const text = suggestion;
     setSuggestion('');
-    input.value = text;
-    input.setSelectionRange(text.length, text.length);
+    setInput(text);
     recall = -1;
   }
 
@@ -773,9 +792,7 @@
     const start = input.selectionStart, end = input.selectionEnd;
     const before = input.value.slice(0, start), after = input.value.slice(end);
     const sep = before && !/\s$/.test(before) ? ' ' : '';
-    input.value = before + sep + text + ' ' + after;
-    const pos = (before + sep + text + ' ').length;
-    input.setSelectionRange(pos, pos);
+    setInput(before + sep + text + ' ' + after, (before + sep + text + ' ').length);
     input.focus();
   }
 
@@ -786,6 +803,7 @@
     s.setProperty('--font', '"' + t.font + '", system-ui, sans-serif'); s.setProperty('--font-size', t.fontSize + 'px');
     s.setProperty('--add', t.dark ? '#2f5a3a' : '#d7f5dd'); s.setProperty('--del', t.dark ? '#5a2f2f' : '#f9d7d7');
     s.setProperty('--ok', t.dark ? '#5fb865' : '#2e7d32');
+    fitInput();
   }
 
   function submit() {
@@ -797,7 +815,7 @@
     if (!text && !attachments.length) return;
     send({ type: 'send', text, attachments });
     attachments.forEach(removeTile);
-    input.value = '';
+    setInput('');
     recall = -1;
     draft = '';
     setSuggestion('');
@@ -832,8 +850,7 @@
     recall = step.recall;
     draft = step.draft;
     // Text goes into the textarea value only, never parsed as HTML.
-    input.value = step.text;
-    input.setSelectionRange(step.text.length, step.text.length);
+    setInput(step.text);
     return true;
   }
 
@@ -846,7 +863,8 @@
     else if (e.key === 'ArrowDown' && caretOnLastLine() && recallKey('down')) e.preventDefault();
   });
   // Typing ends recall (the edited text becomes the new draft) and dismisses the suggestion.
-  input.addEventListener('input', () => { recall = -1; if (suggestion) setSuggestion(''); });
+  input.addEventListener('input', () => { recall = -1; if (suggestion) setSuggestion(''); fitInput(); });
+  fitInput();
   sendBtn.addEventListener('click', submit);
   document.getElementById('new-chat').addEventListener('click', () => send({ type: 'newChat' }));
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
