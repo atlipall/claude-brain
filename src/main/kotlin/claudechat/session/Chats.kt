@@ -74,7 +74,7 @@ class Chats(private val project: Project) : Disposable {
             ide = ide,
             checkpoints = checkpoints,
             background = { AppExecutorUtil.getAppExecutorService().execute(it) },
-            defaultName = ChatNames.defaultName(spec.label, chats.map { it.title }),
+            defaultName = ChatNames.defaultName(ChatNames.branchLabel(spec), chats.map { it.title }),
             saveTitle = ::saveTitle,
         )
         tracker.register(chat.id)

@@ -1,6 +1,7 @@
 package claudechat.session
 
 import claudechat.git.canonicalPath
+import claudechat.git.currentBranch
 
 /**
  * How a chat starts. [cwd] is the launch directory. For a new worktree it is the project and [worktree]
@@ -46,6 +47,10 @@ object ChatNames {
     /** `main` for the project folder, otherwise the folder's name (a worktree name). */
     fun folderLabel(folder: String, projectDir: String): String =
         if (canonicalPath(folder) == canonicalPath(projectDir)) ChatSpec.MAIN else lastSegment(folder)
+
+    /** A project-folder chat ([ChatSpec.MAIN]) is named after the checked-out branch, if any; others keep [ChatSpec.label]. */
+    fun branchLabel(spec: ChatSpec, branch: (String) -> String? = ::currentBranch): String =
+        if (spec.label == ChatSpec.MAIN && spec.worktree == null) branch(spec.cwd) ?: ChatSpec.MAIN else spec.label
 
     fun lastSegment(path: String): String = path.trimEnd('/').substringAfterLast('/')
 }

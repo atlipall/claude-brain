@@ -35,6 +35,13 @@ class ChatNamesTest {
         } finally { link.delete(); dir.deleteRecursively() }
     }
 
+    @Test fun projectChatIsNamedAfterTheBranch() {
+        assertEquals("feature-x", ChatNames.branchLabel(ChatSpec.inProject("/p")) { "feature-x" })
+        assertEquals("main", ChatNames.branchLabel(ChatSpec.inProject("/p")) { null })
+        assertEquals("wt-2", ChatNames.branchLabel(ChatSpec.newWorktree("/p", "wt-2")) { "feature-x" })
+        assertEquals("wt-3", ChatNames.branchLabel(ChatSpec.existingWorktree("/p/.claude/worktrees/wt-3")) { "worktree-wt-3" })
+    }
+
     @Test fun specs() {
         assertEquals(ChatSpec("main", "/p"), ChatSpec.inProject("/p"))
         assertEquals(ChatSpec("wt-2", "/p", worktree = "wt-2"), ChatSpec.newWorktree("/p", "wt-2"))
