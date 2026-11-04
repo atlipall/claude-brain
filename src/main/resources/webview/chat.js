@@ -550,6 +550,10 @@
     if (head) setRowExpanded(head, true);
   }
 
+  // A longer list shows its first files until "Show all" is clicked.
+  const TURN_FILES_SHOWN = 5;
+  const turnFilesLabel = (all, count) => all ? 'Show fewer' : 'Show all ' + count + ' files';
+
   function renderResult(el, r) {
     el.className = 'msg result' + (r.isError ? ' error' : '');
     const files = Array.isArray(r.files) ? r.files : [];
@@ -563,21 +567,22 @@
     el.append(line);
     if (!files.length) return;
     const sum = (key) => files.reduce((n, f) => n + (Number(f[key]) || 0), 0);
-    const open = expandedTools.has(r.id);
-    line.append(' · ',
-      h('button', { class: 'link turn-files-toggle', 'data-action': 'turnFiles', 'data-id': r.id, 'aria-expanded': open ? 'true' : 'false' },
-        files.length + (files.length === 1 ? ' file' : ' files') + ' changed ', h('span', { class: 'tool-toggle' }, open ? '\u25BE' : '\u25B8')),
-      ' ', lineCounts(sum('added'), sum('removed')), ' · ',
+    line.append(' · ', files.length + (files.length === 1 ? ' file' : ' files') + ' changed ',
+      lineCounts(sum('added'), sum('removed')), ' · ',
       h('button', { class: 'link', 'data-action': 'turnDiff', 'data-id': r.id, 'data-index': '0' }, 'Review all'));
-    const list = h('div', { class: 'tool-detail turn-files', hidden: !open });
+    const all = files.length <= TURN_FILES_SHOWN || expandedTools.has(r.id);
+    const list = h('div', { class: 'tool-detail turn-files' + (all ? '' : ' clipped') });
     files.forEach((f, i) => {
       const path = String(f.path || '');
       const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
       const dir = slash < 0 ? '' : path.slice(0, slash).split(/[\\/]/).pop();
-      list.append(h('div', { class: 'tool-row', role: 'button', tabindex: '0', title: path, 'data-action': 'turnDiff', 'data-id': r.id, 'data-index': String(i) },
+      list.append(h('div', { class: 'tool-row' + (i >= TURN_FILES_SHOWN ? ' extra' : ''), role: 'button', tabindex: '0', title: path, 'data-action': 'turnDiff', 'data-id': r.id, 'data-index': String(i) },
         h('span', { class: 'tool-desc' }, h('span', { class: 'turn-file-name' }, path.slice(slash + 1)), dir ? ' ' + dir + '/' : '', f.isNew ? h('span', { class: 'turn-file-new' }, ' new') : ''),
         h('span', { class: 'tool-side' }, lineCounts(Number(f.added) || 0, Number(f.removed) || 0))));
     });
+    if (files.length > TURN_FILES_SHOWN) {
+      list.append(h('button', { class: 'link turn-files-more', 'data-action': 'turnFiles', 'data-id': r.id }, turnFilesLabel(all, files.length)));
+    }
     el.append(list);
   }
 
@@ -588,12 +593,10 @@
   }
 
   function toggleTurnFiles(button) {
-    const open = button.getAttribute('aria-expanded') !== 'true';
-    if (open) expandedTools.add(button.dataset.id); else expandedTools.delete(button.dataset.id);
-    button.setAttribute('aria-expanded', open ? 'true' : 'false');
-    button.querySelector('.tool-toggle').textContent = open ? '\u25BE' : '\u25B8';
-    const list = button.closest('.result').querySelector('.turn-files');
-    if (list) list.hidden = !open;
+    const list = button.closest('.turn-files');
+    const all = !list.classList.toggle('clipped');
+    if (all) expandedTools.add(button.dataset.id); else expandedTools.delete(button.dataset.id);
+    button.textContent = turnFilesLabel(all, list.querySelectorAll('.tool-row').length);
   }
 
   function openTurnDiff(target) {
@@ -803,6 +806,8 @@
     s.setProperty('--font', '"' + t.font + '", system-ui, sans-serif'); s.setProperty('--font-size', t.fontSize + 'px');
     s.setProperty('--add', t.dark ? '#2f5a3a' : '#d7f5dd'); s.setProperty('--del', t.dark ? '#5a2f2f' : '#f9d7d7');
     s.setProperty('--ok', t.dark ? '#5fb865' : '#2e7d32');
+    // Native parts (a scrolling text box, scrollbars) follow the scheme, not the colours above.
+    s.setProperty('color-scheme', t.dark ? 'dark' : 'light');
     fitInput();
   }
 

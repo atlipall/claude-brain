@@ -2,6 +2,7 @@
   --bg: #1e1f22; --fg: #dfe1e5; --muted: #8c8f94; --border: #393b40; --accent: #589df6;
   --code-bg: #2b2d30; --add: #2f5a3a; --del: #5a2f2f; --danger: #c75450; --ok: #5fb865; --warn: #d29922;
   --font: system-ui, sans-serif; --font-size: 13px;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -86,6 +87,8 @@ pre.del { background: var(--del); }
 .line-counts .removed { color: var(--danger); }
 .turn-files { margin-left: 4px; }
 .turn-files .tool-row { cursor: pointer; }
+.turn-files.clipped .extra { display: none; }
+.turn-files-more { margin: 2px 0 0; }
 .turn-file-name { color: var(--fg); }
 .turn-file-new { color: var(--ok); }
 .notice { color: var(--muted); font-style: italic; white-space: pre-wrap; }
