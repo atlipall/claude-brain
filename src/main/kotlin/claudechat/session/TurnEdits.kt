@@ -17,6 +17,9 @@ internal class TurnEdits {
         if (path !in originals) originals[path] = original
     }
 
+    /** The files recorded so far, whose originals are kept. */
+    fun paths(): Set<String> = originals.keys.toSet()
+
     /** The turn's originals, and starts over for the next turn. */
     fun take(): Map<String, String?> = LinkedHashMap(originals).also { originals.clear() }
 

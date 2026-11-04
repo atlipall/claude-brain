@@ -15,16 +15,21 @@ fun runGit(dir: File, vararg args: String, timeoutSeconds: Long = 5): String? =
 /** The default [GitRunner]: [runGit] with a 30-second timeout (diffs of large checkouts take a while). */
 fun gitRunner(dir: File, args: List<String>): String? = runGit(dir, *args.toTypedArray(), timeoutSeconds = 30)
 
-/** Like [runGit], but returns stdout as bytes (file contents). */
-fun runGitBytes(dir: File, vararg args: String, timeoutSeconds: Long = 5): ByteArray? = try {
+/** Like [runGit], but returns stdout as bytes (file contents); [env] is added to git's environment, [input] is its stdin. */
+fun runGitBytes(
+    dir: File, vararg args: String, timeoutSeconds: Long = 5, env: Map<String, String> = emptyMap(), input: ByteArray? = null,
+): ByteArray? = try {
     val builder = ProcessBuilder("git", *args)
         .directory(dir)
         .redirectError(ProcessBuilder.Redirect.DISCARD)
     builder.environment()["GIT_TERMINAL_PROMPT"] = "0"
+    builder.environment().putAll(env)
     val process = builder.start()
-    process.outputStream.close()
     // Read on another thread so a hung git (a lock, a prompt) still times out.
     val out = CompletableFuture.supplyAsync { process.inputStream.readBytes() }
+    // Written on another thread too: git may fill stdout before it has read all of stdin.
+    if (input == null) process.outputStream.close()
+    else CompletableFuture.runAsync { try { process.outputStream.use { it.write(input) } } catch (_: IOException) {} }
     when {
         !process.waitFor(timeoutSeconds, TimeUnit.SECONDS) -> { process.destroyForcibly(); null }
         process.exitValue() != 0 -> null

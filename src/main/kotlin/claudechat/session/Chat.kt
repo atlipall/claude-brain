@@ -6,6 +6,7 @@ import claudechat.cli.PermissionMode
 import claudechat.cli.SessionLaunch
 import claudechat.context.ContextNotes
 import claudechat.context.EditorContext
+import claudechat.git.WorkingTrees
 import claudechat.image.Attachment
 import claudechat.image.PendingAttachments
 import com.intellij.openapi.diagnostic.ControlFlowException
@@ -201,7 +202,7 @@ class Chat(
         }
     }
 
-    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background, resumeAnchor)
+    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background, resumeAnchor, WorkingTrees())
 
     private val predictedCwd: String? = spec.worktree?.let { "${spec.cwd.trimEnd('/')}/.claude/worktrees/$it" }
 

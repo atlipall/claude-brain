@@ -12,6 +12,8 @@ import claudechat.cli.SessionLaunch
 import claudechat.cli.obj
 import claudechat.cli.str
 import claudechat.cli.ImageBlock
+import claudechat.git.TreeSnapshot
+import claudechat.git.WorkingTrees
 import claudechat.image.Image
 import claudechat.image.Images
 import kotlinx.serialization.json.JsonObject
@@ -79,6 +81,18 @@ private const val AFTER_EDIT = "after-edit"
 private const val POST_TOOL_USE = "PostToolUse"
 private val EDIT_TOOLS = HookRegistration("Edit|Write|MultiEdit|NotebookEdit", AFTER_EDIT, timeoutSeconds = 60)
 
+/** Callback ids of the hooks around a Bash call that snapshot the checkout, so the files it changed join the turn's list. */
+private const val BEFORE_BASH = "before-bash"
+private const val AFTER_BASH = "after-bash"
+private const val PRE_TOOL_USE = "PreToolUse"
+private const val POST_TOOL_USE_FAILURE = "PostToolUseFailure"
+private const val BASH_SECONDS = 60
+private val BASH_HOOKS = listOf(
+    PRE_TOOL_USE to HookRegistration("Bash", BEFORE_BASH, BASH_SECONDS),
+    POST_TOOL_USE to HookRegistration("Bash", AFTER_BASH, BASH_SECONDS),
+    POST_TOOL_USE_FAILURE to HookRegistration("Bash", AFTER_BASH, BASH_SECONDS),
+)
+
 /** Prefix of get_context_usage request ids, so their replies are recognised even after a newer request replaced them. */
 private const val CONTEXT_PREFIX = "context"
 
@@ -111,6 +125,8 @@ class ChatSession(
     private val background: (Runnable) -> Unit = { it.run() },
     /** The uuid of the resumed transcript's newest assistant message: where a rewind to its first new message resumes. */
     resumeAnchor: String? = null,
+    /** Snapshots the checkout around Bash calls so the files they change show in the turn's list; null skips that. */
+    private val trees: WorkingTrees? = null,
 ) {
     private val lock = Any()
 
@@ -149,6 +165,8 @@ class ChatSession(
     private val diffs = HashMap<String, FileDiff>()
     /** The running turn's edits; summed up on its [ChatItem.TurnResult]. */
     private val turnEdits = TurnEdits()
+    /** The checkout before each running Bash call, by its tool use id. */
+    private val snapshotsBeforeBash = HashMap<String, TreeSnapshot>()
     /** Each recent turn's file diffs, by its result item's id, oldest first. */
     private val turnDiffs = object : LinkedHashMap<String, List<FileDiff>>() {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<FileDiff>>) = size > MAX_TURN_DIFFS
@@ -196,7 +214,10 @@ class ChatSession(
                 val tools = ide?.tools.orEmpty()
                 mcpServer = if (tools.isEmpty()) null else McpServer(IDE_SERVER, tools)
                 readOnlyTools = tools.filter { it.readOnly }.mapTo(HashSet()) { IDE_TOOL_PREFIX + it.name }
-                val hooks = if (ide?.checksEdits == true) mapOf(POST_TOOL_USE to listOf(EDIT_TOOLS)) else emptyMap()
+                val hooks = buildList {
+                    if (ide?.checksEdits == true) add(POST_TOOL_USE to EDIT_TOOLS)
+                    if (trees != null) addAll(BASH_HOOKS)
+                }.groupBy({ it.first }, { it.second })
                 conn.send(CliMessages.initialize(initId, listOfNotNull(mcpServer?.let { IDE_SERVER }), hooks))
             } catch (e: Exception) {
                 generation++
@@ -411,6 +432,7 @@ class ChatSession(
             connection?.stop()
             connection = null
         }
+        trees?.close()
     }
 
     fun diffFor(toolUseId: String): FileDiff? = synchronized(lock) { diffs[toolUseId] }
@@ -552,27 +574,73 @@ class ChatSession(
         }
     }
 
-    /** Runs [IdeHost.afterEdit] for the file an edit tool wrote; the CLI waits for every callback, so one is always sent. */
+    /** Answers a hook callback; the CLI waits for every callback, so one is always sent. */
     private fun onHookCallback(event: CliEvent.HookCallback) {
+        val work = when (event.callbackId) {
+            BEFORE_BASH -> beforeBash(event)
+            AFTER_BASH -> afterBash(event)
+            AFTER_EDIT -> afterEdit(event)
+            else -> null
+        }
+        answerHook(event, work)
+    }
+
+    /**
+     * Answers [event] with what [work] returns (context for Claude, or null), run in [background]; at once with nothing
+     * when there is no work. A failure is logged and still answered.
+     */
+    private fun answerHook(event: CliEvent.HookCallback, work: (() -> String?)?) {
         val conn = connection ?: return
-        val host = ide
-        val toolInput = event.input.obj("tool_input")
-        val path = toolInput?.let { it.str("file_path") ?: it.str("notebook_path") }
-        if (event.callbackId != AFTER_EDIT || host == null || path == null) {
-            conn.send(CliMessages.hookResponse(event.requestId, POST_TOOL_USE, null))
+        val name = event.input.str("hook_event_name") ?: POST_TOOL_USE
+        if (work == null) {
+            conn.send(CliMessages.hookResponse(event.requestId, name, null))
             return
         }
         background {
             var note: String? = null
             try {
-                note = host.afterEdit(path)
+                note = work()
             } catch (e: Exception) {
                 if (e is InterruptedException) Thread.currentThread().interrupt()
-                log("After-edit check failed for $path: $e")
+                log("$name hook ${event.callbackId} failed: $e")
             } finally {
-                conn.send(CliMessages.hookResponse(event.requestId, POST_TOOL_USE, note))
+                conn.send(CliMessages.hookResponse(event.requestId, name, note))
             }
         }
+    }
+
+    /** Snapshots the checkout before a Bash call runs; the call waits for it. */
+    private fun beforeBash(event: CliEvent.HookCallback): (() -> String?)? {
+        val t = trees ?: return null
+        val id = event.input.str("tool_use_id") ?: return null
+        val dir = event.input.str("cwd") ?: cwd
+        val gen = generation
+        return {
+            t.snapshot(dir)?.let { snap -> synchronized(lock) { if (gen == generation) snapshotsBeforeBash[id] = snap } }
+            null
+        }
+    }
+
+    /** Adds the files a Bash call changed to the turn's edits, each with its content from before the call. */
+    private fun afterBash(event: CliEvent.HookCallback): (() -> String?)? {
+        val t = trees ?: return null
+        val before = event.input.str("tool_use_id")?.let(snapshotsBeforeBash::remove) ?: return null
+        val gen = generation
+        return {
+            val known = synchronized(lock) { turnEdits.paths() }
+            val changed = t.snapshot(before.root)?.let { t.changes(before, it, known) }
+            if (!changed.isNullOrEmpty()) synchronized(lock) {
+                if (gen == generation) changed.forEach { (path, original) -> turnEdits.record(path, original) }
+            }
+            null
+        }
+    }
+
+    /** Runs [IdeHost.afterEdit] for the file an edit tool wrote; its note goes back to Claude. */
+    private fun afterEdit(event: CliEvent.HookCallback): (() -> String?)? {
+        val host = ide ?: return null
+        val path = event.input.obj("tool_input")?.let { it.str("file_path") ?: it.str("notebook_path") } ?: return null
+        return { host.afterEdit(path) }
     }
 
     private fun onToolResult(event: CliEvent.ToolResult, copies: List<String>) {
@@ -677,6 +745,7 @@ class ChatSession(
         pendingPermissions.clear()
         runningTools.clear()
         turnEdits.clear()
+        snapshotsBeforeBash.clear()
         backgroundTasks = 0
         endAgents { true }
         phase = null

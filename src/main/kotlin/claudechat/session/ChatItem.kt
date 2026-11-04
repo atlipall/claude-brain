@@ -54,7 +54,7 @@ sealed interface ChatItem {
         /** Set for an Agent/Task call once the CLI reports on its subagent. */
         val agent: AgentInfo? = null,
     ) : ChatItem
-    /** The end of a turn; [files] are those its edit tools changed, in the order it first edited them. */
+    /** The end of a turn; [files] are those its edit tools and Bash calls changed, in the order it first changed them. */
     data class TurnResult(
         override val id: String, val isError: Boolean, val text: String?, val durationMs: Long?, val costUsd: Double?,
         val files: List<TurnFile> = emptyList(),
