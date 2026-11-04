@@ -4,9 +4,19 @@ import claudechat.git.canonicalPath
 
 /**
  * How a chat starts. [cwd] is the launch directory. For a new worktree it is the project and [worktree]
- * names the worktree claude creates (the chat then moves to the folder system/init reports).
+ * names the worktree claude creates (the chat then moves to the folder system/init reports). [acp] is the command
+ * line of the ACP agent the chat runs instead of Claude.
  */
-data class ChatSpec(val label: String, val cwd: String, val worktree: String? = null, val resumeId: String? = null) {
+data class ChatSpec(
+    val label: String,
+    val cwd: String,
+    val worktree: String? = null,
+    val resumeId: String? = null,
+    val acp: List<String>? = null,
+) {
+    /** The same chat with the ACP agent [command] (not empty), named after its executable. */
+    fun withAcp(command: List<String>) = copy(label = "$label (${agentName(command)})", acp = command)
+
     companion object {
         const val MAIN = "main"
 
@@ -18,6 +28,8 @@ data class ChatSpec(val label: String, val cwd: String, val worktree: String? = 
 
         fun resume(projectDir: String, session: SessionSummary) =
             ChatSpec(ChatNames.folderLabel(session.folder, projectDir), session.folder, resumeId = session.id)
+
+        fun agentName(command: List<String>): String = command.first().substringAfterLast('/')
     }
 }
 

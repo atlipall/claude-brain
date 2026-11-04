@@ -62,7 +62,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         chat.attach(object : claudechat.session.SessionView {
             override fun reset(items: List<ChatItem>) { shown = items }
             override fun item(item: ChatItem) {}
-            override fun state(state: claudechat.session.SessionState, sessionId: String?, mode: claudechat.cli.PermissionMode?) {}
+            override fun state(state: claudechat.session.SessionState, sessionId: String?, mode: String?) {}
             override fun insert(text: String) {}
         })
         return shown.filterIsInstance<ChatItem.UserText>().single()

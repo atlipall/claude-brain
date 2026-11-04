@@ -22,16 +22,23 @@ sealed interface NewChatChoice {
 }
 
 object NewChatChoices {
-    /** [worktrees] is `git worktree list` (null without git, which hides the worktree rows). */
-    fun build(projectDir: String, worktrees: List<Worktree>?): List<NewChatChoice> = buildList {
+    /**
+     * [worktrees] is `git worktree list` (null without git, which hides the worktree rows). [acp] is the ACP agent's
+     * command line: it adds rows for the project and the existing worktrees with that agent.
+     */
+    fun build(projectDir: String, worktrees: List<Worktree>?, acp: List<String>? = null): List<NewChatChoice> = buildList {
+        val project = canonicalPath(projectDir)
+        val others = worktrees.orEmpty().filterNot { it.isMain || canonicalPath(it.path) == project }
+        fun inWorktree(wt: Worktree) = "In worktree ${wt.name}" + wt.branch?.let { " ($it)" }.orEmpty()
         add(NewChatChoice.Open("In this project", ChatSpec.inProject(projectDir)))
         if (worktrees != null) {
             add(NewChatChoice.NewWorktree)
-            val project = canonicalPath(projectDir)
-            for (wt in worktrees.filterNot { it.isMain || canonicalPath(it.path) == project }) {
-                val branch = wt.branch?.let { " ($it)" }.orEmpty()
-                add(NewChatChoice.Open("In worktree ${wt.name}$branch", ChatSpec.existingWorktree(wt.path)))
-            }
+            for (wt in others) add(NewChatChoice.Open(inWorktree(wt), ChatSpec.existingWorktree(wt.path)))
+        }
+        if (acp != null) {
+            val with = " with ${ChatSpec.agentName(acp)}"
+            add(NewChatChoice.Open("In this project$with", ChatSpec.inProject(projectDir).withAcp(acp)))
+            for (wt in others) add(NewChatChoice.Open(inWorktree(wt) + with, ChatSpec.existingWorktree(wt.path).withAcp(acp)))
         }
         add(NewChatChoice.Resume)
     }

@@ -1,13 +1,13 @@
 package claudechat.testutil
 
 import claudechat.cli.CliConnection
-import claudechat.cli.PermissionMode
 import claudechat.cli.arr
 import claudechat.cli.obj
 import claudechat.cli.parseJsonObject
 import claudechat.cli.str
 import claudechat.session.ChatItem
 import claudechat.session.ChatListener
+import claudechat.session.Choice
 import claudechat.session.SessionState
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -15,10 +15,12 @@ import kotlinx.serialization.json.jsonObject
 class FakeConnection : CliConnection {
     val sent = mutableListOf<String>()
     var stopped = false
+    var started = false
     private var onLine: ((String) -> Unit)? = null
     private var onExit: ((Int, String) -> Unit)? = null
 
     override fun start(onLine: (String) -> Unit, onExit: (Int, String) -> Unit) {
+        started = true
         this.onLine = onLine
         this.onExit = onExit
     }
@@ -52,9 +54,11 @@ class FakeConnection : CliConnection {
 
 class RecordingListener : ChatListener {
     val items = mutableListOf<ChatItem>()
-    val states = mutableListOf<Triple<SessionState, String?, PermissionMode?>>()
+    val states = mutableListOf<Triple<SessionState, String?, String?>>()
     override fun onItem(item: ChatItem) { items += item }
-    override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) { states += Triple(state, sessionId, mode) }
+    override fun onState(state: SessionState, sessionId: String?, mode: String?) { states += Triple(state, sessionId, mode) }
+    val modes = mutableListOf<List<Choice>>()
+    override fun onModes(modes: List<Choice>) { this.modes += modes }
     val activities = mutableListOf<claudechat.session.Activity?>()
     override fun onActivity(activity: claudechat.session.Activity?) { activities += activity }
     val contexts = mutableListOf<claudechat.cli.ContextUsage>()

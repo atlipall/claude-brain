@@ -164,6 +164,46 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals("initialize", connections[1].sentJson().last().obj("request")!!.str("subtype"))
     }
 
+    fun testAcpChatShowsTheAgentsModesAndAnswersWithItsOptions() {
+        val saved = chats.acpConnector
+        val acp = mutableListOf<Pair<List<String>, FakeConnection>>()
+        chats.acpConnector = { command, _ -> FakeConnection().also { acp += command to it } }
+        val acpChat = chats.open(ChatSpec.inProject(root).withAcp(listOf("hermes", "acp")))
+        val acpPosted = mutableListOf<JsonObject>()
+        val acpBridge = ChatBridge(project, acpChat, {}) { acpPosted += parseJsonObject(it)!! }
+        try {
+            val (command, conn) = acp.single()
+            PlatformTestUtil.waitWithEventsDispatching("initialize was not sent", { conn.sent.isNotEmpty() }, 10)
+            fun reply(method: String, result: String) {
+                val id = conn.sentJson().last { it.str("method") == method }["id"]
+                conn.emit("""{"jsonrpc":"2.0","id":$id,"result":$result}""")
+            }
+            reply("initialize", """{"protocolVersion":1,"agentCapabilities":{}}""")
+            reply("session/new", """{"sessionId":"s1","modes":{"currentModeId":"default","availableModes":[{"id":"default","name":"Default"},{"id":"accept_edits","name":"Accept edits"}]}}""")
+
+            acpBridge.handle("""{"type":"ready"}""")
+            acpBridge.handle("""{"type":"setMode","mode":"accept_edits"}""")
+            conn.emit("""{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"perm-check-1","title":"Run ls"},"options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"}]}}""")
+            val card = acpPosted.last { it.str("type") == "item" }.obj("item")!!
+            acpBridge.handle("""{"type":"answer","requestId":"${card.str("permissionRequestId")}","answers":{}}""")
+            acpBridge.handle("""{"type":"permission","requestId":"${card.str("permissionRequestId")}","optionId":"allow_once"}""")
+
+            assertEquals(listOf("hermes", "acp"), command)
+            assertEquals("main (hermes)", acpChat.label)
+            val modes = acpPosted.last { it.str("type") == "modes" }.arr("modes")!!.map { it.jsonObject.str("id") }
+            assertEquals(listOf("default", "accept_edits"), modes)
+            assertEquals("default", acpPosted.last { it.str("type") == "state" }.str("mode"))
+            assertEquals("accept_edits", conn.sentJson().last { it.str("method") == "session/set_mode" }.obj("params")!!.str("modeId"))
+            assertEquals(listOf("allow_once"), card.arr("choices")!!.map { it.jsonObject.str("id") })
+            val answer = conn.sentJson().single { it.str("method") == null && it["id"].toString() == "0" }
+            assertEquals("allow_once", answer.obj("result")!!.obj("outcome")!!.str("optionId"))
+        } finally {
+            acpBridge.dispose()
+            chats.close(acpChat)
+            chats.acpConnector = saved
+        }
+    }
+
     fun testNewChatAsksTheTabs() {
         bridge.handle("""{"type":"newChat"}""")
         assertEquals(1, newChatRequests)

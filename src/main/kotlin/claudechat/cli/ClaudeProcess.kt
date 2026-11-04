@@ -9,11 +9,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-/** Runs the claude CLI and exchanges NDJSON over its stdin/stdout. */
+/** Runs the claude CLI (or an ACP agent) and exchanges NDJSON over its stdin/stdout. */
 class ClaudeProcess(
     private val command: List<String>,
     private val workDir: File,
     private val env: Map<String, String>,
+    /** Variables removed from the child's environment. */
+    private val stripped: Collection<String> = STRIPPED,
 ) : CliConnection {
     private var process: Process? = null
 
@@ -26,7 +28,7 @@ class ClaudeProcess(
 
     override fun start(onLine: (String) -> Unit, onExit: (exitCode: Int, stderrTail: String) -> Unit) {
         val builder = ProcessBuilder(command).directory(workDir)
-        val childEnv = childEnvironment(builder.environment(), env)
+        val childEnv = childEnvironment(builder.environment(), env, stripped)
         builder.environment().apply { clear(); putAll(childEnv) }
         val p = builder.start()
         process = p
@@ -106,7 +108,7 @@ class ClaudeProcess(
         /** Variables that would make claude bill an API account instead of the user's logged-in subscription. */
         private val STRIPPED = listOf("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
-        internal fun childEnvironment(base: Map<String, String>, extra: Map<String, String>): Map<String, String> =
-            (base + extra) - STRIPPED.toSet()
+        internal fun childEnvironment(base: Map<String, String>, extra: Map<String, String>, stripped: Collection<String> = STRIPPED): Map<String, String> =
+            (base + extra) - stripped.toSet()
     }
 }

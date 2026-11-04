@@ -1,5 +1,7 @@
 package claudechat.session
 
+import claudechat.acp.AcpSession
+import claudechat.acp.JsonAcpClient
 import claudechat.cli.ClaudeBinary
 import claudechat.cli.ClaudeCommand
 import claudechat.cli.ClaudeProcess
@@ -14,6 +16,7 @@ import claudechat.ide.TurnCheckpoints
 import claudechat.ide.tools.ChatIdeHost
 import claudechat.settings.ClaudeChatSettings
 import com.intellij.openapi.Disposable
+import com.intellij.execution.configurations.PathEnvironmentVariableUtil
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -22,6 +25,7 @@ import com.intellij.util.EnvironmentUtil
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.execution.ParametersListUtil
 import java.io.File
+import java.io.FileFilter
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -30,10 +34,12 @@ class ClaudeNotFoundException : Exception(
         "or set its path in Settings > Tools > Tether."
 )
 
-/** The project's open chats. Each chat owns its own claude process. */
+/** The project's open chats. Each chat owns its own claude (or ACP agent) process. */
 @Service(Service.Level.PROJECT)
 class Chats(private val project: Project) : Disposable {
     var connector: (SessionLaunch) -> CliConnection = ::defaultConnect
+    /** Starts an ACP agent from its command line in a folder. */
+    var acpConnector: (List<String>, String) -> CliConnection = ::defaultAcpConnect
     var store: SessionStore = SessionStore.default()
     var worktrees: GitWorktrees = GitWorktrees(projectDir)
 
@@ -50,6 +56,10 @@ class Chats(private val project: Project) : Disposable {
     fun all(): List<Chat> = chats.toList()
 
     fun mainSpec(): ChatSpec = ChatSpec.inProject(projectDir)
+
+    /** The configured ACP agent's command line; null when none is set. */
+    fun acpCommand(): List<String>? =
+        ParametersListUtil.parse(ClaudeChatSettings.getInstance().state.acpCommand.orEmpty()).takeIf { it.isNotEmpty() }
 
     /** Creates and starts a chat (a resumed one shows its transcript). EDT. */
     fun open(spec: ChatSpec): Chat {
@@ -72,6 +82,9 @@ class Chats(private val project: Project) : Disposable {
             ide = ide,
             checkpoints = checkpoints,
             background = { AppExecutorUtil.getAppExecutorService().execute(it) },
+            agent = spec.acp?.let { command ->
+                { listener -> AcpSession({ JsonAcpClient(acpConnector(command, spec.cwd)) }, listener, spec.cwd, ChatSpec.agentName(command)) { LOG.info(it) } }
+            },
         )
         tracker.register(chat.id)
         chats += chat
@@ -104,6 +117,15 @@ class Chats(private val project: Project) : Disposable {
         } ?: throw ClaudeNotFoundException()
         val command = ClaudeCommand.build(binary, launch, ParametersListUtil.parse(settings.extraArgs.orEmpty()))
         return ClaudeProcess(command, File(launch.cwd), env)
+    }
+
+    /** The agent gets the IDE's environment unchanged: its credentials and settings are its own. */
+    private fun defaultAcpConnect(command: List<String>, cwd: String): CliConnection {
+        val env = EnvironmentUtil.getEnvironmentMap()
+        val name = command.first()
+        val executable = if ('/' in name) name else PathEnvironmentVariableUtil.findInPath(name, env["PATH"], FileFilter { it.canExecute() })?.path
+            ?: throw IllegalStateException("`$name` was not found on PATH. Set the ACP agent command, with the full path if needed, in Settings > Tools > Tether.")
+        return ClaudeProcess(listOf(executable) + command.drop(1), File(cwd), env, stripped = emptyList())
     }
 
     override fun dispose() = closeAll()

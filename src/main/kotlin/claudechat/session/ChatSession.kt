@@ -35,7 +35,10 @@ sealed interface Activity {
 /** Called while the session lock is held: do not call back into the session synchronously. */
 interface ChatListener {
     fun onItem(item: ChatItem)
-    fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?)
+    fun onState(state: SessionState, sessionId: String?, mode: String?)
+
+    /** The modes the agent offers; empty when it offers none to choose from. */
+    fun onModes(modes: List<Choice>) {}
 
     /** The turn's activity, reported only when it changes; null when nothing is running (no turn, no background agent). */
     fun onActivity(activity: Activity?) {}
@@ -60,6 +63,8 @@ sealed interface PermissionDecision {
     data object Allow : PermissionDecision
     data object AllowForSession : PermissionDecision
     data class Deny(val message: String) : PermissionDecision
+    /** One of the answers an ACP agent offered ([ChatItem.ToolCall.choices]). */
+    data class Option(val optionId: String) : PermissionDecision
 }
 
 data class FileDiff(val filePath: String, val originalContent: String)
@@ -106,18 +111,19 @@ class ChatSession(
     private val ide: IdeHost? = null,
     /** Runs IDE work (tool calls, edit checks) off the CLI reader thread. */
     private val background: (Runnable) -> Unit = { it.run() },
-) {
+) : AgentSession {
     private val lock = Any()
 
-    var sessionId: String? = resumeId
+    override var sessionId: String? = resumeId
         private set
     var mode: PermissionMode? = initialMode
         private set
-    var state: SessionState = SessionState.IDLE
+    override val modeId: String? get() = mode?.cli
+    override var state: SessionState = SessionState.IDLE
         private set
 
     /** The folder claude runs in: the launch directory until system/init reports the real one (a new worktree's path). */
-    @Volatile var cwd: String = cwd
+    @Volatile override var cwd: String = cwd
         private set
     /** True once system/init reported a cwd; from then on restarts run there instead of creating the worktree again. */
     @Volatile var cwdReported = false
@@ -156,7 +162,7 @@ class ChatSession(
     /** Full names (`mcp__tether__<name>`) of the current process's read-only IDE tools, allowed without asking. */
     private var readOnlyTools: Set<String> = emptySet()
 
-    fun start() {
+    override fun start() {
         synchronized(lock) {
             val gen = ++generation
             var created: CliConnection? = null
@@ -195,7 +201,7 @@ class ChatSession(
      * Shows [text] (with [thumbs] above it) in the chat; sends "[prefix]\n\n[text]" and [images] to Claude. While a
      * turn is running the message is queued instead (see [ChatListener.onQueue]) and enters the chat when it goes out.
      */
-    fun send(text: String, prefix: String? = null, images: List<Image> = emptyList(), thumbs: List<String> = emptyList()) {
+    override fun send(text: String, prefix: String?, images: List<Image>, thumbs: List<String>) {
         synchronized(lock) {
             if (state == SessionState.DEAD) return
             val payload = listOfNotNull(prefix?.takeIf { it.isNotBlank() }, text.takeIf { it.isNotEmpty() }).joinToString("\n\n")
@@ -213,7 +219,7 @@ class ChatSession(
     }
 
     /** Takes queued message [id] out of the queue without sending it; null when it is not queued (any more). */
-    fun unqueue(id: String): QueuedMessage? = synchronized(lock) {
+    override fun unqueue(id: String): QueuedMessage? = synchronized(lock) {
         val i = queue.indexOfFirst { it.shown.id == id }
         if (i < 0) return null
         val removed = queue.removeAt(i).shown
@@ -222,7 +228,7 @@ class ChatSession(
     }
 
     /** Stops the running turn and sends queued message [id] next; the rest of the queue follows it. */
-    fun sendNow(id: String) {
+    override fun sendNow(id: String) {
         synchronized(lock) {
             if (!turnOpen) return
             val i = queue.indexOfFirst { it.shown.id == id }
@@ -236,12 +242,13 @@ class ChatSession(
     }
 
     /** Shows a notice in the chat (e.g. an image that could not be attached). Any thread. */
-    fun notice(text: String, isError: Boolean = true) {
+    override fun notice(text: String, isError: Boolean) {
         synchronized(lock) { emit(ChatItem.Notice(nextId("notice"), text, isError)) }
     }
 
-    fun respond(requestId: String, decision: PermissionDecision) {
+    override fun respond(requestId: String, decision: PermissionDecision) {
         synchronized(lock) {
+            if (decision is PermissionDecision.Option) return
             val pending = pendingPermissions[requestId] ?: return
             // A question is answered with answer() or declined; it can't be allowed without answers.
             if (pending.toolName == ASK_USER_QUESTION && decision !is PermissionDecision.Deny) return
@@ -257,6 +264,7 @@ class ChatSession(
                     deniedToolUses += toolId
                     connection?.send(CliMessages.deny(requestId, decision.message))
                 }
+                is PermissionDecision.Option -> Unit
             }
             val status = if (decision is PermissionDecision.Deny) ToolStatus.DENIED else ToolStatus.RUNNING
             toolCalls[toolId]?.let { upsertTool(it.copy(status = status, permissionRequestId = null)) }
@@ -305,6 +313,10 @@ class ChatSession(
         toolCalls[req.toolUseId ?: "perm-$requestId"]?.question?.questions
     }
 
+    override fun setMode(id: String) {
+        PermissionMode.fromCli(id)?.let(::setPermissionMode)
+    }
+
     fun setPermissionMode(newMode: PermissionMode) {
         synchronized(lock) {
             mode = newMode
@@ -314,7 +326,7 @@ class ChatSession(
     }
 
     /** Stops the running turn; queued messages are dropped (see [ChatListener.onDropped]). */
-    fun interrupt() {
+    override fun interrupt() {
         synchronized(lock) {
             if (!turnOpen) return
             dropQueue()
@@ -351,14 +363,14 @@ class ChatSession(
     private fun notifyQueue() = listener.onQueue(queue.map { it.shown })
 
     /** Respawns a dead session with --resume and the current permission mode. */
-    fun restart() {
+    override fun restart() {
         synchronized(lock) {
             if (state != SessionState.DEAD) return
             start()
         }
     }
 
-    fun dispose() {
+    override fun dispose() {
         synchronized(lock) {
             generation++
             connection?.stop()
@@ -366,7 +378,7 @@ class ChatSession(
         }
     }
 
-    fun diffFor(toolUseId: String): FileDiff? = synchronized(lock) { diffs[toolUseId] }
+    override fun diffFor(toolUseId: String): FileDiff? = synchronized(lock) { diffs[toolUseId] }
 
     /** Display copies for a tool result's images: at most [MAX_TOOL_IMAGES] are converted, the rest show as "[image]". */
     private fun displayCopiesOf(event: CliEvent): List<String>? =
@@ -654,5 +666,5 @@ class ChatSession(
         reported = now
         listener.onActivity(now)
     }
-    private fun notifyState() = listener.onState(state, sessionId, mode)
+    private fun notifyState() = listener.onState(state, sessionId, mode?.cli)
 }

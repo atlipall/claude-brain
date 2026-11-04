@@ -1,7 +1,6 @@
 package claudechat.ui
 
 import claudechat.cli.ContextUsage
-import claudechat.cli.PermissionMode
 import claudechat.cli.arr
 import claudechat.cli.bool
 import claudechat.cli.long
@@ -17,6 +16,8 @@ import claudechat.context.ContextNotes
 import claudechat.session.Activity
 import claudechat.session.Chat
 import claudechat.session.ChatItem
+import claudechat.session.ChatSession
+import claudechat.session.Choice
 import claudechat.session.PermissionDecision
 import claudechat.session.QuestionAnswer
 import claudechat.session.QueuedMessage
@@ -135,7 +136,7 @@ class ChatBridge(
             "pickImages" -> chooseImages { files -> files.forEach(::attachFile) }
             "permission" -> {
                 val requestId = msg.str("requestId") ?: return
-                val decision = when (msg.str("decision")) {
+                val decision = msg.str("optionId")?.let(PermissionDecision::Option) ?: when (msg.str("decision")) {
                     "allow" -> PermissionDecision.Allow
                     "allowSession" -> PermissionDecision.AllowForSession
                     else -> PermissionDecision.Deny(msg.str("message") ?: "The user denied this action.")
@@ -143,15 +144,17 @@ class ChatBridge(
                 session.respond(requestId, decision)
             }
             "answer" -> {
+                val claude = session as? ChatSession ?: return
                 val requestId = msg.str("requestId") ?: return
-                val answers = questionAnswers(msg["answers"]) ?: return session.answerFailed(requestId)
-                session.answer(requestId, answers)
+                val answers = questionAnswers(msg["answers"]) ?: return claude.answerFailed(requestId)
+                claude.answer(requestId, answers)
             }
             "skipQuestion" -> {
+                val claude = session as? ChatSession ?: return
                 val requestId = msg.str("requestId") ?: return
-                if (session.pendingQuestions(requestId) != null) session.respond(requestId, PermissionDecision.Deny("The user skipped the question."))
+                if (claude.pendingQuestions(requestId) != null) claude.respond(requestId, PermissionDecision.Deny("The user skipped the question."))
             }
-            "setMode" -> PermissionMode.fromCli(msg.str("mode"))?.let(session::setPermissionMode)
+            "setMode" -> msg.str("mode")?.let(session::setMode)
             "interrupt" -> chat.interrupt()
             "queueSendNow" -> msg.str("id")?.let(session::sendNow)
             "queueEdit" -> msg.str("id")?.let(chat::editQueued)
@@ -287,11 +290,16 @@ class ChatBridge(
         put("item", item.toJson())
     }.toString())
 
-    override fun state(state: SessionState, sessionId: String?, mode: PermissionMode?) = post(buildJsonObject {
+    override fun state(state: SessionState, sessionId: String?, mode: String?) = post(buildJsonObject {
         put("type", "state")
         put("state", state.name)
         put("sessionId", sessionId)
-        put("mode", mode?.cli)
+        put("mode", mode)
+    }.toString())
+
+    override fun modes(modes: List<Choice>) = post(buildJsonObject {
+        put("type", "modes")
+        put("modes", JsonArray(modes.map { it.toJson() }))
     }.toString())
 
     override fun activity(activity: Activity?) = post(activityMessage(activity))

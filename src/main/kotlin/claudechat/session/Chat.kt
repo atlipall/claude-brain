@@ -16,7 +16,10 @@ import com.intellij.openapi.progress.ProcessCanceledException
 interface SessionView {
     fun reset(items: List<ChatItem>)
     fun item(item: ChatItem)
-    fun state(state: SessionState, sessionId: String?, mode: PermissionMode?)
+    fun state(state: SessionState, sessionId: String?, mode: String?)
+
+    /** The modes the agent offers (only an ACP agent reports them); empty hides the selector. */
+    fun modes(modes: List<Choice>) {}
     fun insert(text: String)
 
     /** What the IDE window shows for this chat (`IDE: <checkout>`); empty hides it. */
@@ -44,7 +47,7 @@ interface Checkpoints {
     fun revert(chat: Chat, itemId: String)
 }
 
-/** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
+/** One chat tab's model: its own [AgentSession] and agent process, the items shown so far, and the page showing them. */
 class Chat(
     val id: Int,
     spec: ChatSpec,
@@ -71,6 +74,8 @@ class Chat(
     private val background: (Runnable) -> Unit = { it.run() },
     /** Marks the files' state as each message goes out, so they can be reverted to it; null for none. */
     private val checkpoints: Checkpoints? = null,
+    /** Makes this chat's session when it is not Claude's (an ACP agent); null runs Claude through [connector]. */
+    agent: ((ChatListener) -> AgentSession)? = null,
 ) {
     val label: String = spec.label
 
@@ -108,6 +113,7 @@ class Chat(
     @Volatile private var suggestion: String? = null
     /** The session's queued messages (replayed on attach). */
     @Volatile private var queued: List<QueuedMessage> = emptyList()
+    @Volatile private var modes: List<Choice>? = null
 
     private val activityLock = Any()
     private var sessionActivity: Activity? = null
@@ -144,6 +150,11 @@ class Chat(
             view?.suggestion(text)
         }
 
+        override fun onModes(modes: List<Choice>) {
+            this@Chat.modes = modes
+            view?.modes(modes)
+        }
+
         override fun onQueue(messages: List<QueuedMessage>) {
             queued = messages
             view?.queue(messages)
@@ -163,7 +174,7 @@ class Chat(
             if (item is ChatItem.UserText) checkpoints?.let { c -> background { if (c.mark(this@Chat, item)) showRevertable(item.id) } }
         }
 
-        override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
+        override fun onState(state: SessionState, sessionId: String?, mode: String?) {
             if (state != SessionState.IDLE) suggestion = null
             view?.state(state, sessionId, mode)
             val now = cwd
@@ -174,7 +185,8 @@ class Chat(
         }
     }
 
-    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background)
+    val session: AgentSession = agent?.invoke(listener)
+        ?: ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background)
 
     private val predictedCwd: String? = spec.worktree?.let { "${spec.cwd.trimEnd('/')}/.claude/worktrees/$it" }
 
@@ -182,7 +194,7 @@ class Chat(
      * Absolute folder claude works in. For a new worktree this is the predicted `.claude/worktrees/<name>` until
      * system/init (which arrives only after the first message) reports the real one.
      */
-    val cwd: String get() = if (session.cwdReported) session.cwd else predictedCwd ?: session.cwd
+    val cwd: String get() = session.let { if (it is ChatSession && !it.cwdReported) predictedCwd ?: it.cwd else it.cwd }
 
     val title: String get() = ChatNames.tabTitle(label, firstMessage)
 
@@ -195,7 +207,8 @@ class Chat(
     fun attach(view: SessionView) {
         this.view = view
         view.reset(synchronized(lock) { items.values.toList() })
-        view.state(session.state, session.sessionId, session.mode)
+        modes?.let(view::modes)
+        view.state(session.state, session.sessionId, session.modeId)
         synchronized(activityLock) { shownActivity }?.let(view::activity)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         contextUsage?.let(view::context)

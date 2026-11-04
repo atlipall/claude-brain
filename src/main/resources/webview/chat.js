@@ -83,6 +83,7 @@
         case 'items': msg.items.forEach(upsert); break;
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
+        case 'modes': setModes(msg.modes); break;
         case 'activity': setActivity(msg); break;
         case 'resolved': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.paths); break; }
         case 'images': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.images || {}); break; }
@@ -390,6 +391,10 @@
 
   function permissionCard(t) {
     const id = t.permissionRequestId;
+    if (Array.isArray(t.choices) && t.choices.length) {
+      return h('div', { class: 'perm' }, h('span', {}, t.name),
+        ...t.choices.map((c) => h('button', { 'data-action': 'choose', 'data-req': id, 'data-option': c.id }, c.label)));
+    }
     return h('div', { class: 'perm' },
       h('span', {}, 'Allow ' + t.name + '?'),
       h('button', { 'data-action': 'allow', 'data-req': id }, 'Allow'),
@@ -566,6 +571,14 @@
     if (msg.mode) modeSel.value = msg.mode;
     idle = msg.state === 'IDLE';
     if (!idle) setSuggestion('');
+  }
+
+  // Only an ACP agent sends its modes; they replace Claude's, and none hides the selector.
+  function setModes(modes) {
+    const list = Array.isArray(modes) ? modes : [];
+    modeSel.textContent = '';
+    list.forEach((m) => modeSel.append(h('option', { value: m.id }, m.label)));
+    modeSel.hidden = !list.length;
   }
 
   const PLACEHOLDER = input.placeholder;
@@ -863,6 +876,7 @@
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
     else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
+    else if (action === 'choose') send({ type: 'permission', requestId: b.dataset.req, optionId: b.dataset.option });
     else if (action === 'queueSendNow' || action === 'queueEdit' || action === 'queueRemove' || action === 'revertTo') send({ type: action, id: b.dataset.id });
     else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });
     else if (action === 'deny') {

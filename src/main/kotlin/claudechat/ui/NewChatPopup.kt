@@ -20,7 +20,7 @@ object NewChatPopup {
     fun show(project: Project, tabs: ChatTabs, place: (JBPopup) -> Unit) {
         val chats = Chats.getInstance(project)
         background(project, { chats.worktrees.list() }) { worktrees ->
-            val choices = NewChatChoices.build(chats.projectDir, worktrees)
+            val choices = NewChatChoices.build(chats.projectDir, worktrees, chats.acpCommand())
             place(listPopup(project, "New Chat", choices, NewChatChoice::text) { choice ->
                 chosen(project, tabs, choice, worktrees, place)
             })

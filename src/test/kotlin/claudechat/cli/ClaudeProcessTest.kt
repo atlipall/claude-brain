@@ -105,6 +105,11 @@ class ClaudeProcessTest {
         assertEquals(mapOf("PATH" to "/bin", "X" to "1"), env)
     }
 
+    @Test fun childEnvironmentKeepsEverythingWhenNothingIsStripped() {
+        val env = ClaudeProcess.childEnvironment(mapOf("ANTHROPIC_API_KEY" to "k"), mapOf("X" to "1"), stripped = emptyList())
+        assertEquals(mapOf("ANTHROPIC_API_KEY" to "k", "X" to "1"), env)
+    }
+
     @Test fun spawnedProcessSeesNoApiKey() {
         val lines = CopyOnWriteArrayList<String>()
         val exited = CountDownLatch(1)

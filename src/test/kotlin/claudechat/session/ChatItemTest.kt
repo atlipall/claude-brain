@@ -32,6 +32,12 @@ class ChatItemTest {
             ChatItem.ToolCall("t1", "Read", input, "/p/a.png", ToolStatus.DONE, null, "", false, listOf("data:image/png;base64,AAAA", "")).toJson().toString())
     }
 
+    @Test fun permissionCardWithTheAgentsChoices() = assertEquals(
+        """{"id":"perm-check-1","kind":"tool","name":"Run ls","input":{},"filePath":null,"status":"awaiting_permission","permissionRequestId":"perm-2","resultPreview":null,"hasDiff":false,""" +
+            """"choices":[{"id":"allow_once","label":"Allow once"},{"id":"deny","label":"Deny"}]}""",
+        ChatItem.ToolCall("perm-check-1", "Run ls", buildJsonObject {}, null, ToolStatus.AWAITING_PERMISSION, "perm-2", null, false,
+            choices = listOf(Choice("allow_once", "Allow once"), Choice("deny", "Deny"))).toJson().toString())
+
     @Test fun subagentTextHasItsParent() = assertEquals(
         """{"id":"a1","kind":"assistant","text":"x","streaming":false,"parentId":"t1"}""",
         ChatItem.AssistantText("a1", "x", false, "t1").toJson().toString())

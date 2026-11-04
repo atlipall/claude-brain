@@ -23,6 +23,9 @@ data class AgentInfo(
     val report: String? = null,
 )
 
+/** An option an agent offers: a permission answer or a mode. */
+data class Choice(val id: String, val label: String)
+
 /** One entry in the chat log. Items are upserted by [id]. A `parentId` is the Agent call whose subagent produced the item. */
 sealed interface ChatItem {
     val id: String
@@ -49,6 +52,8 @@ sealed interface ChatItem {
         val parentId: String? = null,
         /** Set for an Agent/Task call once the CLI reports on its subagent. */
         val agent: AgentInfo? = null,
+        /** The answers an ACP agent offers for its permission request; empty shows Claude's Allow / Deny buttons. */
+        val choices: List<Choice> = emptyList(),
     ) : ChatItem
     data class TurnResult(override val id: String, val isError: Boolean, val text: String?, val durationMs: Long?, val costUsd: Double?) : ChatItem
     data class Notice(override val id: String, val text: String, val isError: Boolean) : ChatItem
@@ -93,6 +98,7 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
                     put("report", a.report)
                 })
             }
+            if (item.choices.isNotEmpty()) put("choices", JsonArray(item.choices.map { it.toJson() }))
         }
         is ChatItem.TurnResult -> {
             put("kind", "result")
@@ -103,4 +109,9 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
         }
         is ChatItem.Notice -> { put("kind", "notice"); put("text", item.text); put("isError", item.isError) }
     }
+}
+
+fun Choice.toJson(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("label", label)
 }
