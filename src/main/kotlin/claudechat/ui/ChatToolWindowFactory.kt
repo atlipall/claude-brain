@@ -1,9 +1,12 @@
 package claudechat.ui
 
 import claudechat.follow.CheckoutFollower
+import claudechat.session.ChatSpec
 import claudechat.session.Chats
 import claudechat.session.OpenChats
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -36,19 +39,58 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
                 ApplicationManager.getApplication().invokeLater({ follower.refresh() }, project.disposed)
             }
         })
-        // The chats open when the project closed come back; with none, a fresh main chat.
-        val chats = Chats.getInstance(project)
-        chats.restorableSpecs().ifEmpty { listOf(chats.mainSpec()) }.forEach { tabs.open(it) }
-        OpenChats.getInstance(project).startTracking() // not before: a save meanwhile would store an empty list
+        var restoring = true
+        restore(project, tabs, toolWindow) { restoring = false }
         // Showing the tool window after every tab was closed starts a fresh main chat.
         project.messageBus.connect(toolWindow.disposable).subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
             override fun toolWindowShown(shown: ToolWindow) {
-                if (shown.id == ID && shown.contentManager.contentCount == 0) tabs.open(Chats.getInstance(project).mainSpec())
+                if (shown.id == ID && !restoring && shown.contentManager.contentCount == 0) tabs.open(Chats.getInstance(project).mainSpec())
             }
         })
     }
 
+    /**
+     * Reopens the chats that were open when the project closed (a fresh main chat when there are none). Their
+     * transcripts are read in the background, so a long session doesn't hold up the IDE; then [done] runs and the tabs
+     * open. A session the user opened meanwhile is not opened twice.
+     */
+    private fun restore(project: Project, tabs: ChatTabs, toolWindow: ToolWindow, done: () -> Unit) {
+        val chats = Chats.getInstance(project)
+        background(project, { readRestorable(chats) }, expired = { project.isDisposed || toolWindow.isDisposed }) { restored ->
+            done()
+            val open = chats.all().mapNotNull { it.session.sessionId }.toSet()
+            for ((spec, resumed) in restored.filter { it.first.resumeId !in open }) {
+                try {
+                    tabs.open(spec, resumed)
+                } catch (e: Exception) {
+                    if (e is ControlFlowException) throw e
+                    LOG.warn("Couldn't reopen session ${spec.resumeId}", e)
+                }
+            }
+            if (toolWindow.contentManager.contentCount == 0) tabs.open(chats.mainSpec())
+            OpenChats.getInstance(project).startTracking() // not before: a save meanwhile would store an empty list
+        }
+    }
+
+    /** The saved sessions that can be resumed, each read; one that fails is left out (logged). Off the EDT. */
+    private fun readRestorable(chats: Chats): List<Pair<ChatSpec, Chats.Resumed?>> = try {
+        chats.restorableSpecs().mapNotNull { spec ->
+            try {
+                spec to chats.read(spec)
+            } catch (e: Exception) {
+                if (e is ControlFlowException) throw e
+                LOG.warn("Couldn't read session ${spec.resumeId}", e)
+                null
+            }
+        }
+    } catch (e: Exception) {
+        if (e is ControlFlowException) throw e
+        LOG.warn("Couldn't read the sessions to reopen", e)
+        emptyList()
+    }
+
     companion object {
         const val ID = "Tether"
+        private val LOG = logger<ChatToolWindowFactory>()
     }
 }

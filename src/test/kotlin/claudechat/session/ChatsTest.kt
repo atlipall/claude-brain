@@ -132,6 +132,20 @@ class ChatsTest : BasePlatformTestCase() {
         } finally { dir.deleteRecursively() }
     }
 
+    fun testAResumedChatCanBeReadAheadAndOpenedLater() {
+        File(chats.store.projectDir(root).apply { mkdirs() }, "abc.jsonl")
+            .writeText("""{"type":"user","message":{"role":"user","content":"earlier"}}""")
+        val spec = ChatSpec.resume(root, chats.store.list(root).single())
+        assertNull(chats.read(ChatSpec.inProject(root)))
+        val resumed = chats.read(spec)!!
+        File(chats.store.projectDir(root), "abc.jsonl").delete() // open must not read it again
+        val chat = chats.open(spec, resumed)
+        assertEquals("abc", launches.single().resumeId)
+        assertEquals(resumed.startedAt, chat.startedAt)
+        assertTrue(resumed.history.isNotEmpty())
+        assertEquals(resumed.history, RecordingView().also(chat::attach).resets.first())
+    }
+
     fun testOpenLaunchesInTheSpecFolder() {
         val chat = chats.open(ChatSpec.inProject("/work/proj"))
         assertEquals("/work/proj", launches.single().cwd)

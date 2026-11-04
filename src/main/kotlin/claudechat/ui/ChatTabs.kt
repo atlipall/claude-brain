@@ -18,9 +18,9 @@ import com.intellij.ui.content.ContentFactory
 class ChatTabs(private val project: Project, private val toolWindow: ToolWindow) {
     private val chats get() = Chats.getInstance(project)
 
-    fun open(spec: ChatSpec): Chat {
+    fun open(spec: ChatSpec, resumed: Chats.Resumed? = chats.read(spec)): Chat {
         val registry = chats // captured: the service may be unreachable while the project is closing
-        val chat = registry.open(spec)
+        val chat = registry.open(spec, resumed)
         val content = ContentFactory.getInstance().createContent(null, chat.title, false)
         content.isCloseable = true
         content.putUserData(CHAT, chat)

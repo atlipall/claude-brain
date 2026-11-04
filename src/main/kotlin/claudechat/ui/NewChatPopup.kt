@@ -58,8 +58,9 @@ object NewChatPopup {
                     // A session already live in a tab is never resumed twice: two claude processes would write one transcript.
                     val existing = openChat(s)
                     if (existing != null && tabs.select(existing)) return@listPopup
-                    val resume = { tabs.open(ChatSpec.resume(chats.projectDir, s)) }
-                    if (archived) background(project, { chats.unarchive(s) }) { resume() } else resume()
+                    // The transcript is read in the background: a long session would hold up the IDE.
+                    val spec = ChatSpec.resume(chats.projectDir, s)
+                    background(project, { if (archived) chats.unarchive(s); chats.read(spec) }) { tabs.open(spec, it) }
                 })
             }
         }
@@ -79,15 +80,6 @@ object NewChatPopup {
             override fun canClose(inputString: String): Boolean = checkInput(inputString)
         },
     )?.trim()
-
-    /** Runs [compute] on a pooled thread, then [show] on the EDT unless the project has closed. */
-    private fun <T> background(project: Project, compute: () -> T, show: (T) -> Unit) {
-        val app = ApplicationManager.getApplication()
-        app.executeOnPooledThread {
-            val result = compute()
-            app.invokeLater({ show(result) }, project.disposed)
-        }
-    }
 
     /** A speed-searchable list; [onChosen] runs on the EDT after the popup has closed. */
     private fun <T> listPopup(project: Project, title: String, items: List<T>, text: (T) -> String, onChosen: (T) -> Unit): JBPopup =
