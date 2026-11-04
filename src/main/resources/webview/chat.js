@@ -1,7 +1,9 @@
 (function () {
   'use strict';
   const items = new Map(); // id -> element
-  const log = document.getElementById('log');
+  const log = document.getElementById('log');           // the scroller
+  const logContent = document.getElementById('log-content'); // what it scrolls: the items
+  const toBottom = document.getElementById('to-bottom');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const modeSel = document.getElementById('mode');
@@ -77,7 +79,8 @@
       switch (msg.type) {
         case 'reset':
           items.clear(); childBoxes.clear(); waitingFor.clear(); waitingOn.clear(); parentOf.clear(); reports.clear();
-          log.textContent = '';
+          logContent.textContent = '';
+          follow();
           msg.items.forEach(upsert);
           break;
         case 'items': msg.items.forEach(upsert); break;
@@ -98,17 +101,46 @@
     }
   };
 
-  const nearBottom = (height) => log.scrollHeight - log.scrollTop - height < 40;
+  // Following: the log stays pinned to its latest line. It is a state, not re-measured on each update, because content
+  // also grows outside updates (an image decoding, a markdown image resolving later) and that is not the user leaving.
+  // Only the user scrolling up turns it off; scrolling back down to the bottom, or the arrow, turns it on again.
+  let following = true;
+  let lastTop = 0;
+  const NEAR_BOTTOM = 40; // px: this close to the bottom counts as at it
+  const gap = () => log.scrollHeight - log.scrollTop - log.clientHeight;
+  function pin() {
+    log.scrollTop = log.scrollHeight;
+    lastTop = log.scrollTop;
+  }
+  function showArrow() {
+    const hide = following || gap() < NEAR_BOTTOM;
+    if (toBottom.hidden !== hide) toBottom.hidden = hide;
+  }
+  function follow(smooth) {
+    following = true;
+    if (smooth) log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' }); else pin();
+    showArrow();
+  }
 
-  // The log shrinks when the activity strip, the image tray or a taller message box appears; shrinking keeps scrollTop,
-  // which would slide the latest lines out of view. Whether the user was at the bottom is judged by the height before
-  // the change: a scroll event can arrive after the shrink and would misreport it.
-  let logHeight = log.clientHeight;
-  new ResizeObserver(() => {
-    const wasAtBottom = nearBottom(logHeight);
-    logHeight = log.clientHeight;
-    if (wasAtBottom) log.scrollTop = log.scrollHeight;
-  }).observe(log);
+  log.addEventListener('scroll', () => {
+    const top = log.scrollTop, g = gap();
+    // Moving up while not at the very bottom is the user leaving; a shrink that clamps scrollTop leaves the gap at 0.
+    if (top < lastTop - 1 && g > 1) following = false;
+    else if (top >= lastTop && g < NEAR_BOTTOM) following = true;
+    lastTop = top;
+    showArrow();
+  }, { passive: true });
+
+  // The log's box shrinks when the activity strip, the image tray or a taller message box appears, and its content grows
+  // with every update, image and expanded detail: while following, either keeps the latest line in view.
+  const resized = new ResizeObserver(() => {
+    if (following) pin();
+    showArrow();
+  });
+  resized.observe(log);
+  resized.observe(logContent);
+
+  toBottom.addEventListener('click', () => follow(true));
 
   // Subagent cards: an Agent/Task call is a card whose container of items survives the card's re-renders. An item with
   // a parentId goes in its card's container, or waits until the card is shown.
@@ -132,7 +164,7 @@
       const list = (waitingFor.get(waited) || []).filter((x) => x !== el);
       if (list.length) waitingFor.set(waited, list); else waitingFor.delete(waited);
     }
-    const box = parentId ? childBoxes.get(parentId) : log;
+    const box = parentId ? childBoxes.get(parentId) : logContent;
     if (!box) {
       el.remove();
       if (waitingOn.get(el) !== parentId) {
@@ -148,7 +180,6 @@
   const ownDetails = (el) => el.classList.contains('agent') ? el.querySelectorAll(':scope > .agent-body > details') : el.querySelectorAll('details');
 
   function upsert(item) {
-    const atBottom = nearBottom(log.clientHeight);
     let el = items.get(item.id);
     if (!el) { el = document.createElement('div'); items.set(item.id, el); }
     const parentId = typeof item.parentId === 'string' && item.parentId ? item.parentId : null;
@@ -169,7 +200,6 @@
     if (item.kind === 'tool' && item.status === 'awaiting_permission' && !wasWaiting) {
       for (let p = parentId; p; p = parentOf.get(p)) expandAgent(p);
     }
-    if (atBottom) log.scrollTop = log.scrollHeight;
   }
 
   function renderUser(el, item) {

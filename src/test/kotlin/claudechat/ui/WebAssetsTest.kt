@@ -51,10 +51,19 @@ class WebAssetsTest {
         assertFalse(page.contains("case 'context'"))
     }
 
-    @Test fun logStaysAtTheBottomWhenItShrinks() {
+    @Test fun logFollowsWhenItShrinksOrItsContentGrows() {
         val page = WebAssets.page()
-        assertTrue(page.contains("const wasAtBottom = nearBottom(logHeight);"))
-        assertTrue(page.contains("}).observe(log);"))
+        assertTrue(page.contains("<main id=\"log\"><div id=\"log-content\"></div></main>"))
+        assertTrue(page.contains("resized.observe(log);"))
+        assertTrue(page.contains("resized.observe(logContent);")) // images that decode or resolve late grow the content
+        assertFalse(page.contains("nearBottom")) // following is a state, not re-measured on each update
+    }
+
+    @Test fun logHasAJumpToBottomArrow() {
+        val page = WebAssets.page()
+        val wrap = page.substring(page.indexOf("<div id=\"log-wrap\">"), page.indexOf("<div id=\"queue\""))
+        assertTrue(wrap.contains("<button id=\"to-bottom\" hidden"))
+        assertTrue(page.contains("toBottom.addEventListener('click'"))
     }
 
     @Test fun turnResultShowsNoCost() = assertFalse(WebAssets.page().contains("r.costUsd"))
@@ -71,7 +80,7 @@ class WebAssetsTest {
         val page = WebAssets.page()
         val html = page.substring(page.indexOf("<main id=\"log\">"))
         assertTrue(html.indexOf("<div id=\"activity\" hidden>") in 0 until html.indexOf("<div id=\"attachments\""))
-        assertTrue(html.indexOf("<main id=\"log\"></main>") < html.indexOf("<div id=\"activity\""))
+        assertTrue(html.indexOf("</main>") in 0 until html.indexOf("<div id=\"activity\""))
         assertFalse(page.contains("id=\"stop\""))
         assertFalse(page.contains("getElementById('stop')"))
         assertTrue(page.contains("<button id=\"restart\" hidden>Restart</button>"))
