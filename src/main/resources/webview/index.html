@@ -20,7 +20,10 @@
   <span id="usage" hidden><span id="usage-ring"></span><span id="usage-pct"></span></span>
   <button id="restart" hidden>Restart</button>
 </header>
-<main id="log"></main>
+<div id="log-wrap">
+  <main id="log"><div id="log-content"></div></main>
+  <button id="to-bottom" hidden aria-label="Scroll to the latest" title="Scroll to the latest and keep following">↓</button>
+</div>
 <div id="queue" hidden></div>
 <div id="activity" hidden><span id="activity-dots" class="dots"><span></span><span></span><span></span></span><span id="activity-label" class="label"></span><span id="activity-secs" class="secs"></span><button id="activity-stop" class="stop" title="Stop Claude">Stop</button></div>
 <div id="attachments" hidden></div>
