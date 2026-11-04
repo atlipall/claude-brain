@@ -73,17 +73,9 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
         }
     }
 
-    /** The saved sessions that can be resumed, each read; one that fails is left out (logged). Off the EDT. */
-    private fun readRestorable(chats: Chats): List<Pair<ChatSpec, Transcript?>> = try {
-        chats.restorableSpecs().mapNotNull { spec ->
-            try {
-                spec to chats.read(spec)
-            } catch (e: Exception) {
-                if (e is ControlFlowException) throw e
-                LOG.warn("Couldn't read session ${spec.resumeId}", e)
-                null
-            }
-        }
+    /** [Chats.restorable], or none (logged) if even the list can't be read. Off the EDT. */
+    private fun readRestorable(chats: Chats): List<Pair<ChatSpec, Transcript>> = try {
+        chats.restorable()
     } catch (e: Exception) {
         if (e is ControlFlowException) throw e
         LOG.warn("Couldn't read the sessions to reopen", e)

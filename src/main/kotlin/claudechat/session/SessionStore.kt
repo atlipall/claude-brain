@@ -28,8 +28,8 @@ data class SessionSummary(
     val archived: Boolean = false,
 )
 
-/** What a session's transcript holds for resuming it (see [SessionStore.read]). */
-data class Transcript(val items: List<ChatItem>, val lastAssistantUuid: String?, val startedAt: Long?)
+/** What a session's transcript holds for resuming it (see [SessionStore.read]); [summary] as the resume list shows it. */
+data class Transcript(val items: List<ChatItem>, val lastAssistantUuid: String?, val startedAt: Long?, val summary: SessionSummary?)
 
 /** Reads Claude Code's on-disk session transcripts (~/.claude/projects/<encoded cwd>/<id>.jsonl). */
 class SessionStore(private val claudeHome: File) {
@@ -54,35 +54,52 @@ class SessionStore(private val claudeHome: File) {
             .sortedByDescending { it.modifiedMillis }
             .take(limit)
 
-    /** [sessionId]'s summary; null when its transcript is missing or has neither a message nor a title. */
-    fun summary(cwd: String, sessionId: String): SessionSummary? =
-        transcriptFile(cwd, sessionId).takeIf { it.isFile }?.let { cachedSummary(it, cwd) }
-
     /**
      * Everything resuming [sessionId] needs from its transcript, from one pass over it: the messages shown, the uuid of
-     * the newest main-conversation assistant message (subagents' are skipped) and the first timestamp (epoch millis).
-     * Empty when the transcript is missing.
+     * the newest main-conversation assistant message (subagents' are skipped), the first timestamp (epoch millis) and
+     * its summary (which the resume list then reuses). Empty when the transcript is missing.
      */
     fun read(cwd: String, sessionId: String): Transcript {
         val file = transcriptFile(cwd, sessionId)
-        if (!file.isFile) return Transcript(emptyList(), null, null)
+        if (!file.isFile) return Transcript(emptyList(), null, null, null)
+        val modified = file.lastModified()
+        val length = file.length()
         val items = mutableListOf<ChatItem>()
         var lastAssistant: String? = null
         var startedAt: Long? = null
+        val title = TitleScan()
         file.useLines { lines ->
             for (line in lines) {
+                if (startedAt != null && !mayShow(line)) continue
                 val obj = parseJsonObject(line) ?: continue
                 if (startedAt == null) startedAt = obj.str("timestamp")?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
                 when (obj.str("type")) {
-                    "user" -> userText(obj)?.let { items += ChatItem.UserText("h-${items.size}", it) }
+                    "user" -> userText(obj)?.let {
+                        if (title.first == null) title.first = it
+                        items += ChatItem.UserText("h-${items.size}", it)
+                    }
                     "assistant" -> {
                         assistantText(obj)?.let { items += ChatItem.AssistantText("h-${items.size}", it, false) }
                         if (obj.bool("isSidechain") != true) obj.str("uuid")?.let { lastAssistant = it }
                     }
+                    CUSTOM_TITLE -> title.add(obj)
                 }
             }
         }
-        return Transcript(items, lastAssistant, startedAt)
+        val summary = title.summary(file, cwd, modified)
+        scanned[file.path] = Scanned(modified, length, summary)
+        return Transcript(items, lastAssistant, startedAt, summary)
+    }
+
+    /**
+     * False for lines [read] has no use for, without parsing them: only user, assistant and title lines matter, and a user
+     * line of tool results alone shows nothing. JSON escapes quotes inside strings, so these patterns only match the
+     * line's own structure; a line that matches by chance is merely parsed.
+     */
+    private fun mayShow(line: String): Boolean = when {
+        line.contains(TITLE_TYPE) || line.contains(ASSISTANT_TYPE) -> true
+        !line.contains(USER_TYPE) -> false
+        else -> !line.contains(TOOL_RESULT_TYPE) || line.contains(TEXT_TYPE) || line.contains(IMAGE_TYPE)
     }
 
     /**
@@ -115,34 +132,46 @@ class SessionStore(private val claudeHome: File) {
         val modified = file.lastModified()
         val length = file.length()
         scanned[file.path]?.takeIf { it.modified == modified && it.length == length }?.let { return it.summary }
-        return summary(file, cwd).also { scanned[file.path] = Scanned(modified, length, it) }
+        return summary(file, cwd, modified).also { scanned[file.path] = Scanned(modified, length, it) }
     }
 
     /**
      * The first message and the last custom title; null when the session has neither. A title alone is kept: an archived
      * chat's claude can be stopped before it writes the first message.
      */
-    private fun summary(file: File, cwd: String): SessionSummary? {
-        var first: String? = null
-        var custom: String? = null
-        var archived = false
+    private fun summary(file: File, cwd: String, modified: Long): SessionSummary? {
+        val title = TitleScan()
         file.useLines { lines ->
             for (line in lines) {
                 val titled = line.contains(TITLE_TYPE)
-                if (first != null && !titled) continue // only titles matter now; skip parsing the rest
+                if (title.first != null && !titled) continue // only titles matter now; skip parsing the rest
                 val obj = parseJsonObject(line) ?: continue
                 when (obj.str("type")) {
-                    "user" -> if (first == null) first = userText(obj)
-                    CUSTOM_TITLE -> {
-                        val raw = obj.str("customTitle").orEmpty().trim()
-                        archived = raw.startsWith(ChatNames.ARCHIVED)
-                        custom = ChatNames.clean(raw)
-                    }
+                    "user" -> if (title.first == null) title.first = userText(obj)
+                    CUSTOM_TITLE -> title.add(obj)
                 }
             }
         }
-        val title = first?.let { ChatNames.clean(it)!!.take(80) } ?: custom ?: return null
-        return SessionSummary(file.nameWithoutExtension, title, file.lastModified(), cwd, custom, archived)
+        return title.summary(file, cwd, modified)
+    }
+
+    /** What a summary is made of, gathered line by line: the first message and the last custom title. */
+    private class TitleScan {
+        var first: String? = null
+        private var custom: String? = null
+        private var archived = false
+
+        fun add(titleLine: JsonObject) {
+            val raw = titleLine.str("customTitle").orEmpty().trim()
+            archived = raw.startsWith(ChatNames.ARCHIVED)
+            custom = ChatNames.clean(raw)
+        }
+
+        /** [modified] is the stamp taken before reading, so the summary and the cache entry agree. */
+        fun summary(file: File, cwd: String, modified: Long): SessionSummary? {
+            val title = first?.let { ChatNames.clean(it)!!.take(80) } ?: custom ?: return null
+            return SessionSummary(file.nameWithoutExtension, title, modified, cwd, custom, archived)
+        }
     }
 
     /** The text the user typed, under one `[image]` per image they attached (the plugin keeps no image data). */
@@ -186,6 +215,12 @@ class SessionStore(private val claudeHome: File) {
         private const val CUSTOM_TITLE = "custom-title"
         /** How a title line spells its type: cheaper to find than parsing every line, and rarer than the bare word. */
         private const val TITLE_TYPE = "\"$CUSTOM_TITLE\""
+        // Claude writes compact JSON: a line's own structure spells these without spaces.
+        private const val USER_TYPE = "\"type\":\"user\""
+        private const val ASSISTANT_TYPE = "\"type\":\"assistant\""
+        private const val TOOL_RESULT_TYPE = "\"type\":\"tool_result\""
+        private const val TEXT_TYPE = "\"type\":\"text\""
+        private const val IMAGE_TYPE = "\"type\":\"image\""
 
         fun default(): SessionStore {
             val home = System.getenv("CLAUDE_CONFIG_DIR")?.let(::File) ?: File(System.getProperty("user.home"), ".claude")

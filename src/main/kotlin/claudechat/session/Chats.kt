@@ -16,6 +16,7 @@ import claudechat.settings.ClaudeChatSettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.util.EnvironmentUtil
@@ -53,12 +54,19 @@ class Chats(private val project: Project) : Disposable {
     fun mainSpec(): ChatSpec = ChatSpec.inProject(projectDir)
 
     /**
-     * Specs resuming the sessions that were open when the project last closed (see [OpenChats]), skipping any whose
-     * folder or transcript is gone, or that was archived since. Reads transcripts: call off the EDT.
+     * The sessions that were open when the project last closed (see [OpenChats]), each read and ready to [open]; skips
+     * any whose folder or transcript is gone, that was archived since, or that can't be read (logged). Call off the EDT.
      */
-    fun restorableSpecs(): List<ChatSpec> = OpenChats.getInstance(project).saved().mapNotNull { (id, cwd) ->
+    fun restorable(): List<Pair<ChatSpec, Transcript>> = OpenChats.getInstance(project).saved().mapNotNull { (id, cwd) ->
         if (!File(cwd).isDirectory) return@mapNotNull null
-        store.summary(cwd, id)?.takeUnless { it.archived }?.let { ChatSpec.resume(projectDir, it) }
+        try {
+            val transcript = store.read(cwd, id)
+            transcript.summary?.takeUnless { it.archived }?.let { ChatSpec.resume(projectDir, it) to transcript }
+        } catch (e: Exception) {
+            if (e is ControlFlowException) throw e
+            LOG.warn("Couldn't read session $id to reopen it", e)
+            null
+        }
     }
 
     /** [spec]'s transcript as [open] needs it; null for a new chat. Reads the whole transcript: off the EDT if it can. */
