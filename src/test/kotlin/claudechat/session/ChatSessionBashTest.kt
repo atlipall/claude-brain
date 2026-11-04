@@ -89,7 +89,7 @@ class ChatSessionBashTest {
         val a = File(repo, "a.txt").path
         val n = File(repo, "new.txt").path
         assertEquals(listOf(TurnFile(a, added = 1, removed = 1, isNew = false), TurnFile(n, added = 1, removed = 0, isNew = true)), turnFiles())
-        assertEquals(listOf(FileDiff(a, "one\ntwo\n"), FileDiff(n, "")), s.turnDiffs(listener.latest<ChatItem.TurnResult>().id))
+        assertEquals(listOf(FileDiff(a, "one\ntwo\n"), FileDiff(n, "", isNew = true)), s.turnDiffs(listener.latest<ChatItem.TurnResult>().id))
     }
 
     @Test fun aFailedCallsChangesCountToo() {

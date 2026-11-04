@@ -121,6 +121,12 @@ class ChatBridgeTest : BasePlatformTestCase() {
         bridge.handle("""{"type":"openTurnDiff","id":${Fx.q(result.str("id")!!)},"index":1}""")
         bridge.handle("""{"type":"openTurnDiff","id":"result-unknown","index":0}""")
         assertEquals(listOf(listOf(a.path, b.path) to 1), shown)
+
+        val all = mutableListOf<List<String>>()
+        bridge.showTurnChanges = { diffs -> all += diffs.map { it.filePath } }
+        bridge.handle("""{"type":"openTurnChanges","id":${Fx.q(result.str("id")!!)}}""")
+        bridge.handle("""{"type":"openTurnChanges","id":"result-unknown"}""")
+        assertEquals(listOf(listOf(a.path, b.path)), all)
     }
 
     fun testANewChatRecordsWhenItStarted() {

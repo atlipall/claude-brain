@@ -64,7 +64,7 @@ sealed interface PermissionDecision {
     data class Deny(val message: String) : PermissionDecision
 }
 
-data class FileDiff(val filePath: String, val originalContent: String)
+data class FileDiff(val filePath: String, val originalContent: String, val isNew: Boolean = false)
 
 /** Longest base64 string accepted for a tool-result image (about 5 MB of bytes); longer ones show as "[image]". */
 private const val MAX_TOOL_IMAGE_BASE64 = 7_000_000

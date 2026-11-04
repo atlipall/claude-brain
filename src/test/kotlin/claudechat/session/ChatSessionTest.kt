@@ -533,7 +533,7 @@ class ChatSessionTest {
             Fx.toolResult("t1", "ok", toolUseResultJson = Fx.createResult(a.path)))
         conn.emit(Fx.result())
         assertEquals(listOf(TurnFile(a.path, added = 2, removed = 0, isNew = true)), turnFiles())
-        assertEquals(listOf(FileDiff(a.path, "")), s.turnDiffs(listener.latest<ChatItem.TurnResult>().id))
+        assertEquals(listOf(FileDiff(a.path, "", isNew = true)), s.turnDiffs(listener.latest<ChatItem.TurnResult>().id))
     }
 
     @Test fun aSubagentsEditsCount() {

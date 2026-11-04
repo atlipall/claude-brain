@@ -17,10 +17,17 @@ import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vcs.AbstractVcsHelper
+import com.intellij.openapi.vcs.FilePath
+import com.intellij.openapi.vcs.changes.Change
+import com.intellij.openapi.vcs.changes.ContentRevision
+import com.intellij.openapi.vcs.changes.CurrentContentRevision
+import com.intellij.openapi.vcs.history.VcsRevisionNumber
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.vcsUtil.VcsUtil
 import java.io.File
 import java.io.IOException
 
@@ -135,6 +142,27 @@ class FileLinker(private val project: Project) {
         val chain = SimpleDiffRequestChain(diffs.map { request(it, "This turn", "Before this turn") })
         chain.index = index
         DiffManager.getInstance().showDiff(project, chain, DiffDialogHints.DEFAULT)
+    }
+
+    /** A turn's files in the IDE's changes browser (a file list beside the diff), like the header's Diff. */
+    fun showTurnChanges(diffs: List<FileDiff>) {
+        // Claude writes outside the IDE: refresh so the current side is what is on disk now.
+        val files = LocalFileSystem.getInstance()
+        files.refreshIoFiles(diffs.map { File(it.filePath) }, false, false, null)
+        val changes = diffs.mapNotNull { diff ->
+            val path = VcsUtil.getFilePath(diff.filePath, false)
+            val before = if (diff.isNew) null else TurnStartRevision(path, diff.originalContent)
+            val after = files.findFileByPath(diff.filePath)?.let { CurrentContentRevision.create(path) }
+            if (before == null && after == null) null else Change(before, after) // created, then deleted
+        }
+        AbstractVcsHelper.getInstance(project).showWhatDiffersBrowser(changes, "Changes in this turn")
+    }
+
+    /** A file's text when the turn began. */
+    private class TurnStartRevision(private val path: FilePath, private val text: String) : ContentRevision {
+        override fun getContent(): String = text
+        override fun getFile(): FilePath = path
+        override fun getRevisionNumber(): VcsRevisionNumber = VcsRevisionNumber.NULL
     }
 
     /** [diff]'s original against the disk; a file deleted since shows as empty. */

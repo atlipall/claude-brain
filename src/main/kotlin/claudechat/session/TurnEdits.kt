@@ -31,7 +31,7 @@ internal class TurnEdits {
             originals.mapNotNull { (path, original) ->
                 val (added, removed) = lineCounts(original.orEmpty(), readOrNull(path).orEmpty())
                 if (added == 0 && removed == 0) null
-                else TurnFile(path, added, removed, isNew = original == null) to FileDiff(path, original.orEmpty())
+                else TurnFile(path, added, removed, isNew = original == null) to FileDiff(path, original.orEmpty(), isNew = original == null)
             }
 
         /** Lines added and removed going from [before] to [after]; a file too big to diff counts as wholly replaced. */

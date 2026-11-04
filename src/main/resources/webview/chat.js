@@ -569,7 +569,7 @@
     const sum = (key) => files.reduce((n, f) => n + (Number(f[key]) || 0), 0);
     line.append(' · ', files.length + (files.length === 1 ? ' file' : ' files') + ' changed ',
       lineCounts(sum('added'), sum('removed')), ' · ',
-      h('button', { class: 'link', 'data-action': 'turnDiff', 'data-id': r.id, 'data-index': '0' }, 'Review all'));
+      h('button', { class: 'link', 'data-action': 'turnChanges', 'data-id': r.id }, 'Review all'));
     const all = files.length <= TURN_FILES_SHOWN || expandedTools.has(r.id);
     const list = h('div', { class: 'tool-detail turn-files' + (all ? '' : ' clipped') });
     files.forEach((f, i) => {
@@ -930,6 +930,7 @@
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
     else if (action === 'turnFiles') toggleTurnFiles(b);
     else if (action === 'turnDiff') openTurnDiff(b);
+    else if (action === 'turnChanges') send({ type: 'openTurnChanges', id: b.dataset.id });
     else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
     else if (action === 'queueSendNow' || action === 'queueEdit' || action === 'queueRemove' || action === 'revertTo') send({ type: action, id: b.dataset.id });

@@ -75,6 +75,9 @@ class ChatBridge(
     /** Opens a turn's file diffs at the [Int]th (see [FileLinker.showTurnDiffs]). Tests replace it. */
     internal var showTurnDiffs: (List<FileDiff>, Int) -> Unit = { diffs, index -> linker.showTurnDiffs(diffs, index) }
 
+    /** Opens all of a turn's files in the changes browser (see [FileLinker.showTurnChanges]). Tests replace it. */
+    internal var showTurnChanges: (List<FileDiff>) -> Unit = { linker.showTurnChanges(it) }
+
     /** Shows the IDE file chooser for images and calls back with the chosen files (EDT). Tests replace it. */
     internal var chooseImages: ((List<VirtualFile>) -> Unit) -> Unit = { done ->
         val descriptor = FileChooserDescriptorFactory.createMultipleFilesNoJarsDescriptor()
@@ -166,12 +169,11 @@ class ChatBridge(
             "showChanges" -> showChanges(chat)
             "revertTo" -> msg.str("id")?.let(chat::revertTo)
             "openDiff" -> msg.str("toolUseId")?.let { id -> session.diffFor(id)?.let(linker::showDiff) }
-            "openTurnDiff" -> {
-                val diffs = msg.str("id")?.let(session::turnDiffs).orEmpty()
+            "openTurnDiff" -> turnDiffs(msg)?.let { diffs ->
                 val index = msg.long("index")?.toInt() ?: 0
-                if (index in diffs.indices) showTurnDiffs(diffs, index)
-                else session.notice("That turn is too old: its changes are no longer kept.", isError = false)
+                if (index in diffs.indices) showTurnDiffs(diffs, index) else session.notice(TURN_TOO_OLD, isError = false)
             }
+            "openTurnChanges" -> turnDiffs(msg)?.let(showTurnChanges)
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))
             "resolveImages" -> {
@@ -369,11 +371,17 @@ class ChatBridge(
         }
     }.toString()
 
+    /** The diffs of the turn [msg] names, or null after saying the turn is too old to have them. */
+    private fun turnDiffs(msg: JsonObject): List<FileDiff>? =
+        msg.str("id")?.let(session::turnDiffs).orEmpty().ifEmpty { session.notice(TURN_TOO_OLD, isError = false); null }
+
     internal companion object {
         const val BATCH_CHARS = 2_000_000
 
         /** Longest tool name shown in the strip. */
         const val MAX_TOOL_NAME = 40
+
+        const val TURN_TOO_OLD = "That turn is too old: its changes are no longer kept."
 
         /** `{type:"activity", phase, tool?, count?}`; a null phase hides the strip. The tool name is cleaned like the editor-context names. */
         fun activityMessage(activity: Activity?): String = buildJsonObject {
