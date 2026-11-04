@@ -130,7 +130,7 @@ class ChatSession(
 ) {
     private val lock = Any()
 
-    var sessionId: String? = resumeId
+    @Volatile var sessionId: String? = resumeId // also read by the IDE's save thread (see OpenChats)
         private set
     var mode: PermissionMode? = initialMode
         private set

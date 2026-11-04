@@ -51,6 +51,10 @@ class SessionStore(private val claudeHome: File) {
             .sortedByDescending { it.modifiedMillis }
             .take(limit)
 
+    /** [sessionId]'s summary; null when its transcript is missing or has neither a message nor a title. */
+    fun summary(cwd: String, sessionId: String): SessionSummary? =
+        transcriptFile(cwd, sessionId).takeIf { it.isFile }?.let { cachedSummary(it, cwd) }
+
     fun transcript(cwd: String, sessionId: String): List<ChatItem> {
         val file = transcriptFile(cwd, sessionId)
         if (!file.isFile) return emptyList()

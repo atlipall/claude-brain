@@ -2,6 +2,7 @@ package claudechat.ui
 
 import claudechat.follow.CheckoutFollower
 import claudechat.session.Chats
+import claudechat.session.OpenChats
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
@@ -35,7 +36,10 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
                 ApplicationManager.getApplication().invokeLater({ follower.refresh() }, project.disposed)
             }
         })
-        tabs.open(Chats.getInstance(project).mainSpec())
+        // The chats open when the project closed come back; with none, a fresh main chat.
+        val chats = Chats.getInstance(project)
+        chats.restorableSpecs().ifEmpty { listOf(chats.mainSpec()) }.forEach { tabs.open(it) }
+        OpenChats.getInstance(project).startTracking() // not before: a save meanwhile would store an empty list
         // Showing the tool window after every tab was closed starts a fresh main chat.
         project.messageBus.connect(toolWindow.disposable).subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
             override fun toolWindowShown(shown: ToolWindow) {

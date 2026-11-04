@@ -92,6 +92,46 @@ class ChatsTest : BasePlatformTestCase() {
         }
     }
 
+    private val openChats get() = OpenChats.getInstance(project)
+
+    fun testOpenChatsWithASessionAreRememberedOnceRestoreHasRun() {
+        openChats.loadState(OpenChats.State())
+        val a = chats.open(ChatSpec.inProject(root))
+        connections[0].emit(Fx.init(sessionId = "s-a", cwd = root))
+        assertEquals("before restore, the saved list is kept as loaded", emptyList<String?>(), openChats.state.chats.map { it.sessionId })
+        assertEquals(emptyList<Pair<String, String>>(), chats.restorableSpecs())
+        assertEquals("restoring alone does not start following the chats", listOf<String?>(), openChats.state.chats.map { it.sessionId })
+        openChats.startTracking()
+        chats.open(ChatSpec.inProject(root)) // no message yet, so no session: nothing to resume
+        val b = chats.open(ChatSpec("wt-1", "$root/wt"))
+        connections[2].emit(Fx.init(sessionId = "s-b", cwd = "$root/wt"))
+        assertEquals(listOf("s-a" to root, "s-b" to "$root/wt"), openChats.state.chats.map { it.sessionId to it.cwd })
+        chats.close(a)
+        assertEquals(listOf("s-b"), openChats.state.chats.map { it.sessionId })
+        chats.close(b)
+    }
+
+    fun testRestorableSpecsResumeSavedSessionsThatStillExist() {
+        val dir = Files.createTempDirectory("restore").toFile()
+        val main = dir.path
+        val wt = File(dir, "wt").apply { mkdirs() }
+        try {
+            fun transcript(cwd: String, id: String, extra: String = "") = File(chats.store.projectDir(cwd).apply { mkdirs() }, "$id.jsonl")
+                .writeText("""{"type":"user","message":{"role":"user","content":"hi $id"}}""" + "\n" + extra)
+            transcript(main, "kept")
+            transcript(wt.path, "named", """{"type":"custom-title","customTitle":"Login fix","sessionId":"named"}""")
+            transcript(main, "archived", """{"type":"custom-title","customTitle":"[archived] old","sessionId":"archived"}""")
+            openChats.loadState(OpenChats.State().apply {
+                chats = listOf("kept" to main, "named" to wt.path, "archived" to main, "no-transcript" to main, "gone" to "/no/such/folder")
+                    .map { (id, cwd) -> OpenChats.Entry().apply { sessionId = id; this.cwd = cwd } }.toMutableList()
+            })
+            val specs = chats.restorableSpecs()
+            assertEquals(listOf("kept", "named"), specs.map { it.resumeId })
+            assertEquals(listOf(main, wt.path), specs.map { it.cwd })
+            assertEquals("Login fix", specs[1].title)
+        } finally { dir.deleteRecursively() }
+    }
+
     fun testOpenLaunchesInTheSpecFolder() {
         val chat = chats.open(ChatSpec.inProject("/work/proj"))
         assertEquals("/work/proj", launches.single().cwd)

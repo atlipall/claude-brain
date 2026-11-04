@@ -52,6 +52,15 @@ class Chats(private val project: Project) : Disposable {
 
     fun mainSpec(): ChatSpec = ChatSpec.inProject(projectDir)
 
+    /**
+     * Specs resuming the sessions that were open when the project last closed (see [OpenChats]), skipping any whose
+     * folder or transcript is gone, or that was archived since. Reads transcripts: EDT is fine, like [open].
+     */
+    fun restorableSpecs(): List<ChatSpec> = OpenChats.getInstance(project).saved().mapNotNull { (id, cwd) ->
+        if (!File(cwd).isDirectory) return@mapNotNull null
+        store.summary(cwd, id)?.takeUnless { it.archived }?.let { ChatSpec.resume(projectDir, it) }
+    }
+
     /** Creates and starts a chat (a resumed one shows its transcript). EDT. */
     fun open(spec: ChatSpec): Chat {
         val history = spec.resumeId?.let { store.transcript(spec.cwd, it) }.orEmpty()
