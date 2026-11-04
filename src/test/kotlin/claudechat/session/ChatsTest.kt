@@ -99,7 +99,7 @@ class ChatsTest : BasePlatformTestCase() {
         val a = chats.open(ChatSpec.inProject(root))
         connections[0].emit(Fx.init(sessionId = "s-a", cwd = root))
         assertEquals("before restore, the saved list is kept as loaded", emptyList<String?>(), openChats.state.chats.map { it.sessionId })
-        assertEquals(emptyList<Pair<String, String>>(), chats.restorableSpecs())
+        assertEquals(emptyList<Pair<ChatSpec, Transcript>>(), chats.restorable())
         assertEquals("restoring alone does not start following the chats", listOf<String?>(), openChats.state.chats.map { it.sessionId })
         openChats.startTracking()
         chats.open(ChatSpec.inProject(root)) // no message yet, so no session: nothing to resume
@@ -125,7 +125,7 @@ class ChatsTest : BasePlatformTestCase() {
                 chats = listOf("kept" to main, "named" to wt.path, "archived" to main, "no-transcript" to main, "gone" to "/no/such/folder")
                     .map { (id, cwd) -> OpenChats.Entry().apply { sessionId = id; this.cwd = cwd } }.toMutableList()
             })
-            val specs = chats.restorableSpecs()
+            val specs = chats.restorable().map { it.first }
             assertEquals(listOf("kept", "named"), specs.map { it.resumeId })
             assertEquals(listOf(main, wt.path), specs.map { it.cwd })
             assertEquals("Login fix", specs[1].title)

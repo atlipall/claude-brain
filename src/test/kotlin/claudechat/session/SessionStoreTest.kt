@@ -233,4 +233,30 @@ class SessionStoreTest {
         assertEquals("a-2", store.read(cwd, "s1").lastAssistantUuid)
         assertEquals(null, store.read(cwd, "missing").lastAssistantUuid)
     }
+
+    @Test fun readSkipsUnusedLinesWithoutLosingMessagesTitlesOrTheAnchor() {
+        val store = SessionStore(tmp.root)
+        write(store, "s1", 1000,
+            """{"type":"user","timestamp":"2026-11-03T09:34:21.196Z","message":{"role":"user","content":"fix it"}}""",
+            """{"type":"progress","data":{"type":"user","note":"not a message"}}""",
+            """{"type":"assistant","uuid":"a-1","message":{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"Read","input":{}}]}}""",
+            """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"big file"}]}}""",
+            """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"x"},{"type":"text","text":"and also this"}]}}""",
+            """{"type":"assistant","uuid":"a-2","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}""",
+            """{"type":"custom-title","customTitle":"Login fix","sessionId":"s1"}""",
+        )
+        val read = store.read(cwd, "s1")
+        assertEquals(listOf(ChatItem.UserText("h-0", "fix it"), ChatItem.UserText("h-1", "and also this"), ChatItem.AssistantText("h-2", "done", false)), read.items)
+        assertEquals("a-2", read.lastAssistantUuid)
+        assertEquals("Login fix", read.summary?.customTitle)
+    }
+
+    @Test fun readGivesTheSummaryTheResumeListShows() {
+        val store = SessionStore(tmp.root)
+        write(store, "s1", 1000, user("first message"), assistant("ok"), """{"type":"custom-title","customTitle":"[archived] Old","sessionId":"s1"}""")
+        val fromRead = store.read(cwd, "s1").summary
+        assertEquals(store.list(cwd, archived = true).single(), fromRead)
+        assertEquals(SessionSummary("s1", "first message", 1000, cwd, "Old", archived = true), fromRead)
+        assertEquals(null, store.read(cwd, "missing").summary)
+    }
 }
