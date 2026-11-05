@@ -79,6 +79,18 @@ interface Checkpoints {
     }
 }
 
+/** Tells a chat what happened in git that it did not do itself. */
+interface GitNotes {
+    /**
+     * Calls [done] on the EDT, at once or later, exactly once, with the note for [chat]'s next message (what changed in
+     * git since its last turn ended) or null. EDT.
+     */
+    fun note(chat: Chat, done: (String?) -> Unit)
+
+    /** [chat]'s turn ended: what git looks like now is what it knows. On the CLI reader thread with the session lock held: must be quick. */
+    fun turnEnded(chat: Chat)
+}
+
 /**
  * One chat tab's model: its own [AgentSession] and agent process, the items shown so far, and the page showing them.
  * A new chat is a draft until [start]: its agent can change, and no process runs.
@@ -101,6 +113,12 @@ class Chat(
      * once. Null means [editorContext] is already complete.
      */
     private val resolveContext: ((Chat, (EditorContext?) -> Unit) -> Unit)? = null,
+    /**
+     * Notes on what happened in git since the last turn; null for none. A message that goes out while a turn runs gets
+     * none: Claude's own git commands in that turn would be reported back to it as someone else's. The turn's end
+     * (going idle, or dying, after one ran) is reported instead.
+     */
+    private val gitNotes: GitNotes? = null,
     private val log: (String) -> Unit = {},
     /** When the session began (epoch millis): now for a new chat, the transcript's start for a resumed one. */
     val startedAt: Long? = null,
@@ -246,6 +264,9 @@ class Chat(
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
             if (state != SessionState.IDLE) suggestion = null
             idleSince = if (state == SessionState.IDLE) idleSince ?: System.currentTimeMillis() else null
+            val running = state == SessionState.RUNNING || state == SessionState.AWAITING_PERMISSION
+            if (inTurn && !running) gitNotes?.turnEnded(this@Chat)
+            inTurn = running
             saveTitleIfReady()
             view?.state(state, session.modeId)
             val now = cwd
@@ -256,7 +277,13 @@ class Chat(
         }
     }
 
-    /** When the session last became idle; null while it is not. */
+    /**
+     * True from a turn's start until it ends, so the idle state of starting or restarting the session is not taken for a
+     * turn's end. Changed with the session lock held.
+     */
+    private var inTurn = false
+
+    /** When the session last became idle; null while it is not. Read when a message goes out, see [Checkpoints.mark]. */
     @Volatile private var idleSince: Long? = null
     private var claudeSetup = spec.setup
 
@@ -397,9 +424,13 @@ class Chat(
     /** Images waiting above this chat's message box; [send] takes them out. EDT only. */
     val attachments = PendingAttachments()
 
-    private class Outgoing(val text: String, val edits: String?, val images: List<Attachment>)
+    private class Outgoing(val text: String, val edits: String?, val images: List<Attachment>) {
+        /** Whether [git] was looked up; the git note comes before the editor context. */
+        var gitResolved = false
+        var git: String? = null
+    }
 
-    /** Messages waiting for their context, oldest first; only the head resolves, so order is kept. EDT only. */
+    /** Messages waiting for their git note and editor context, oldest first; only the head resolves, so order is kept. EDT only. */
     private val outbox = ArrayDeque<Outgoing>()
     private var resolving = false
     private var disposed = false
@@ -407,10 +438,11 @@ class Chat(
     /**
      * EDT only (the edit note saves documents, the context reads the editor). Ignored while the session is dead.
      * The first message starts the agent; if that fails at once, [text] goes back into the message box.
-     * Claude gets the edit note, then the editor-context note, then [text], then the [images]; the chat shows [text]
-     * under the images' thumbnails. Image bytes are dropped once the line is written to the CLI.
-     * The edit note is taken now. When the symbol at the caret is not cached the message goes
-     * out (and its bubble appears) once the background lookup returns, behind any earlier message still waiting.
+     * Claude gets the edit note, then the git note, then the editor-context note, then [text], then the [images]; the
+     * chat shows [text] under the images' thumbnails. Image bytes are dropped once the line is written to the CLI.
+     * The edit note is taken now. The git note is read in the background, and when the symbol at the caret is not cached
+     * it is looked up there too: the message goes out (and its bubble appears) once both are back, behind any earlier
+     * message still waiting.
      */
     fun send(text: String, images: List<Attachment> = emptyList()) {
         if (session.state == SessionState.DEAD) return
@@ -436,42 +468,63 @@ class Chat(
     private fun drain() {
         while (!resolving) {
             val next = outbox.firstOrNull() ?: return
+            if (!next.gitResolved) {
+                val notes = gitNotes?.takeIf { session.state == SessionState.IDLE }
+                val resolved = notes == null || await(next, "Git note", { done -> notes.note(this, done) }) {
+                    next.git = it
+                    next.gitResolved = true
+                }
+                if (notes == null) next.gitResolved = true
+                if (!resolved) return
+                continue
+            }
             val resolve = resolveContext
             if (resolve == null) {
                 outbox.removeFirst()
                 deliver(next, captureContext(ContextNotes::note))
                 continue
             }
-            resolving = true
-            var inline = true
-            var ready = false
-            var note: String? = null
-            val done = { context: EditorContext? ->
-                val formatted = format(context)
-                if (inline) {
-                    note = formatted
-                    ready = true
-                } else if (stillWaiting(next)) {
-                    resolving = false
-                    outbox.removeFirst()
-                    deliver(next, formatted)
-                    pump()
-                }
-            }
-            try {
-                resolve(this, done)
-            } catch (e: Exception) {
-                if (e is ProcessCanceledException || e is ControlFlowException) throw e
-                logger<Chat>().warn("Editor context capture failed; going on without it", e)
-                if (!ready) { ready = true; note = null }
-            }
-            inline = false
-            if (ready) {
-                resolving = false
+            val sent = await(next, "Editor context capture", { done -> resolve(this) { done(format(it)) } }) { note ->
                 outbox.removeFirst()
                 deliver(next, note)
             }
+            if (!sent) return
         }
+    }
+
+    /**
+     * Runs [step] for [message], the head of the outbox, and hands its result to [take]: now, returning true, when the
+     * step finished before returning; else later on the EDT (while [message] still waits), followed by [pump], returning
+     * false. A step that throws counts as finished with null, so a failure never blocks sending.
+     */
+    private fun await(message: Outgoing, what: String, step: ((String?) -> Unit) -> Unit, take: (String?) -> Unit): Boolean {
+        resolving = true
+        var inline = true
+        var finished = false
+        var result: String? = null
+        val done = done@{ value: String? ->
+            if (finished) return@done
+            finished = true
+            if (inline) {
+                result = value
+            } else if (stillWaiting(message)) {
+                resolving = false
+                take(value)
+                pump()
+            }
+        }
+        try {
+            step(done)
+        } catch (e: Exception) {
+            if (e is ProcessCanceledException || e is ControlFlowException) throw e
+            logger<Chat>().warn("$what failed; going on without it", e)
+            finished = true
+        }
+        inline = false
+        if (!finished) return false
+        resolving = false
+        take(result)
+        return true
     }
 
     /** False once the outbox was cleared under [message]: the chat was closed or the turn interrupted meanwhile. */
@@ -488,7 +541,7 @@ class Chat(
         if (disposed || session.state == SessionState.DEAD) return
         session.send(
             message.text,
-            listOfNotNull(message.edits, context).joinToString("\n\n").ifEmpty { null },
+            listOfNotNull(message.edits, message.git, context).joinToString("\n\n").ifEmpty { null },
             message.images.map { it.image },
             message.images.map { it.thumb },
         )
@@ -534,7 +587,7 @@ class Chat(
         item.text.takeIf { it.isNotBlank() }?.let(::insert)
     }
 
-    /** Stops the turn, and drops messages still waiting for their editor context. EDT only. */
+    /** Stops the turn, and drops messages still waiting for their git note or editor context. EDT only. */
     fun interrupt() {
         if (outbox.isNotEmpty()) {
             outbox.clear()
