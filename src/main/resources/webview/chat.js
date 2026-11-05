@@ -121,7 +121,7 @@
   }
   function follow(smooth) {
     following = true;
-    if (smooth) log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' }); else pin();
+    if (smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches) log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' }); else pin();
     showArrow();
   }
 
@@ -250,6 +250,7 @@
   function renderAssistant(el, item) {
     el.className = 'msg assistant';
     renderMarkdown(el, item.text, item.streaming);
+    el.toggleAttribute('aria-busy', !!item.streaming);
   }
 
   // Replaces each image marker with its alt text in a trusted span; returns { span, href, alt } for each.
@@ -378,6 +379,12 @@
   // Tool rows and turn file lists the user has expanded, by item id, so a re-render of the same item keeps them open.
   const expandedTools = new Set();
   const STATUS_ICON = { done: '\u2713', error: '\u2717', denied: '\u2298' };
+  /** The icon cell of a tool or agent row (a spinner while running), named for screen readers by [TOOL_STATUS]. */
+  const statusIcon = (status) => {
+    const label = TOOL_STATUS[status] || null;
+    const icon = status === 'running' ? h('span', { class: 'spin' }) : (STATUS_ICON[status] || '');
+    return h('span', { class: 'tool-icon', role: label ? 'img' : null, 'aria-label': label }, icon);
+  };
 
   // A row and the details right after it: a tool row's .tool-detail, or an agent card's .agent-body.
   function setRowExpanded(row, open) {
@@ -398,7 +405,6 @@
   function renderToolRow(el, t) {
     const body = inputBody(t);
     const hasDetails = !!body || !!t.resultPreview;
-    const icon = t.status === 'running' ? h('span', { class: 'spin' }) : (STATUS_ICON[t.status] || '');
     const path = FILE_TOOLS.has(t.name) ? (t.filePath || (t.input && (t.input.file_path || t.input.notebook_path))) : null;
     const desc = h('span', { class: 'tool-desc' });
     if (typeof path === 'string' && path) desc.append(h('a', { class: 'file', href: '#', 'data-target': path, title: path }, shortPath(path)));
@@ -406,9 +412,9 @@
     const side = h('span', { class: 'tool-side' });
     if (t.status === 'error') side.append(h('span', { class: 'tool-failed' }, ' \u00b7 failed'));
     if (t.hasDiff) side.append(h('button', { class: 'link', 'data-action': 'diff', 'data-id': t.id }, 'View diff'));
-    if (hasDetails) side.append(h('span', { class: 'tool-toggle' }, '\u25B8'));
+    if (hasDetails) side.append(h('span', { class: 'tool-toggle', 'aria-hidden': 'true' }, '\u25B8'));
     const row = h('div', { class: 'tool-row', 'data-id': t.id, role: hasDetails ? 'button' : null, tabindex: hasDetails ? '0' : null },
-      h('span', { class: 'tool-icon' }, icon), h('span', { class: 'tool-name' }, t.name), desc, side);
+      statusIcon(t.status), h('span', { class: 'tool-name' }, t.name), desc, side);
     el.append(row);
     if (hasDetails) {
       const detail = h('div', { class: 'tool-detail', hidden: true });
@@ -550,12 +556,12 @@
     el.className = 'msg agent agent-' + state;
     const desc = toolDescription(t);
     const head = h('div', { class: 'tool-row agent-head', role: 'button', tabindex: '0', 'data-id': t.id },
-      h('span', { class: 'tool-icon' }, state === 'running' ? h('span', { class: 'spin' }) : STATUS_ICON[state === 'failed' ? 'error' : state]),
+      statusIcon(state === 'failed' ? 'error' : state),
       h('span', { class: 'tool-name' }, t.name),
       h('span', { class: 'tool-desc', title: desc || null }, desc),
       a && typeof a.subagentType === 'string' && a.subagentType ? h('span', { class: 'agent-tag' }, a.subagentType.slice(0, 40)) : null,
       a && a.background === true ? h('span', { class: 'agent-tag' }, 'background') : null,
-      h('span', { class: 'tool-side' }, agentSide(a, state), ' ', h('span', { class: 'tool-toggle' })));
+      h('span', { class: 'tool-side' }, agentSide(a, state), ' ', h('span', { class: 'tool-toggle', 'aria-hidden': 'true' })));
     const body = h('div', { class: 'agent-body' });
     if (a && typeof a.prompt === 'string' && a.prompt) body.append(h('details', {}, h('summary', {}, 'Prompt'), h('pre', {}, clip(a.prompt))));
     const box = childBox(t.id);
@@ -787,6 +793,8 @@
     if (parts.length) lines.push(parts.join(' · '));
     if (at !== null) lines.push('Autocompacts at ~' + at + '%');
     usageEl.title = lines.join('\n');
+    usageEl.setAttribute('aria-valuenow', String(p));
+    usageEl.setAttribute('aria-label', lines[0]);
     usageEl.hidden = false;
   }
 
@@ -859,6 +867,7 @@
     s.setProperty('--font', '"' + t.font + '", system-ui, sans-serif'); s.setProperty('--font-size', t.fontSize + 'px');
     s.setProperty('--add', t.dark ? '#2f5a3a' : '#d7f5dd'); s.setProperty('--del', t.dark ? '#5a2f2f' : '#f9d7d7');
     s.setProperty('--ok', t.dark ? '#5fb865' : '#2e7d32');
+    s.setProperty('--warn', t.dark ? '#d29922' : '#9a6700'); s.setProperty('--danger', t.dark ? '#c75450' : '#c7222d');
     // Native parts (a scrolling text box, scrollbars) follow the scheme, not the colours above.
     s.setProperty('color-scheme', t.dark ? 'dark' : 'light');
     fitInput();
