@@ -9,7 +9,11 @@
   const toBottom = document.getElementById('to-bottom');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
-  const modeSel = document.getElementById('mode');
+  const modeBtn = document.getElementById('mode');
+  const modeMenu = document.getElementById('mode-menu');
+  const modeItems = [...modeMenu.querySelectorAll('[role="menuitemradio"]')];
+  /** The permission mode shown on the picker: the session's last reported one, or the one just picked. */
+  let mode = modeItems[0].dataset.mode;
   const modeLabel = document.getElementById('mode-label');
   const modelBtn = document.getElementById('model');
   const modelLabel = document.getElementById('model-label');
@@ -704,7 +708,7 @@
     if (msg.state === 'DEAD') setActivity({ phase: null });
     restartBtn.hidden = msg.state !== 'DEAD';
     input.disabled = sendBtn.disabled = attachBtn.disabled = msg.state === 'DEAD';
-    if (msg.mode && msg.mode !== modeSel.value) { modeSel.value = msg.mode; showMode(); }
+    if (msg.mode && msg.mode !== mode) showMode(msg.mode);
     idle = msg.state === 'IDLE';
     if (!idle) setSuggestion('');
   }
@@ -762,9 +766,55 @@
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) modelDialog.close();
   }
 
-  /** Shows the selected permission mode beside the hand icon that opens the mode picker. */
-  function showMode() {
-    modeLabel.textContent = modeSel.selectedOptions[0]?.textContent || '';
+  /**
+   * Makes [value] the shown permission mode: its name beside the hand icon, and the checkmark in the menu. A mode the
+   * menu doesn't list is ignored, so the picker never goes blank.
+   */
+  function showMode(value) {
+    const picked = modeItems.find((item) => item.dataset.mode === value);
+    if (!picked) return;
+    mode = value;
+    for (const item of modeItems) item.setAttribute('aria-checked', String(item === picked));
+    modeLabel.textContent = picked.textContent;
+  }
+
+  /**
+   * Opens the mode menu above its button (the picker sits at the bottom of the page, where a native select's popup
+   * would be cut off by the webview's edge) with the current mode focused.
+   */
+  function openModeMenu() {
+    modeMenu.hidden = false;
+    modeBtn.setAttribute('aria-expanded', 'true');
+    (modeItems.find((item) => item.dataset.mode === mode) || modeItems[0]).focus();
+  }
+
+  /** Closes the mode menu; [refocus] puts focus back on its button, as when it was dismissed from the keyboard. */
+  function closeModeMenu(refocus) {
+    if (modeMenu.hidden) return;
+    modeMenu.hidden = true;
+    modeBtn.setAttribute('aria-expanded', 'false');
+    if (refocus) modeBtn.focus();
+  }
+
+  /** Picks [item]'s mode: shows it, tells the session, and closes the menu. */
+  function pickMode(item) {
+    closeModeMenu(true);
+    if (item.dataset.mode === mode) return;
+    showMode(item.dataset.mode);
+    send({ type: 'setMode', mode });
+  }
+
+  /** Arrow keys move through the menu (wrapping), Home and End jump, Enter or Space picks, Escape and Tab close it. */
+  function onModeMenuKey(e) {
+    if (e.key === 'Tab') return closeModeMenu(false);
+    const at = modeItems.indexOf(document.activeElement);
+    const moves = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: modeItems.length - 1 };
+    if (e.key in moves) modeItems[(moves[e.key] + modeItems.length) % modeItems.length].focus();
+    else if ((e.key === 'Enter' || e.key === ' ') && at >= 0) pickMode(modeItems[at]);
+    else if (e.key === 'Escape') closeModeMenu(true);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
   }
 
   /**
@@ -1053,8 +1103,23 @@
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
-  modeSel.addEventListener('change', () => { showMode(); send({ type: 'setMode', mode: modeSel.value }); });
-  showMode();
+  modeBtn.addEventListener('click', () => (modeMenu.hidden ? openModeMenu() : closeModeMenu(true)));
+  modeBtn.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    openModeMenu();
+  });
+  modeMenu.addEventListener('keydown', onModeMenuKey);
+  modeMenu.addEventListener('pointermove', (e) => e.target.closest('[role="menuitemradio"]')?.focus());
+  modeMenu.addEventListener('click', (e) => {
+    const item = e.target.closest('[role="menuitemradio"]');
+    if (item) pickMode(item);
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!modeMenu.hidden && !e.target.closest('#mode-picker')) closeModeMenu(false);
+  });
+  window.addEventListener('blur', () => closeModeMenu(false));
+  showMode(mode);
   modelBtn.addEventListener('click', openModelDialog);
   modelDialog.addEventListener('click', closeOnBackdropClick);
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));

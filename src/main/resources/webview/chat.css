@@ -51,11 +51,16 @@ body { display: flex; flex-direction: column; background: var(--bg); color: var(
 #composer-tools { display: flex; align-items: center; gap: 2px; margin-top: 4px; }
 #composer-tools .composer-tool { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
 #composer-tools .composer-tool:hover { background: var(--code-bg); color: var(--fg); }
-#composer-tools .composer-tool:has(:focus-visible) { outline: 2px solid var(--accent); }
 #composer-tools svg { width: 16px; height: 16px; flex: none; }
 #mode-label { font-size: .9em; }
-#mode { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
-button, select { background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer; }
+#mode-picker { position: relative; }
+#mode[aria-expanded="true"] { background: var(--code-bg); color: var(--fg); }
+#mode-menu { position: absolute; left: 0; bottom: calc(100% + 4px); z-index: 10; min-width: 170px; padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
+#mode-menu [role="menuitemradio"] { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+#mode-menu [role="menuitemradio"]::before { content: ""; width: 14px; flex: none; text-align: center; }
+#mode-menu [aria-checked="true"]::before { content: "\2713"; }
+#mode-menu [role="menuitemradio"]:focus { outline: none; background: var(--accent); color: #fff; }
+button { background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .q-other:focus-visible { outline-offset: -1px; }
 button:disabled, textarea:disabled { opacity: .5; cursor: default; }
@@ -163,4 +168,4 @@ img.md-img { display: block; max-width: 100%; max-height: 400px; margin: 4px 0; 
 #activity-stop:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
 @keyframes act-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .4; } 40% { transform: translateY(-4px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #activity * { animation: none !important; } }
-@media (prefers-contrast: more) { :root { --muted: var(--fg) !important; } .tool-detail, .q-opt, .choice, .segment, #input-box, button, select { border-width: 2px; } }
+@media (prefers-contrast: more) { :root { --muted: var(--fg) !important; } .tool-detail, .q-opt, .choice, .segment, #input-box, button { border-width: 2px; } }
