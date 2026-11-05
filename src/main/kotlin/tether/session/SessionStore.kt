@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
+import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
 import java.time.Instant
@@ -105,22 +106,23 @@ class SessionStore(private val claudeHome: File) {
     /**
      * Names the session [title] the way Claude Code's `/rename` does: a `custom-title` line appended to its transcript
      * (the last one wins; blank means none). [archived] prefixes it with `[archived]`, as other Claude apps do.
-     * Safe while claude appends to the same file: each write is one whole line.
+     * Safe while claude appends to the same file: the line is written in one append-mode write, so the kernel places
+     * it at the end even if claude appended in between. The parent folder is created because claude may not have
+     * written the transcript yet; it appends to this one.
      */
     fun saveTitle(cwd: String, sessionId: String, title: String, archived: Boolean = false) {
         val file = transcriptFile(cwd, sessionId)
-        file.parentFile.mkdirs() // claude may not have written the transcript yet; it appends to this one
+        file.parentFile.mkdirs()
         val line = buildJsonObject {
             put("type", CUSTOM_TITLE)
             put("customTitle", if (archived) "${ChatNames.ARCHIVED} $title".trimEnd() else title)
             put("sessionId", sessionId)
         }.toString()
-        RandomAccessFile(file, "rw").use { f ->
+        val midLine = file.exists() && RandomAccessFile(file, "r").use { f ->
             val end = f.length()
-            val midLine = end > 0 && f.run { seek(end - 1); read() != '\n'.code }
-            f.seek(end)
-            f.write(((if (midLine) "\n" else "") + line + "\n").toByteArray())
+            end > 0 && f.run { seek(end - 1); read() != '\n'.code }
         }
+        FileOutputStream(file, true).use { it.write(((if (midLine) "\n" else "") + line + "\n").toByteArray()) }
     }
 
     private class Scanned(val modified: Long, val length: Long, val summary: SessionSummary?)
@@ -169,7 +171,7 @@ class SessionStore(private val claudeHome: File) {
 
         /** [modified] is the stamp taken before reading, so the summary and the cache entry agree. */
         fun summary(file: File, cwd: String, modified: Long): SessionSummary? {
-            val title = first?.let { ChatNames.clean(it)!!.take(80) } ?: custom ?: return null
+            val title = first?.let { ChatNames.clean(it)?.take(80) } ?: custom ?: return null
             return SessionSummary(file.nameWithoutExtension, title, modified, cwd, custom, archived)
         }
     }

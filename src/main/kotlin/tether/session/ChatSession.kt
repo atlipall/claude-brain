@@ -141,14 +141,17 @@ class ChatSession(
 ) {
     private val lock = Any()
 
-    @Volatile var sessionId: String? = resumeId // also read by the IDE's save thread (see OpenChats)
+    /** The CLI's session id once known; also read by the IDE's save thread (see OpenChats). */
+    @Volatile var sessionId: String? = resumeId
         private set
-    @Volatile var mode: PermissionMode? = setup.mode // also read by the IDE's save thread (see OpenChats)
+    /** The permission mode the session runs in; also read by the IDE's save thread (see OpenChats). */
+    @Volatile var mode: PermissionMode? = setup.mode
         private set
-    var state: SessionState = SessionState.IDLE
+    /** Written under the lock, also read from the EDT without it. */
+    @Volatile var state: SessionState = SessionState.IDLE
         private set
-    /** The model the user picked for this chat, passed to every new process; null for the CLI's own choice. */
-    @Volatile var model: String? = setup.model // likewise
+    /** The model the user picked for this chat, passed to every new process; null for the CLI's own choice. Also read by the save thread. */
+    @Volatile var model: String? = setup.model
         private set
     /** The effort level the user picked, likewise. */
     @Volatile var effort: String? = setup.effort
@@ -175,7 +178,7 @@ class ChatSession(
     private val toolCalls = HashMap<String, ChatItem.ToolCall>()
     private val streamed = HashMap<String, ChatItem.AssistantText>()
     private val streamedMessages = HashSet<String>()
-    /** The initialize request of the current process; context usage is asked for only once it has been answered. */
+    /** The initialize request of the current process; the first context-usage request waits until it has been answered. */
     private var initRequestId: String? = null
     /** The latest get_context_usage request; replies to older ones are stale and dropped. */
     private var contextRequestId: String? = null
@@ -440,7 +443,7 @@ class ChatSession(
 
     private fun notifyQueue() = listener.onQueue(queue.map { it.shown })
 
-    /** Respawns a dead session with --resume and the current permission mode. */
+    /** Respawns a dead session with --resume and the current permission mode, model, effort and fork. */
     fun restart() {
         synchronized(lock) {
             if (state != SessionState.DEAD) return
@@ -633,7 +636,15 @@ class ChatSession(
         when {
             server == null -> conn.send(CliMessages.controlError(event.requestId, "No MCP server named ${event.server}"))
             !server.isRequest(event.message) -> conn.send(CliMessages.mcpResponse(event.requestId, McpServer.ACK))
-            else -> background { conn.send(CliMessages.mcpResponse(event.requestId, server.reply(event.message))) }
+            else -> background {
+                var replied = false
+                try {
+                    conn.send(CliMessages.mcpResponse(event.requestId, server.reply(event.message)))
+                    replied = true
+                } finally {
+                    if (!replied) conn.send(CliMessages.controlError(event.requestId, "The IDE tool failed"))
+                }
+            }
         }
     }
 
@@ -801,6 +812,9 @@ class ChatSession(
     /** Drops everything that belonged to the claude process that is gone or being replaced. */
     private fun forgetProcess() {
         connection = null
+        interruptRequested = false
+        streamed.values.forEach { emit(it.copy(streaming = false)) }
+        streamed.clear()
         mcpServer = null
         readOnlyTools = emptySet()
         initRequestId = null

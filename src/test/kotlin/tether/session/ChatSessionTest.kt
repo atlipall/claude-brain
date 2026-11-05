@@ -615,6 +615,18 @@ class ChatSessionTest {
         assertEquals(emptyList<TurnFile>(), turnFiles())
     }
 
+    @Test fun anInterruptTheProcessDiedBeforeAnsweringDoesNotMarkTheNextTurn() {
+        val s = session()
+        s.send("x")
+        s.interrupt()
+        conn.exit(1, "boom")
+        s.restart()
+        s.send("y")
+        conn.emit(Fx.result())
+        assertFalse(listener.latest<ChatItem.TurnResult>().isError)
+        assertFalse(listener.items.filterIsInstance<ChatItem.Notice>().any { it.text == "Interrupted" })
+    }
+
     @Test fun readResultHasNoDiff() {
         val s = session()
         s.send("x")
