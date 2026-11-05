@@ -10,8 +10,13 @@
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const modeSel = document.getElementById('mode');
-  const modelSel = document.getElementById('model');
-  const effortSel = document.getElementById('effort');
+  const modelBtn = document.getElementById('model');
+  const modelLabel = document.getElementById('model-label');
+  const effortLabel = document.getElementById('effort-label');
+  const modelDialog = document.getElementById('model-dialog');
+  const modelOptions = document.getElementById('model-options');
+  const effortSection = document.getElementById('effort-section');
+  const effortOptions = document.getElementById('effort-options');
   const activityEl = document.getElementById('activity');
   const activityDots = document.getElementById('activity-dots');
   const activityLabel = document.getElementById('activity-label');
@@ -703,24 +708,57 @@
     if (!idle) setSuggestion('');
   }
 
-  const option = (value, text, title) => h('option', { value, title: title || null }, text);
+  /**
+   * The model a choice runs, short enough for the header: the CLI's descriptions lead with it ("Opus 5.5 · Most
+   * capable…"), which says more than a name like "Default (recommended)"; the name when there is no description.
+   */
+  const shortModelName = (o) => (o.description ? o.description.split(' · ')[0].trim() : '') || o.name;
 
-  /** The model and effort pickers show what the CLI says runs; hidden until it says (and effort for models without it). */
+  /**
+   * The header's model chip and the picker dialog show what the CLI says runs; the chip stays hidden until it says,
+   * and the effort row shows only for a model that takes an effort. Every string is CLI text and goes in as text.
+   */
   function setModel(msg) {
-    const options = Array.isArray(msg.options) ? msg.options : [];
-    modelSel.replaceChildren(...options.map((o) => option(String(o.value), String(o.name), o.description ? String(o.description) : '')));
-    modelSel.value = String(msg.model || '');
-    const shown = options.find((o) => String(o.value) === modelSel.value);
-    modelSel.title = shown && shown.description ? 'Model: ' + shown.description : 'Model';
-    modelSel.hidden = !options.length;
+    const options = (Array.isArray(msg.options) ? msg.options : []).map((o) => ({
+      value: String(o.value), name: String(o.name), description: o.description ? String(o.description) : '',
+    }));
+    const model = String(msg.model || '');
+    const shown = options.find((o) => o.value === model);
     const efforts = (Array.isArray(msg.efforts) ? msg.efforts : []).map(String);
     const effort = msg.effort ? String(msg.effort) : '';
-    effortSel.replaceChildren(
-      ...(efforts.includes(effort) ? [] : [option(effort, effort ? effortLabel(effort) : 'Effort')]),
-      ...efforts.map((level) => option(level, effortLabel(level))),
-    );
-    effortSel.value = effort;
-    effortSel.hidden = !efforts.length;
+    modelLabel.textContent = shown ? shortModelName(shown) : (model || 'Model');
+    effortLabel.textContent = effort && efforts.length ? capitalize(effort) : '';
+    effortLabel.hidden = !effortLabel.textContent;
+    modelBtn.hidden = !options.length;
+    modelOptions.replaceChildren(...options.map((o) => h('button',
+      { class: 'choice', 'data-action': 'pickModel', 'data-value': o.value, 'aria-pressed': String(o.value === model) },
+      h('span', { class: 'choice-name' }, o.name),
+      o.description ? h('span', { class: 'choice-desc' }, o.description) : null)));
+    effortOptions.replaceChildren(...efforts.map((level) => h('button',
+      { class: 'segment', 'data-action': 'pickEffort', 'data-value': level, 'aria-pressed': String(level === effort) },
+      capitalize(level))));
+    effortSection.hidden = !efforts.length;
+    if (!options.length && modelDialog.open) modelDialog.close();
+    if (modelDialog.open && !modelDialog.contains(document.activeElement)) focusCurrentChoice();
+  }
+
+  function openModelDialog() {
+    if (modelDialog.open) return;
+    modelDialog.showModal();
+    focusCurrentChoice();
+  }
+
+  /** Focuses the picker's current model, so the keyboard starts (or, after the buttons are rebuilt, stays) there. */
+  function focusCurrentChoice() {
+    const current = modelDialog.querySelector('.choice[aria-pressed="true"]');
+    if (current) current.focus();
+  }
+
+  /** A click on the backdrop lands on the dialog element itself, outside its content box: it closes the picker. */
+  function closeOnBackdropClick(e) {
+    if (e.target !== modelDialog) return;
+    const r = modelDialog.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) modelDialog.close();
   }
 
   /** The box's resting height (its height with no inline height) as last given to the CSS, which the buttons keep. */
@@ -922,8 +960,8 @@
     input.focus();
   }
 
-  /** "High effort" for "high": the effort menu's label for a level. */
-  const effortLabel = (level) => level.charAt(0).toUpperCase() + level.slice(1) + ' effort';
+  /** "High" for "high": how an effort level reads in the header and the picker. */
+  const capitalize = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 
   /**
    * The IDE's colours and font as CSS variables. The colour scheme is set too: native parts (a scrolling text box,
@@ -1013,8 +1051,8 @@
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
-  modelSel.addEventListener('change', () => send({ type: 'setModel', model: modelSel.value }));
-  effortSel.addEventListener('change', () => { if (effortSel.value) send({ type: 'setEffort', effort: effortSel.value }); });
+  modelBtn.addEventListener('click', openModelDialog);
+  modelDialog.addEventListener('click', closeOnBackdropClick);
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
   /**
@@ -1085,6 +1123,8 @@
     else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
     else if (action === 'queueSendNow' || action === 'queueEdit' || action === 'queueRemove' || action === 'revertTo') send({ type: action, id: b.dataset.id });
+    else if (action === 'pickModel') send({ type: 'setModel', model: b.dataset.value });
+    else if (action === 'pickEffort') send({ type: 'setEffort', effort: b.dataset.value });
     else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });
     else if (action === 'deny') {
       const reason = b.parentElement.querySelector('.deny-reason').value.trim();

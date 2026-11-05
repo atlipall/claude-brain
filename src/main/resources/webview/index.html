@@ -13,14 +13,22 @@
     <option value="plan">Plan only</option>
     <option value="auto">Auto</option>
   </select>
-  <select id="model" title="Model" hidden></select>
-  <select id="effort" title="Effort" hidden></select>
-  <button id="show-changes" title="Show everything changed in this checkout: since main on a branch, otherwise since this session started">View changes</button>
+  <button id="model" class="chip" title="Change the model and effort" aria-haspopup="dialog" hidden><span id="model-label"></span><span id="effort-label"></span></button>
+  <button id="show-changes" class="icon" aria-label="View changes" title="View changes: everything changed in this checkout, since main on a branch, otherwise since this session started"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" d="M3.5 1.5h6l3 3v10h-9zM8 5v4M6 7h4M6 11.5h4"/></svg></button>
   <span id="checkout" hidden></span>
   <span id="status" role="status"></span>
   <span id="usage" hidden tabindex="0" role="meter" aria-valuemin="0" aria-valuemax="100"><span id="usage-ring"></span><span id="usage-pct"></span></span>
   <button id="restart" hidden>Restart</button>
 </header>
+<dialog id="model-dialog" aria-labelledby="model-dialog-title">
+  <h2 id="model-dialog-title">Model</h2>
+  <div id="model-options" class="choices" role="group" aria-labelledby="model-dialog-title"></div>
+  <section id="effort-section" hidden>
+    <h2 id="effort-title">Effort</h2>
+    <div id="effort-options" class="segments" role="group" aria-labelledby="effort-title"></div>
+  </section>
+  <form method="dialog" class="dialog-actions"><button>Done</button></form>
+</dialog>
 <div id="log-wrap">
   <main id="log"><div id="log-content"></div></main>
   <button id="to-bottom" hidden aria-label="Scroll to the latest" title="Scroll to the latest and keep following">↓</button>

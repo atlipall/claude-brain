@@ -27,14 +27,21 @@ class WebAssetsTest {
         assertFalse(page.contains("listSessions"))
     }
 
-    @Test fun theHeaderHasModelAndEffortPickersAndNoNewChatButton() {
+    @Test fun theHeaderHasAModelChipThatOpensAPickerAndNoNewChatButton() {
         val page = WebAssets.page()
         assertFalse(page.contains("id=\"new-chat\""))
         assertFalse(page.contains("'newChat'"))
-        assertTrue(page.contains("id=\"model\""))
-        assertTrue(page.contains("id=\"effort\""))
+        assertTrue(page.contains("<button id=\"model\" class=\"chip\""))
+        assertFalse("model and effort are no longer header selects", page.contains("<select id=\"model\""))
+        assertTrue(page.contains("<dialog id=\"model-dialog\""))
+        assertTrue(page.contains("modelBtn.addEventListener('click', openModelDialog)"))
         assertTrue(page.contains("type: 'setModel'"))
         assertTrue(page.contains("type: 'setEffort'"))
+    }
+
+    @Test fun viewChangesIsAnIconButtonWithAnAccessibleName() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("<button id=\"show-changes\" class=\"icon\" aria-label=\"View changes\""))
     }
 
     @Test fun pageShowsCheckoutAsPlainText() {
