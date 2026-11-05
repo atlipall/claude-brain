@@ -18,9 +18,11 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl
 import java.util.concurrent.ConcurrentHashMap
 
 /** Most checkpoints kept per chat; older messages can't be reverted to. */
@@ -40,12 +42,11 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
     /** Chat id -> what to tell Claude with the next message after a revert. */
     private val notes = ConcurrentHashMap<Int, String>()
 
-    override fun mark(chat: Chat, item: ChatItem.UserText) {
+    override fun mark(chat: Chat, item: ChatItem.UserText, settled: Boolean) {
         try {
             val dir = LocalFileSystem.getInstance().refreshAndFindFileByPath(chat.cwd)
             if (dir == null || !tracked(dir)) return
-            // Writes the previous turn made behind the IDE's back belong before this label, not after it.
-            VfsUtil.markDirtyAndRefresh(false, true, true, dir)
+            refreshBeforeLabel(dir, settled)
             val message = shorten(item.text)
             // Local History is shared by every open project. A label put while a command or refresh is open anywhere
             // joins that change set, and revert never finds a label whose change set changes nothing in its folder.
@@ -62,6 +63,28 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
         } catch (e: Exception) {
             LOG.warn("Could not put a Local History label", e)
         }
+    }
+
+    /**
+     * Brings the VFS up to date with [dir] on disk, so writes the previous turn made behind the IDE's back land before
+     * the next label, not after it. When the chat has [settled] and the native file watcher covers [dir], the watcher
+     * has already marked those files dirty and refreshing just them is enough. Otherwise (a message sent right as a turn
+     * ended, no watcher, or [dir] outside its roots) the whole folder is rescanned.
+     */
+    private fun refreshBeforeLabel(dir: VirtualFile, settled: Boolean) {
+        val fs = LocalFileSystem.getInstance()
+        if (settled && watched(dir)) fs.refresh(false) else VfsUtil.markDirtyAndRefresh(false, true, true, dir)
+    }
+
+    /**
+     * Whether the native file watcher reports changes under [dir]: it runs, isn't still being given its roots, and has
+     * no folder in or around [dir] that it could not watch. [dir] is project content (see [tracked]), and the platform
+     * watches the content roots. Uses the platform's internal watcher API; there is no public one.
+     */
+    private fun watched(dir: VirtualFile): Boolean {
+        val watcher = (LocalFileSystem.getInstance() as? LocalFileSystemImpl)?.fileWatcher ?: return false
+        if (!watcher.isOperational || watcher.isSettingRoots) return false
+        return watcher.manualWatchRoots.none { FileUtil.isAncestor(it, dir.path, false) || FileUtil.isAncestor(dir.path, it, false) }
     }
 
     /** Whether message [itemId] of chat [chatId] has a checkpoint its files can be reverted to. */

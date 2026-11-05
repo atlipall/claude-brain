@@ -4,6 +4,7 @@ import tether.cli.ClaudeBinary
 import tether.cli.ClaudeCommand
 import tether.cli.ClaudeProcess
 import tether.cli.CliConnection
+import tether.cli.Launch
 import tether.cli.PermissionMode
 import tether.cli.SessionLaunch
 import tether.git.DiffBases
@@ -131,14 +132,21 @@ class Chats(private val project: Project) : Disposable {
 
     private fun defaultMode(): PermissionMode? = PermissionMode.fromCli(TetherSettings.getInstance().state.defaultMode)
 
+    /**
+     * The real claude process for [launch]. Returns at once; the shell environment (which can take seconds to load
+     * right after the IDE starts), the binary lookup and the spawn happen on the process's own launch thread.
+     */
     private fun defaultConnect(launch: SessionLaunch): CliConnection {
         val settings = TetherSettings.getInstance().state
-        val env = EnvironmentUtil.getEnvironmentMap()
-        val binary = ClaudeBinary.resolve(settings.claudePath.orEmpty(), env["PATH"], System.getProperty("user.home")) {
-            File(it).canExecute()
-        } ?: throw ClaudeNotFoundException()
-        val command = ClaudeCommand.build(binary, launch, ParametersListUtil.parse(settings.extraArgs.orEmpty()))
-        return ClaudeProcess(command, File(launch.cwd), env)
+        val claudePath = settings.claudePath.orEmpty()
+        val extraArgs = ParametersListUtil.parse(settings.extraArgs.orEmpty())
+        return ClaudeProcess(File(launch.cwd)) {
+            val env = EnvironmentUtil.getEnvironmentMap()
+            val binary = ClaudeBinary.resolve(claudePath, env["PATH"], System.getProperty("user.home")) {
+                File(it).canExecute()
+            } ?: throw ClaudeNotFoundException()
+            Launch(ClaudeCommand.build(binary, launch, extraArgs), env)
+        }
     }
 
     override fun dispose() = closeAll()

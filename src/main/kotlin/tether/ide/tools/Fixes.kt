@@ -8,6 +8,10 @@ import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ex.QuickFixWrapper
 import com.intellij.codeInsight.quickfix.LazyQuickFixUpdater
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.modcommand.ActionContext
+import com.intellij.modcommand.ModChooseAction
+import com.intellij.modcommand.ModCommand
+import com.intellij.modcommand.ModShowConflicts
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Document
@@ -85,6 +89,9 @@ object Fixes {
             PsiDocumentManager.getInstance(project).commitDocument(document)
             withEditor(project, document) { psiFile, editor ->
                 if (!available(psiFile, editor, fix.offset, fix.action)) throw ToolUnavailable("“${fix.text}” no longer applies; list the fixes again.")
+                if (asksToChoose(psiFile, editor, fix.action)) {
+                    throw ToolUnavailable("“${fix.text}” asks a question (pick an option, or confirm conflicts), which this tool can't answer. Make this edit by hand.")
+                }
                 EditTracker.getInstance(project).saveChangedBy {
                     ShowIntentionActionsHandler.chooseActionAndInvoke(psiFile, editor, fix.action, fix.text)
                 }
@@ -96,12 +103,23 @@ object Fixes {
     }
 
     /**
-     * Fixes that run in a write action or as a ModCommand can't open a dialog, and inspections' quick fixes are made
-     * to run in batch without one. Other intentions (create a class, change a signature) may open one, which would
-     * block the IDE until someone answers it.
+     * Fixes that run in a write action can't open a dialog, and inspections' quick fixes are made to run in batch
+     * without one. A ModCommand only asks something through its command, which [apply] checks first (see
+     * [asksToChoose]). Other intentions (create a class, change a signature) may open a dialog, which would block the
+     * IDE until someone answers it.
      */
     private fun runsWithoutDialogs(action: IntentionAction) =
         action.startInWriteAction() || action.asModCommandAction() != null || action is LocalQuickFix || QuickFixWrapper.unwrap(action) != null
+
+    /**
+     * Whether [action] is a ModCommand that would ask something (a chooser, or a conflicts dialog): on the hidden editor
+     * nobody could answer a chooser, and the dialog would block the IDE until someone did. Computes the command, which is how the IDE finds out too. EDT, caret placed.
+     */
+    private fun asksToChoose(psiFile: PsiFile, editor: Editor, action: IntentionAction): Boolean {
+        val modCommand = action.asModCommandAction() ?: return false
+        val command = ReadAction.compute<ModCommand, RuntimeException> { modCommand.perform(ActionContext.from(editor, psiFile)) }
+        return command.unpack().any { it is ModChooseAction || it is ModShowConflicts }
+    }
 
     /** Whether [action] applies with the caret at [offset], as Alt+Enter would judge it. EDT. */
     private fun available(psiFile: PsiFile, editor: Editor, offset: Int, action: IntentionAction): Boolean {

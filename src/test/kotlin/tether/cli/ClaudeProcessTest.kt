@@ -37,6 +37,41 @@ class ClaudeProcessTest {
         assertEquals("err1\nerr2", tail)
     }
 
+    @Test fun aFailedLaunchIsReportedAsAnExitWithTheReason() {
+        val exited = CountDownLatch(1)
+        var code = 0
+        var tail = ""
+        val p = ClaudeProcess(tmp) { throw IllegalStateException("no claude here") }
+        p.start(onLine = {}, onExit = { c, t -> code = c; tail = t; exited.countDown() })
+        p.send("ignored")
+        assertTrue(exited.await(5, TimeUnit.SECONDS))
+        assertEquals(CliConnection.LAUNCH_FAILED, code)
+        assertEquals("no claude here", tail)
+    }
+
+    @Test fun linesSentWhileTheLaunchIsSlowArriveInOrder() {
+        val lines = CopyOnWriteArrayList<String>()
+        val got = CountDownLatch(2)
+        val p = ClaudeProcess(tmp) {
+            Thread.sleep(300)
+            Launch(listOf("/bin/sh", "-c", "while IFS= read -r l; do echo \"\$l\"; done"), emptyMap())
+        }
+        p.start(onLine = { lines += it; got.countDown() }, onExit = { _, _ -> })
+        p.send("first")
+        p.send("second")
+        assertTrue(got.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf("first", "second"), lines.toList())
+        p.stop()
+    }
+
+    @Test fun stopBeforeTheProcessIsUpStillEndsIt() {
+        val exited = CountDownLatch(1)
+        val p = ClaudeProcess(tmp) { Thread.sleep(200); Launch(listOf("/bin/sh", "-c", "sleep 30"), emptyMap()) }
+        p.start(onLine = {}, onExit = { _, _ -> exited.countDown() })
+        p.stop()
+        assertTrue(exited.await(5, TimeUnit.SECONDS))
+    }
+
     @Test fun sendAfterExitDoesNotThrow() {
         val exited = CountDownLatch(1)
         val p = ClaudeProcess(listOf("/bin/sh", "-c", "exit 0"), tmp, emptyMap())

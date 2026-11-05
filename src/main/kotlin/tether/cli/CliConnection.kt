@@ -6,4 +6,9 @@ interface CliConnection {
     fun start(onLine: (String) -> Unit, onExit: (exitCode: Int, stderrTail: String) -> Unit)
     fun send(line: String)
     fun stop()
+
+    companion object {
+        /** The exit code reported when claude could not be started at all; the tail is then the reason. */
+        const val LAUNCH_FAILED = -1
+    }
 }

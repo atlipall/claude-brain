@@ -6,7 +6,8 @@ names are the stable reference.
 
 ## Threading and performance
 
-### 1. Process spawn and shell-environment lookup run on the EDT
+### 1. Process spawn and shell-environment lookup run on the EDT — done
+Done: `ClaudeProcess.start` returns at once; the shell environment, the binary lookup and the spawn run on its own launch thread, and lines sent meanwhile are queued and written once claude is up. A failed launch arrives as an exit with `CliConnection.LAUNCH_FAILED` and the reason, shown as the notice. `ChatSession` and its tests are unchanged.
 - Where: `session/Chats.kt` `open` → `chat.start()` and `defaultConnect`; `session/ChatSession.kt` `start()` holds `lock`
   while calling `connect`; also reached from `Chat.revertTo`/`rewindTo` and `ChatBridge` restart.
 - Problem: `defaultConnect` calls `EnvironmentUtil.getEnvironmentMap()` (blocks until the IDE's shell environment has
@@ -16,7 +17,8 @@ names are the stable reference.
   minimum, resolve the environment once on a pooled thread when `Chats` is created.
 - Watch out: tests rely on the current synchronous start/rewind ordering.
 
-### 2. Whole-checkout VFS refresh before every message and revert
+### 2. Whole-checkout VFS refresh before every message and revert — done (message side)
+Done: before each label, `mark` refreshes only the files the native file watcher has marked dirty. It falls back to the full rescan when the chat was idle for less than a second before the message (a queued message goes out the moment a turn ends, before the watcher has reported its last writes), or when the watcher isn't running, is still being given its roots, or can't watch a folder in or around the checkout. This uses the platform's internal `FileWatcher` API, so the plugin verifier will warn. Revert still does the full refresh, on purpose: it's rare, user-started, and must be complete. The fast path can't be covered by tests (the test VFS has no running watcher), so it was checked by reading the code only.
 - Where: `ide/TurnCheckpoints.kt` `mark` and the revert path, `VfsUtil.markDirtyAndRefresh(false, true, true, dir)`.
 - Problem: re-lists every folder under the checkout (for a main chat that includes `.claude/worktrees` and
   `node_modules`) on every outgoing message. On a big repo that is seconds of IO and a burst of VFS events on the EDT,
@@ -24,7 +26,9 @@ names are the stable reference.
 - Options: refresh only the files the previous turn's edit/Bash hooks recorded (`refreshIoFiles`); or
   `reloadChildren = false`; or skip excluded roots.
 
-### 3. Quick-fix availability runs on the EDT; ModCommand fixes may need UI
+### 3. Quick-fix availability runs on the EDT; ModCommand fixes may need UI — partly done
+Done: `apply` computes a ModCommand fix's command first and refuses one that would show a chooser or a conflicts dialog, with a message telling Claude to make the edit by hand, instead of reporting "made no change". The KDoc is updated.
+Still open: availability still runs on the EDT. Alt+Enter judges a fix with the caret at the problem, and the caret can only be moved on the EDT; checking off the EDT needs per-offset round trips and confirmation that `ShowIntentionActionsHandler.availableFor` is safe in a background read action. Needs trying in a running IDE.
 - Where: `ide/tools/Fixes.kt` `list` (checks `isAvailable` for every candidate inside `invokeLater`) and
   `runsWithoutDialogs`.
 - Problems: heavy intentions (TypeScript import resolution) freeze the UI while listing. The KDoc says ModCommand actions

@@ -50,8 +50,12 @@ enum class RevertChoice(val label: String, val files: Boolean, val conversation:
 
 /** Marks the files' state before each message of a chat, and reverts to such a mark. */
 interface Checkpoints {
-    /** Marks the files before [item] goes out, when their folder can be reverted. Pooled thread, outside every lock. */
-    fun mark(chat: Chat, item: ChatItem.UserText)
+    /**
+     * Marks the files before [item] goes out, when their folder can be reverted. [settled]: the chat was idle for at
+     * least [SETTLE_MS] before it, so the IDE's file watcher has reported every write of the previous turn. Pooled
+     * thread, outside every lock.
+     */
+    fun mark(chat: Chat, item: ChatItem.UserText, settled: Boolean)
 
     /**
      * Asks what to revert to before [item] ([conversation]: whether the conversation can be), and reverts the files
@@ -61,6 +65,11 @@ interface Checkpoints {
 
     /** The conversation was taken back to before [item] after [revert] chose it; [filesReverted]: the files were too. EDT. */
     fun conversationRewound(chat: Chat, item: ChatItem.UserText, filesReverted: Boolean)
+
+    companion object {
+        /** How long a chat must have been idle for its previous turn's writes to have reached the IDE's file watcher. */
+        const val SETTLE_MS = 1000L
+    }
 }
 
 /** One chat tab's model: its own [ChatSession] and claude process, the items shown so far, and the page showing them. */
@@ -197,11 +206,15 @@ class Chat(
             val shown = if (item is ChatItem.UserText && checkpoints != null) item.copy(revertable = true) else item
             synchronized(lock) { items[shown.id] = shown }
             view?.item(shown)
-            if (shown is ChatItem.UserText) checkpoints?.let { c -> background { c.mark(this@Chat, shown) } }
+            if (shown is ChatItem.UserText) checkpoints?.let { c ->
+                val settled = idleSince?.let { System.currentTimeMillis() - it >= Checkpoints.SETTLE_MS } == true
+                background { c.mark(this@Chat, shown, settled) }
+            }
         }
 
         override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
             if (state != SessionState.IDLE) suggestion = null
+            idleSince = if (state == SessionState.IDLE) idleSince ?: System.currentTimeMillis() else null
             saveTitleIfReady()
             view?.state(state, sessionId, mode)
             val now = cwd
@@ -211,6 +224,9 @@ class Chat(
             }
         }
     }
+
+    /** When the session last became idle; null while it is not. Read when a message goes out, see [Checkpoints.mark]. */
+    @Volatile private var idleSince: Long? = null
 
     val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, spec.setup, spec.worktree, log, ide, background, resumeAnchor, WorkingTrees())
 
