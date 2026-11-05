@@ -914,7 +914,7 @@
     checkoutEl.hidden = !checkoutEl.textContent;
   }
 
-  /** The meter turns amber this many points before autocompact. */
+  /** The meter turns amber within this many percent of the window of autocompact (or of the window's end without it). */
   const USAGE_WARN_POINTS = 10;
   function fmtTokens(n) {
     if (n >= 1e6) return +(n / 1e6).toFixed(1) + 'M';
@@ -923,27 +923,98 @@
   }
   const num = (v) => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : null);
 
+  /** The latest context usage, for the ring's tooltip: { used, max, p, at, categories, state }; null before the first. */
+  let usage = null;
+
+  /**
+   * Shows the context ring for a `usage` message, or hides it when the message is incomplete. Its tooltip (see
+   * [usageTip]) is built from [usage] when shown, and redrawn here if it is up; screen readers get the same facts as
+   * the ring's label and description.
+   */
   function setUsage(msg) {
     const used = num(msg.used), max = num(msg.max), pct = num(msg.percent);
-    if (used === null || !max || pct === null) { usageEl.hidden = true; return; }
+    if (used === null || !max || pct === null) { usage = null; usageEl.hidden = true; return; }
     const p = Math.min(100, Math.round(pct));
     const at = num(msg.autocompactAt);
-    const limit = at || 100;
-    usageEl.classList.toggle('full', p >= limit);
-    usageEl.classList.toggle('near', p < limit && p >= limit - USAGE_WARN_POINTS);
+    const categories = (Array.isArray(msg.categories) ? msg.categories : [])
+      .filter((c) => c && typeof c.name === 'string' && num(c.tokens) !== null)
+      .sort((a, b) => b.tokens - a.tokens);
+    const state = usageState(used, max, at);
+    usage = { used, max, p, at, categories, state };
+    usageEl.classList.toggle('full', state === 'full');
+    usageEl.classList.toggle('near', state === 'near');
     usageRing.style.setProperty('--p', String(p));
     usagePct.textContent = p + '%';
-    const parts = (Array.isArray(msg.categories) ? msg.categories : [])
-      .filter((c) => c && typeof c.name === 'string' && num(c.tokens) !== null)
-      .sort((a, b) => b.tokens - a.tokens)
-      .map((c) => c.name + ' ' + fmtTokens(c.tokens));
-    const lines = ['Context: ' + fmtTokens(used) + ' / ' + fmtTokens(max) + ' tokens (' + p + '%)'];
-    if (parts.length) lines.push(parts.join(' · '));
-    if (at !== null) lines.push('Autocompacts at ~' + at + '%');
-    usageEl.title = lines.join('\n');
     usageEl.setAttribute('aria-valuenow', String(p));
-    usageEl.setAttribute('aria-label', lines[0]);
+    usageEl.setAttribute('aria-label', usageHeadline(usage));
+    usageEl.setAttribute('aria-description', [
+      ...usageRoom(usage),
+      ...categories.map((c) => c.name + ' ' + fmtTokens(c.tokens)),
+      usageMeaning(state, at),
+    ].filter(Boolean).join('. '));
     usageEl.hidden = false;
+    refreshTip(usageEl);
+  }
+
+  /**
+   * 'full' at or past autocompact (or the end of the window when there is none), 'near' within [USAGE_WARN_POINTS]% of
+   * the window below that, else 'ok'. Judged in tokens, not the rounded percent the ring shows, so it never disagrees
+   * with [usageRoom].
+   */
+  function usageState(used, max, at) {
+    const limit = compactTokens(max, at) ?? max;
+    if (used >= limit) return 'full';
+    return used >= limit - max * USAGE_WARN_POINTS / 100 ? 'near' : 'ok';
+  }
+
+  /** The tokens at which the CLI autocompacts, or null when it doesn't. */
+  const compactTokens = (max, at) => (at !== null ? Math.round(max * at / 100) : null);
+
+  /** The tooltip's first line, also the ring's accessible name: tokens used of the window, and the percent. */
+  const usageHeadline = (u) => 'Context: ' + fmtTokens(u.used) + ' of ' + fmtTokens(u.max) + ' tokens (' + u.p + '%)';
+
+  /** How much room is left: before autocompact while it is ahead, and in the whole window. */
+  function usageRoom(u) {
+    const lines = [];
+    const compactAt = compactTokens(u.max, u.at);
+    if (compactAt !== null && u.used < compactAt) lines.push('~' + fmtTokens(compactAt - u.used) + ' until autocompact at ' + u.at + '%');
+    lines.push(fmtTokens(Math.max(0, u.max - u.used)) + ' left in the window');
+    return lines;
+  }
+
+  /** What the ring's colour means, or '' when it has none. */
+  function usageMeaning(state, at) {
+    const compacts = at !== null;
+    if (state === 'near') return compacts ? 'Amber: close to autocompact' : 'Amber: the context window is nearly full';
+    if (state !== 'full') return '';
+    return compacts ? 'Red: Claude Code will summarise the conversation to make room' : 'Red: the context window is full';
+  }
+
+  /** A category's share of the window, as text: under 1% shows as "<1%". */
+  const fmtShare = (share) => (share > 0 && share < 1 ? '<1%' : Math.round(share) + '%');
+
+  /** The context ring's tooltip: tokens used, room left, the categories largest first with a bar each, and the colour's meaning. */
+  function usageTip() {
+    if (!usage) return null;
+    const u = usage;
+    const content = h('div', { class: 'usage-tip' },
+      h('div', { class: 'usage-tip-head' }, usageHeadline(u)),
+      ...usageRoom(u).map((line) => h('div', { class: 'usage-tip-room' }, line)));
+    if (u.categories.length) {
+      content.append(h('div', { class: 'usage-cats' }, ...u.categories.map((c) => {
+        const share = c.tokens / u.max * 100;
+        const bar = h('span', { class: 'usage-cat-bar', 'aria-hidden': 'true' });
+        bar.style.setProperty('--w', Math.min(100, share).toFixed(1) + '%');
+        return h('div', { class: 'usage-cat' },
+          h('span', { class: 'usage-cat-name' }, c.name),
+          h('span', { class: 'usage-cat-num' }, fmtTokens(c.tokens)),
+          h('span', { class: 'usage-cat-num' }, fmtShare(share)),
+          bar);
+      })));
+    }
+    const meaning = usageMeaning(u.state, u.at);
+    if (meaning) content.append(h('div', { class: 'usage-tip-state ' + u.state }, meaning));
+    return content;
   }
 
   function addTile(id, name) {
@@ -1211,23 +1282,32 @@
   });
 
   /**
-   * Tooltips for anything with a title. JCEF doesn't show the browser's own, so one shared #tip shows the text instead,
+   * Tooltips for anything with a title or a rich tip. JCEF doesn't show the browser's own, so one shared #tip shows the text instead,
    * after a short hover or when keyboard focus lands on the element, and moves straight on when the pointer goes to
    * another titled element while one is showing. The title moves to data-tip the first time, so the browser's tooltip
    * never shows as well; the text stays available to screen readers as the element's aria-label when it has no other
    * name, otherwise as its aria-description. While a tooltip is up it follows its element: gone when the element is
-   * removed or scrolled, updated when its title is set again.
+   * removed or scrolled, updated when its title is set again. An element in [richTips] (marked data-rich-tip) shows
+   * built content instead of a title; that tooltip takes the pointer and waits [RICH_TIP_GRACE_MS] before hiding, so
+   * the pointer can cross the gap onto it and it stays up while the pointer is over it.
    */
   const tip = document.getElementById('tip');
+  /** Builders of the tooltip content for elements registered with [richTip]; each returns a Node, or null for none. */
+  const richTips = new Map();
   const TIP_DELAY_MS = 500;
   const TIP_GAP = 6;
+  const RICH_TIP_GRACE_MS = 300;
+  let tipHideTimer = 0;
   /** The element whose tooltip is showing or about to show; also the one just pressed, so it stays quiet until left. */
   let tipFor = null;
   let tipTimer = 0;
   const tipWatch = new MutationObserver(() => {
-    if (!tipFor || !tipFor.isConnected) hideTip();
+    if (!tipFor || !shown(tipFor)) hideTip();
     else if (tipFor.hasAttribute('title')) showTip(tipFor);
   });
+
+  /** Whether [el] is on the page and laid out: not removed, and neither it nor an ancestor hidden. */
+  const shown = (el) => el.isConnected && !el.closest('[hidden]');
 
   /** [el]'s tooltip text, taking over its title (which code may set again at any time). */
   function tipText(el) {
@@ -1242,20 +1322,22 @@
     return el.dataset.tip || '';
   }
 
-  /** The titled element at or around [target], or null; none while its menu or popup is open. */
+  /** The element with a tooltip (titled or rich) at or around [target], or null; none while its menu or popup is open. */
   function tipTarget(target) {
-    const el = target instanceof Element ? target.closest('[title], [data-tip]') : null;
+    const el = target instanceof Element ? target.closest('[title], [data-tip], [data-rich-tip]') : null;
     return el && el.getAttribute('aria-expanded') !== 'true' ? el : null;
   }
 
   /** Shows [el]'s tooltip centred below it, or above when there's no room below, kept inside the page. */
   function showTip(el) {
-    const text = tipText(el);
-    if (!text || !el.isConnected) return hideTip();
-    tip.textContent = text;
+    const build = richTips.get(el);
+    const content = build ? build() : tipText(el);
+    if (!content || !shown(el)) return hideTip();
+    tip.replaceChildren(content);
+    tip.classList.toggle('rich', !!build);
     tip.style.top = tip.style.left = '0';
     tip.hidden = false;
-    tipWatch.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['title'] });
+    tipWatch.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['title', 'hidden'] });
     const at = el.getBoundingClientRect(), size = tip.getBoundingClientRect();
     const below = at.bottom + TIP_GAP + size.height <= window.innerHeight;
     const top = below ? at.bottom + TIP_GAP : Math.max(TIP_GAP, at.top - TIP_GAP - size.height);
@@ -1267,27 +1349,52 @@
   /** Hides the tooltip, cancels one about to show, and stops following its element. */
   function hideTip() {
     clearTimeout(tipTimer);
+    keepTip();
     tipWatch.disconnect();
     tipFor = null;
     tip.hidden = true;
   }
 
+  /** Redraws [el]'s tooltip if it is the one showing, after what it shows has changed. */
+  function refreshTip(el) {
+    if (tipFor === el && !tip.hidden) showTip(el);
+  }
+
+  /**
+   * Hides a rich tooltip after the grace period, unless the pointer comes back first; any other one at once. One its
+   * element has keyboard focus for stays: the pointer wandering off isn't the user leaving it.
+   */
+  function hideTipSoon() {
+    if (!tip.hidden && tipFor?.matches(':focus-visible')) return;
+    if (tip.hidden || !tip.classList.contains('rich')) return hideTip();
+    if (!tipHideTimer) tipHideTimer = setTimeout(hideTip, RICH_TIP_GRACE_MS);
+  }
+
+  /** Keeps the tooltip up: the pointer is back on it or on its element. */
+  function keepTip() {
+    clearTimeout(tipHideTimer);
+    tipHideTimer = 0;
+  }
+
   /** Shows [el]'s tooltip now if one is already up (moving along a toolbar), otherwise after the hover delay. */
   function scheduleTip(el) {
     clearTimeout(tipTimer);
+    keepTip();
     tipFor = el;
     if (!tip.hidden) return showTip(el);
     tipTimer = setTimeout(() => showTip(el), TIP_DELAY_MS);
   }
 
   document.addEventListener('pointerover', (e) => {
+    if (tip.contains(e.target)) return keepTip();
     const el = tipTarget(e.target);
-    if (el === tipFor) return;
+    if (el === tipFor) return keepTip();
     if (el) scheduleTip(el);
-    else hideTip();
+    else hideTipSoon();
   });
   document.addEventListener('pointerout', (e) => {
-    if (!e.relatedTarget || !tipTarget(e.relatedTarget)) hideTip();
+    const to = e.relatedTarget;
+    if (!to || !(tip.contains(to) || tipTarget(to))) hideTipSoon();
   });
   document.addEventListener('focusin', (e) => {
     const el = tipTarget(e.target);
@@ -1295,6 +1402,7 @@
   });
   document.addEventListener('focusout', hideTip);
   document.addEventListener('pointerdown', (e) => {
+    if (tip.contains(e.target)) return;
     hideTip();
     tipFor = tipTarget(e.target);
   }, true);
@@ -1303,6 +1411,14 @@
     if (tipFor && e.target.contains(tipFor)) hideTip();
   }, { capture: true, passive: true });
   window.addEventListener('blur', hideTip);
+
+  /** Gives [el] a tooltip built by [build] (a Node, or null for none) instead of one from its title. */
+  function richTip(el, build) {
+    el.dataset.richTip = '';
+    richTips.set(el, build);
+  }
+
+  richTip(usageEl, usageTip);
 
   window.addEventListener('bridge-ready', () => send({ type: 'ready' }));
 })();

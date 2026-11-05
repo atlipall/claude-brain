@@ -12,8 +12,8 @@ body { display: flex; flex-direction: column; background: var(--bg); color: var(
 #usage { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: .9em; cursor: default; }
 #usage[hidden] { display: none; }
 #usage-ring { width: 11px; height: 11px; border-radius: 50%; box-sizing: border-box; border: 1px solid currentColor; background: conic-gradient(currentColor calc(var(--p, 0) * 1%), transparent 0); }
-#usage.near { color: var(--warn); }
-#usage.full { color: var(--danger); }
+#usage.near, .usage-tip-state.near { color: var(--warn); }
+#usage.full, .usage-tip-state.full { color: var(--danger); }
 #checkout { color: var(--muted); font-size: .9em; overflow-wrap: anywhere; }
 #bar button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 3px 6px; }
 #bar button.icon svg { width: 15px; height: 15px; }
@@ -169,4 +169,14 @@ img.md-img { display: block; max-width: 100%; max-height: 400px; margin: 4px 0; 
 @keyframes act-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .4; } 40% { transform: translateY(-4px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #activity * { animation: none !important; } }
 #tip { position: fixed; z-index: 100; max-width: min(280px, calc(100vw - 16px)); padding: 4px 8px; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,.3); font-size: .9em; line-height: 1.35; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; }
-@media (prefers-contrast: more) { :root { --muted: var(--fg) !important; } .tool-detail, .q-opt, .choice, .segment, #input-box, #tip, button { border-width: 2px; } }
+#tip.rich { pointer-events: auto; white-space: normal; max-height: calc(100vh - 12px); overflow-y: auto; }
+.usage-tip { display: flex; flex-direction: column; gap: 2px; min-width: 180px; }
+.usage-tip-head { font-weight: 600; }
+.usage-tip-room { color: var(--muted); }
+.usage-cats { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 8px; row-gap: 1px; margin: 6px 0 2px; }
+.usage-cat { display: contents; }
+.usage-cat-name { overflow-wrap: anywhere; }
+.usage-cat-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.usage-cat-bar { grid-column: 1 / -1; height: 3px; margin-bottom: 3px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--w, 0%), var(--border) 0); }
+.usage-tip-state { margin-top: 4px; }
+@media (prefers-contrast: more) { :root { --muted: var(--fg) !important; } .tool-detail, .q-opt, .choice, .segment, #input-box, #tip, button { border-width: 2px; } .usage-cat-bar { outline: 1px solid var(--fg); } }

@@ -94,7 +94,15 @@ class WebAssetsTest {
         val header = page.substring(page.indexOf("<header id=\"bar\">"), page.indexOf("</header>"))
         assertTrue(header.contains("id=\"usage\" hidden"))
         assertTrue(page.contains("case 'usage': setUsage(msg)"))
-        assertFalse("CLI category names stay plain text (title attribute)", page.contains("usageEl.innerHTML"))
+        assertFalse("CLI category names stay plain text", page.contains("usageEl.innerHTML"))
+    }
+
+    @Test fun contextRingShowsABuiltTooltipNotATitle() {
+        val page = WebAssets.page()
+        val ring = page.substring(page.indexOf("<span id=\"usage\""), page.indexOf("<span id=\"usage-ring\""))
+        assertFalse(ring.contains("title="))
+        assertTrue(page.contains("richTip(usageEl, usageTip)"))
+        assertFalse(page.contains("usageEl.title"))
     }
 
     @Test fun pageShowsWhatClaudeIsDoingAboveTheInput() {
