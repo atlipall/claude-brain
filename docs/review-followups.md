@@ -69,7 +69,8 @@ Done: `background()` catches a failure in `compute`, logs it and shows an error 
 - Options: catch non-control-flow exceptions in `background`, log them, and show a notification (the "Tether" group
   exists in plugin.xml), or let callers pass an `onError`.
 
-### 7. `FileLinker.open` accepts any local path
+### 7. `FileLinker.open` accepts any local path — won't do
+Decided not to change this.
 - Where: `ide/FileLinker.kt` `open`; only caller is `ChatBridge` `openFile`.
 - Problem: unlike `resolve`/`localImage`, `open` doesn't check that the file is project content or under the chat's
   folder. Only page-created links reach it (guarded by `trusted` in chat.js), so this is defence in depth, not a live hole.
