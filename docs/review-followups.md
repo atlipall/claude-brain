@@ -28,7 +28,7 @@ Done: before each label, `mark` refreshes only the files the native file watcher
 
 ### 3. Quick-fix availability runs on the EDT; ModCommand fixes may need UI — partly done
 Done: `apply` computes a ModCommand fix's command first and refuses one that would show a chooser or a conflicts dialog, with a message telling Claude to make the edit by hand, instead of reporting "made no change". The KDoc is updated.
-Still open: availability still runs on the EDT. Alt+Enter judges a fix with the caret at the problem, and the caret can only be moved on the EDT; checking off the EDT needs per-offset round trips and confirmation that `ShowIntentionActionsHandler.availableFor` is safe in a background read action. Needs trying in a running IDE.
+Still open, tracked in https://github.com/atlipall/tether/issues/7: availability still runs on the EDT. Alt+Enter judges a fix with the caret at the problem, and the caret can only be moved on the EDT; checking off the EDT needs per-offset round trips and confirmation that `ShowIntentionActionsHandler.availableFor` is safe in a background read action. Needs trying in a running IDE.
 - Where: `ide/tools/Fixes.kt` `list` (checks `isAvailable` for every candidate inside `invokeLater`) and
   `runsWithoutDialogs`.
 - Problems: heavy intentions (TypeScript import resolution) freeze the UI while listing. The KDoc says ModCommand actions
