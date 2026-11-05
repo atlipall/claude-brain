@@ -3,6 +3,7 @@ package tether.git
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
 /** Runs git with these arguments in a folder and returns its stdout, or null when git is missing or fails. */
@@ -15,7 +16,15 @@ fun runGit(dir: File, vararg args: String, timeoutSeconds: Long = 5): String? =
 /** The default [GitRunner]: [runGit] with a 30-second timeout (diffs of large checkouts take a while). */
 fun gitRunner(dir: File, args: List<String>): String? = runGit(dir, *args.toTypedArray(), timeoutSeconds = 30)
 
-/** Like [runGit], but returns stdout as bytes (file contents); [env] is added to git's environment, [input] is its stdin. */
+/** Runs the blocking reads and writes of git's pipes, so they never tie up the shared ForkJoin pool. */
+private val pipeThreads = Executor { Thread.ofVirtual().name("tether-git-pipe").start(it) }
+
+/**
+ * Like [runGit], but returns stdout as bytes (file contents); [env] is added to git's environment, [input] is its stdin.
+ * Stdout is read and stdin written on other threads, so a hung git (a lock, a prompt) still times out and git can fill
+ * stdout before it has read all of stdin. Optional locks are off, so a background diff never holds the index lock while
+ * Claude's own git needs it.
+ */
 fun runGitBytes(
     dir: File, vararg args: String, timeoutSeconds: Long = 5, env: Map<String, String> = emptyMap(), input: ByteArray? = null,
 ): ByteArray? = try {
@@ -23,18 +32,18 @@ fun runGitBytes(
         .directory(dir)
         .redirectError(ProcessBuilder.Redirect.DISCARD)
     builder.environment()["GIT_TERMINAL_PROMPT"] = "0"
+    builder.environment()["GIT_OPTIONAL_LOCKS"] = "0"
     builder.environment().putAll(env)
     val process = builder.start()
-    // Read on another thread so a hung git (a lock, a prompt) still times out.
-    val out = CompletableFuture.supplyAsync { process.inputStream.readBytes() }
-    // Written on another thread too: git may fill stdout before it has read all of stdin.
+    val out = CompletableFuture.supplyAsync({ process.inputStream.readBytes() }, pipeThreads)
     if (input == null) process.outputStream.close()
-    else CompletableFuture.runAsync { try { process.outputStream.use { it.write(input) } } catch (_: IOException) {} }
+    else CompletableFuture.runAsync({ try { process.outputStream.use { it.write(input) } } catch (_: IOException) {} }, pipeThreads)
     when {
         !process.waitFor(timeoutSeconds, TimeUnit.SECONDS) -> { process.destroyForcibly(); null }
         process.exitValue() != 0 -> null
         else -> out.get(timeoutSeconds, TimeUnit.SECONDS)
     }
-} catch (_: Exception) {
+} catch (e: Exception) {
+    if (e is InterruptedException) Thread.currentThread().interrupt()
     null
 }

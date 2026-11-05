@@ -37,7 +37,12 @@ class WorkingTrees(
         val deadline = Deadline(SNAPSHOT_SECONDS)
         val repo = repo(dir, deadline) ?: return null
         if (repo.root in failed) return null
-        val index = indexes.computeIfAbsent(repo.root) { seed(repo.realIndex) }
+        val index = try {
+            indexes.computeIfAbsent(repo.root) { seed(repo.realIndex) }
+        } catch (_: IOException) {
+            failed += repo.root
+            return null
+        }
         val env = mapOf("GIT_INDEX_FILE" to index.absolutePath)
         val top = File(repo.root)
         // One snapshot at a time per index: git locks it while adding.
