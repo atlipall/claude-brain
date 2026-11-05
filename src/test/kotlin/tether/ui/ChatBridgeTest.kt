@@ -4,6 +4,7 @@ import kotlinx.serialization.json.jsonObject
 import tether.testutil.Fx
 import tether.cli.arr
 import tether.cli.bool
+import tether.cli.long
 import tether.cli.obj
 import tether.cli.parseJsonObject
 import tether.cli.str
@@ -353,6 +354,23 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(0, chat.attachments.size)
         assertEquals(listOf("what color?"), PromptHistory.getInstance(project).entries())
     }
+
+    fun testTheViewerGetsTheLargerCopyOfASentImage() {
+        bridge.handle("""{"type":"ready"}""")
+        upload("p1", Base64.getEncoder().encodeToString(TestImages.solid(1200, 600)))
+        bridge.handle("""{"type":"send","text":"look","attachments":["p1"]}""")
+        val bubble = posted.last { it.str("type") == "item" && it.obj("item")!!.str("kind") == "user" }.obj("item")!!
+        assertEquals(160, widthOf((bubble.arr("images")!!.single() as JsonPrimitive).content))
+        bridge.handle("""{"type":"viewImage","reqId":7,"id":${Fx.q(bubble.str("id")!!)},"index":0}""")
+        bridge.handle("""{"type":"viewImage","reqId":8,"id":${Fx.q(bubble.str("id")!!)},"index":1}""")
+        val replies = posted.filter { it.str("type") == "imagePreview" }
+        assertEquals(listOf(7L, 8L), replies.map { it.long("reqId") })
+        assertEquals(800, widthOf(replies[0].str("src")!!))
+        assertNull(replies[1].str("src"))
+    }
+
+    private fun widthOf(dataUrl: String): Int =
+        javax.imageio.ImageIO.read(Base64.getDecoder().decode(dataUrl.substringAfter("base64,")).inputStream()).width
 
     fun testImageOnlyMessageIsSentButNotRemembered() {
         bridge.handle("""{"type":"ready"}""")

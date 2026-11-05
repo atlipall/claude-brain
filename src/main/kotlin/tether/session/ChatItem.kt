@@ -32,7 +32,8 @@ sealed interface ChatItem {
     val id: String
 
     /**
-     * [images]: thumbnails of the attached images as `data:` URLs ("" for one that has no thumbnail). [revertable]:
+     * [images]: thumbnails of the attached images as `data:` URLs ("" for one that has no thumbnail); the page asks
+     * for a larger copy ([ChatSession.imagePreview]) when one is opened. [revertable]:
      * the IDE marked the files' state when this message went out, so they can be reverted to it.
      */
     data class UserText(override val id: String, val text: String, val images: List<String> = emptyList(), val revertable: Boolean = false) : ChatItem

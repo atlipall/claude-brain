@@ -97,6 +97,19 @@ class WebAssetsTest {
         assertFalse("CLI category names stay plain text", page.contains("usageEl.innerHTML"))
     }
 
+    @Test fun pageImagesOpenInAViewerDialog() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("<dialog id=\"image-viewer\""))
+        assertTrue("only page-made images open", page.contains("classList.contains('zoomable') && trusted.has(el)"))
+        assertFalse("the tray's thumbnails stay plain", page.contains("p.el.firstChild.replaceWith(zoomableImage"))
+    }
+
+    @Test fun onlyADialogsOwnFormMaySubmit() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("if (!closesItsDialog(e.target)) e.preventDefault();"))
+        assertTrue(page.contains("form.method === 'dialog' && !!form.closest('dialog')"))
+    }
+
     @Test fun contextRingShowsABuiltTooltipNotATitle() {
         val page = WebAssets.page()
         val ring = page.substring(page.indexOf("<span id=\"usage\""), page.indexOf("<span id=\"usage-ring\""))
@@ -156,7 +169,7 @@ class WebAssetsTest {
     @Test fun pageShowsToolResultImagesAndBatchedHistory() {
         val page = WebAssets.page()
         assertTrue(page.contains("case 'items': msg.items.forEach(upsert); break;"))
-        assertTrue(page.contains("h('div', { class: 'tool-images' }, ...images.map((src) => imageOrAlt(src, '[image]')))"))
+        assertTrue(page.contains("h('div', { class: 'tool-images' }, ...images.map((src) => zoomableImage(src, '[image]')))"))
         assertTrue(page.contains(".tool-images img { display: block; max-width: 100%; max-height: 400px;"))
     }
 
@@ -201,7 +214,7 @@ class WebAssetsTest {
         assertTrue(js.contains("class: 'tool-row'"))
         assertTrue(js.contains("firstLine(str(i.description)).trim() || firstLine(str(i.command))"))
         assertTrue(js.contains("const expandedTools = new Set();"))
-        assertTrue(js.contains("row.classList.contains('expandable') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);"))
+        assertTrue(js.contains("row.classList.contains('expandable') && !selecting()) toggleRow(row);"))
         assertTrue(js.contains("t.status !== 'awaiting_permission'"))
         assertTrue(js.contains("@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }"))
         val body = js.substringAfter("function renderToolRow(").substringBefore("function renderTool(")

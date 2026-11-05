@@ -23,8 +23,15 @@ body { display: flex; flex-direction: column; background: var(--bg); color: var(
 #model.chip::after { content: ""; width: 5px; height: 5px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); }
 #effort-label { color: var(--muted); }
 #effort-label::before { content: "·"; margin-right: 6px; }
-#model-dialog { width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 12px 14px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+#model-dialog, #image-viewer { max-height: calc(100vh - 32px); background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+#model-dialog { width: min(420px, calc(100vw - 32px)); padding: 12px 14px; }
 #model-dialog::backdrop { background: rgba(0,0,0,.3); }
+#image-viewer { max-width: calc(100vw - 32px); padding: 10px; }
+#image-viewer::backdrop { background: rgba(0,0,0,.6); }
+#image-viewer img { display: block; max-width: calc(100vw - 54px); max-height: calc(100vh - 110px); margin: 0 auto; object-fit: contain; border-radius: 3px; }
+#image-viewer .dialog-actions { margin-top: 10px; }
+img.zoomable { cursor: zoom-in; }
+img.zoomable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #model-dialog h2 { margin: 0 0 6px; font-size: .85em; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 #effort-section { margin-top: 12px; }
 .choices { display: flex; flex-direction: column; gap: 4px; }

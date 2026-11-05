@@ -8,7 +8,7 @@ import org.junit.Test
 
 class AttachmentsTest {
     private val image = Image(ImageType.PNG, TestImages.bytes(TestImages.BLUE_PNG_BASE64), 4, 4)
-    private fun att(id: String) = Attachment(id, "$id.png", image, "")
+    private fun att(id: String) = Attachment(id, "$id.png", image, "", "")
 
     @Test fun takeReturnsTheRequestedOnesInOrderAndRemovesThem() {
         val pending = PendingAttachments()

@@ -102,6 +102,21 @@
   /** A page-created image whose src is a data: URL the IDE built from validated bytes; anything else becomes alt text. */
   const imageOrAlt = (src, alt) => (typeof src === 'string' && DATA_IMG.test(src) ? h('img', { src, alt }) : h('span', { class: 'img-alt' }, alt));
 
+  /**
+   * [imageOrAlt], with the image made a button that opens it large in the viewer (see [openViewer]). [preview], when
+   * given, is { item, index }: the image is that one of a user message, whose larger copy the viewer asks the IDE for.
+   */
+  function zoomableImage(src, alt, preview) {
+    const el = imageOrAlt(src, alt);
+    if (el.tagName !== 'IMG') return el;
+    el.classList.add('zoomable');
+    el.setAttribute('role', 'button');
+    el.tabIndex = 0;
+    el.setAttribute('aria-label', alt && alt !== '[image]' ? 'Open image: ' + alt : 'Open image');
+    if (preview) { el.dataset.item = preview.item; el.dataset.index = String(preview.index); }
+    return el;
+  }
+
   window.chat = {
     receive(msg) {
       switch (msg.type) {
@@ -115,8 +130,9 @@
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
         case 'activity': setActivity(msg); break;
-        case 'resolved': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.paths); break; }
-        case 'images': { const cb = pendingResolve.get(msg.reqId); pendingResolve.delete(msg.reqId); if (cb) cb(msg.images || {}); break; }
+        case 'resolved': answer(msg.reqId, msg.paths); break;
+        case 'imagePreview': answer(msg.reqId, msg.src); break;
+        case 'images': answer(msg.reqId, msg.images || {}); break;
         case 'insert': insertText(msg.text); break;
         case 'theme': applyTheme(msg); break;
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
@@ -248,6 +264,20 @@
     for (let p = id; p; p = parentOf.get(p)) expandAgent(p);
   }
 
+  /** Registers [onReply] for the IDE's answer to a request and returns the id to send the request with. */
+  function expectReply(onReply) {
+    const reqId = ++reqSeq;
+    pendingResolve.set(reqId, onReply);
+    return reqId;
+  }
+
+  /** Hands the IDE's answer to request [reqId] to the callback waiting for it, once. */
+  function answer(reqId, value) {
+    const onReply = pendingResolve.get(reqId);
+    pendingResolve.delete(reqId);
+    if (onReply) onReply(value);
+  }
+
   /** A user message: its text is plain, never markup. */
   function renderUser(el, item) {
     el.className = 'msg user';
@@ -256,7 +286,7 @@
         title: 'Go back to before this message: files, conversation or both (asks first)' }, 'Revert to here'));
     }
     const images = Array.isArray(item.images) ? item.images : [];
-    if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
+    if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src, index) => zoomableImage(src, '[image]', { item: item.id, index }))));
     if (item.text) el.append(document.createTextNode(item.text));
   }
 
@@ -337,14 +367,13 @@
   function resolveImages(images) {
     const wanted = images.filter((x) => x.href && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(x.href.trim()));
     if (!wanted.length) return;
-    const reqId = ++reqSeq;
-    pendingResolve.set(reqId, (found) => {
+    const reqId = expectReply((found) => {
       for (const x of wanted) {
         const src = Object.prototype.hasOwnProperty.call(found, imageKey(x.href)) ? found[imageKey(x.href)] : null;
         if (!x.span.isConnected) continue;
-        const img = imageOrAlt(src, x.alt);
+        const img = x.span.closest('a') ? imageOrAlt(src, x.alt) : zoomableImage(src, x.alt);
         if (img.tagName !== 'IMG') continue;
-        img.className = 'md-img';
+        img.classList.add('md-img');
         x.span.replaceWith(img);
       }
     });
@@ -362,8 +391,7 @@
       .map((a) => ({ a, key: (a.getAttribute('href') || '').trim().replace(/^\.\//, '') }))
       .filter((x) => x.key);
     if (!codes.length && !anchors.length) return;
-    const reqId = ++reqSeq;
-    pendingResolve.set(reqId, (paths) => {
+    const reqId = expectReply((paths) => {
       for (const c of codes) {
         const r = paths[c.textContent.trim()];
         if (!r || !c.isConnected) continue;
@@ -477,7 +505,7 @@
       setRowExpanded(row, expandedTools.has(t.id));
     }
     const images = Array.isArray(t.images) ? t.images : [];
-    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
+    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => zoomableImage(src, '[image]'))));
   }
 
   function permissionCard(t) {
@@ -569,7 +597,7 @@
     if (t.hasDiff) head.append(h('button', { class: 'link', 'data-action': 'diff', 'data-id': t.id }, 'View diff'));
     el.append(head);
     const images = Array.isArray(t.images) ? t.images : [];
-    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
+    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => zoomableImage(src, '[image]'))));
     if (t.question && t.question.questions) {
       if (t.status === 'awaiting_permission' && t.permissionRequestId) el.append(questionCard(t));
       else if (t.question.answers) el.append(answerSummary(t.question));
@@ -759,12 +787,45 @@
     if (current) current.focus();
   }
 
-  /** A click on the backdrop lands on the dialog element itself, outside its content box: it closes the picker. */
+  /** A click on the backdrop lands on the dialog element itself, outside its content box: it closes the dialog. */
   function closeOnBackdropClick(e) {
-    if (e.target !== modelDialog) return;
-    const r = modelDialog.getBoundingClientRect();
-    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) modelDialog.close();
+    const dialog = e.currentTarget;
+    if (e.target !== dialog) return;
+    const r = dialog.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
   }
+
+  const viewer = document.getElementById('image-viewer');
+  const viewerImg = document.getElementById('image-viewer-img');
+  /** The image the viewer was opened from: focus goes back to it when the viewer closes. */
+  let viewerFrom = null;
+
+  /**
+   * Shows [img] large in a modal viewer, scaled to fit the panel but never past its own size; Escape, Close or a click
+   * outside the viewer closes it. Only page-created images (see [zoomableImage]) open here. A user message's thumbnail
+   * shows at once and is replaced by its larger copy when the IDE sends it (see [zoomableImage]).
+   */
+  function openViewer(img) {
+    viewerImg.src = img.src;
+    viewerImg.alt = img.alt;
+    viewerFrom = img;
+    viewer.showModal();
+    if (img.dataset.item) askForPreview(img);
+  }
+
+  /** Asks the IDE for [img]'s larger copy and shows it if the viewer is still open on [img] when it comes. */
+  function askForPreview(img) {
+    const reqId = expectReply((src) => {
+      if (viewer.open && viewerFrom === img && typeof src === 'string' && DATA_IMG.test(src)) viewerImg.src = src;
+    });
+    send({ type: 'viewImage', reqId, id: img.dataset.item, index: Number(img.dataset.index) });
+  }
+
+  viewer.addEventListener('close', () => {
+    viewerImg.removeAttribute('src');
+    if (viewerFrom && viewerFrom.isConnected) viewerFrom.focus();
+    viewerFrom = null;
+  });
 
   /**
    * Makes [value] the shown permission mode: its name beside the hand icon, and the checkmark in the menu. A mode the
@@ -1193,6 +1254,7 @@
   showMode(mode);
   modelBtn.addEventListener('click', openModelDialog);
   modelDialog.addEventListener('click', closeOnBackdropClick);
+  viewer.addEventListener('click', closeOnBackdropClick);
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
   /**
@@ -1210,10 +1272,16 @@
     if (!input.disabled) files.forEach(upload);
   });
 
-  /** In the capture phase, so no anchor click or form submit reaches the browser's default navigation. */
+  /** Whether [form] is a method="dialog" form inside a dialog, whose submit just closes that dialog. */
+  const closesItsDialog = (form) => form instanceof HTMLFormElement && form.method === 'dialog' && !!form.closest('dialog');
+
+  /**
+   * In the capture phase, so no anchor click or form submit reaches the browser's default navigation. A dialog's own
+   * method="dialog" form still submits: it only closes its dialog (Done, Close) and navigates nowhere.
+   */
   function blockDefaultNavigation() {
     document.addEventListener('auxclick', (e) => { if (e.target.closest('a')) e.preventDefault(); }, true);
-    document.addEventListener('submit', (e) => e.preventDefault(), true);
+    document.addEventListener('submit', (e) => { if (!closesItsDialog(e.target)) e.preventDefault(); }, true);
   }
   blockDefaultNavigation();
 
@@ -1246,12 +1314,13 @@
       } else if (/^https?:/i.test(a.getAttribute('href') || '')) send({ type: 'openUrl', url: a.href });
       return;
     }
+    if (isZoomable(e.target)) { if (!selecting()) openViewer(e.target); return; }
     const fileRow = e.target.closest('.turn-files .tool-row');
     if (fileRow) { if (trusted.has(fileRow)) openTurnDiff(fileRow); return; }
     const b = e.target.closest('button[data-action]');
     if (!b) {
       const row = e.target.closest('.tool-row');
-      if (row && trusted.has(row) && row.classList.contains('expandable') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);
+      if (row && trusted.has(row) && row.classList.contains('expandable') && !selecting()) toggleRow(row);
       return;
     }
     if (!trusted.has(b)) return;
@@ -1272,8 +1341,14 @@
     }
   });
 
+  /** Whether [el] is an image the page made openable in the viewer; never one from model markup. */
+  const isZoomable = (el) => el instanceof HTMLImageElement && el.classList.contains('zoomable') && trusted.has(el);
+  /** Whether the user has text selected, so a click ends a selection rather than acting. */
+  const selecting = () => !!(window.getSelection && window.getSelection().toString());
+
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (isZoomable(e.target)) { e.preventDefault(); openViewer(e.target); return; }
     const fileRow = e.target.closest && e.target.closest('.turn-files .tool-row');
     if (fileRow && e.target === fileRow && trusted.has(fileRow)) { e.preventDefault(); openTurnDiff(fileRow); return; }
     const toggle = e.target.classList && e.target.classList.contains('tool-toggle') && trusted.has(e.target) ? e.target : null;
