@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>local.tether</id>
     <name>Tether for Claude Code</name>
-    <vendor>local</vendor>
+    <vendor url="https://github.com/atlipall/tether">Atli Páll Hafsteinsson</vendor>
     <description><![CDATA[
     Native chat panel for the Claude Code CLI. Runs the locally installed <code>claude</code>
     binary with your existing login, links files Claude touches, shows diffs of its edits,
