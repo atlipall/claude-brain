@@ -501,11 +501,12 @@ class ChatSessionTest {
         assertEquals(FileDiff("/p/f.txt", "line two\n"), s.diffFor("t1"))
     }
 
-    @Test fun createdFileDiffsAgainstEmpty() {
+    @Test fun createdFileHasNoDiff() {
         val s = session()
         s.send("x")
         conn.emit(Fx.toolUse("m1", "t1", "Write", writeInput), Fx.toolResult("t1", "ok", toolUseResultJson = Fx.createResult("/p/a.txt")))
-        assertEquals(FileDiff("/p/a.txt", ""), s.diffFor("t1"))
+        assertFalse(listener.latest<ChatItem.ToolCall>().hasDiff)
+        assertNull(s.diffFor("t1"))
     }
 
     // --- files a turn edited ---

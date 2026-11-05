@@ -139,10 +139,20 @@ class FileLinker(private val project: Project) {
         DiffManager.getInstance().showDiff(project, request(diff, "Claude's edit", "Before Claude's edit"))
     }
 
-    /** One diff window over a turn's files, opened at [index]; its arrows step through the others. */
+    /**
+     * Shows the turn's file at [index]. A file the turn created opens in the editor, since a diff against nothing tells
+     * nothing; one deleted since falls back to the diff. Otherwise one diff window opens at that file, and its arrows
+     * step through the turn's other edited files (see [steppableDiffs]).
+     */
     fun showTurnDiffs(diffs: List<FileDiff>, index: Int) {
-        val chain = SimpleDiffRequestChain(diffs.map { request(it, "This turn", "Before this turn") })
-        chain.index = index
+        val clicked = diffs[index]
+        if (clicked.isNew) findByTarget(clicked.filePath)?.let {
+            OpenFileDescriptor(project, it).navigate(true)
+            return
+        }
+        val (shown, shownIndex) = steppableDiffs(diffs, index)
+        val chain = SimpleDiffRequestChain(shown.map { request(it, "This turn", "Before this turn") })
+        chain.index = shownIndex
         DiffManager.getInstance().showDiff(project, chain, DiffDialogHints.DEFAULT)
     }
 
@@ -193,5 +203,14 @@ class FileLinker(private val project: Project) {
         private val SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
 
         fun getInstance(project: Project): FileLinker = project.service()
+
+        /**
+         * The diffs a turn's diff window steps through, the one at [clicked] and those of files the turn edited but
+         * didn't create, with the clicked one's position among them.
+         */
+        internal fun steppableDiffs(diffs: List<FileDiff>, clicked: Int): Pair<List<FileDiff>, Int> {
+            fun kept(i: Int) = i == clicked || !diffs[i].isNew
+            return diffs.filterIndexed { i, _ -> kept(i) } to (0 until clicked).count(::kept)
+        }
     }
 }

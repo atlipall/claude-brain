@@ -741,12 +741,13 @@ class ChatSession(
             event.isError -> ToolStatus.ERROR
             else -> ToolStatus.DONE
         }
-        val diffPath = event.filePath ?: tool.filePath
-        val hasDiff = event.hasOriginalFile && diffPath != null && !event.isError
-        if (hasDiff) {
-            diffs[tool.id] = FileDiff(diffPath, event.originalFile ?: "")
-            turnEdits.record(diffPath, event.originalFile)
+        val editedPath = (event.filePath ?: tool.filePath)?.takeIf { event.hasOriginalFile && !event.isError }
+        val original = event.originalFile
+        if (editedPath != null) {
+            if (original != null) diffs[tool.id] = FileDiff(editedPath, original)
+            turnEdits.record(editedPath, original)
         }
+        val hasDiff = editedPath != null && original != null
         upsertTool(tool.copy(
             status = status,
             permissionRequestId = null,
