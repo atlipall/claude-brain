@@ -134,14 +134,40 @@ class Chats(private val project: Project) : Disposable {
     fun closeAll() = all().forEach(::close)
 
     /** Takes [session] out of the archive, keeping its name. Off the EDT (writes its transcript). */
-    fun unarchive(session: SessionSummary) = saveTitle(session.folder, session.id, session.customTitle.orEmpty(), archived = false)
+    fun unarchive(session: SessionSummary) {
+        saveTitle(session.folder, session.id, session.customTitle.orEmpty(), archived = false)
+    }
 
-    private fun saveTitle(cwd: String, sessionId: String, title: String, archived: Boolean) {
-        try {
-            store.saveTitle(cwd, sessionId, title, archived)
-        } catch (e: IOException) {
-            LOG.warn("Couldn't save the name of session $sessionId in its transcript", e)
-        }
+    /**
+     * The past sessions of the project and its worktrees that are not archived and not open in a tab: what
+     * [archiveAll] would archive. Off the EDT (runs git, reads every transcript).
+     */
+    fun archivable(): List<SessionSummary> {
+        val open = openSessionIds()
+        return store.listAll(worktrees.knownFolders(worktrees.list()), limit = Int.MAX_VALUE).filterNot { it.id in open }
+    }
+
+    /**
+     * Archives [sessions], keeping their names, except any opened in a tab since they were listed: its chat would
+     * still be live, and archiving it would only hide it from the next restart. Returns how many were archived (a
+     * transcript that can't be written is logged and not counted). Off the EDT (writes the transcripts).
+     */
+    fun archiveAll(sessions: List<SessionSummary>): Int {
+        val open = openSessionIds()
+        return sessions.filterNot { it.id in open }
+            .count { saveTitle(it.folder, it.id, it.customTitle.orEmpty(), archived = true) }
+    }
+
+    /** The ids of the sessions open in a tab (a new chat has none until the CLI starts). */
+    fun openSessionIds(): Set<String> = chats.mapNotNull { it.session.sessionId }.toSet()
+
+    /** Appends [title] to [sessionId]'s transcript; false (logged) when it can't be written. */
+    private fun saveTitle(cwd: String, sessionId: String, title: String, archived: Boolean): Boolean = try {
+        store.saveTitle(cwd, sessionId, title, archived)
+        true
+    } catch (e: IOException) {
+        LOG.warn("Couldn't save the name of session $sessionId in its transcript", e)
+        false
     }
 
     private fun defaultMode(): PermissionMode? = PermissionMode.fromCli(TetherSettings.getInstance().state.defaultMode)

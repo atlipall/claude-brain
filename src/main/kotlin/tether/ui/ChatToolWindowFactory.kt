@@ -71,7 +71,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
         val chats = Chats.getInstance(project)
         background(project, { readRestorable(chats) }, expired = { project.isDisposed || toolWindow.isDisposed }, failed = "Couldn't reopen the chats") { restored ->
             done()
-            val open = chats.all().mapNotNull { it.session.sessionId }.toSet()
+            val open = chats.openSessionIds()
             for ((spec, resumed) in restored.filter { it.first.resumeId !in open }) {
                 try {
                     tabs.open(spec, resumed)

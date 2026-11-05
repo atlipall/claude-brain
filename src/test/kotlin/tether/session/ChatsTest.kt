@@ -4,6 +4,7 @@ import tether.cli.PermissionMode
 import tether.cli.SessionLaunch
 import tether.context.EditorContextService
 import tether.context.Symbol
+import tether.git.GitWorktrees
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Document
 import com.intellij.psi.PsiFile
@@ -331,6 +332,48 @@ class ChatsTest : BasePlatformTestCase() {
         chats.store.saveTitle(root, "abc", "Login fix", archived = true)
         chats.unarchive(chats.store.list(root, archived = true).single())
         assertEquals("Login fix", chats.store.list(root).single().customTitle)
+    }
+
+    private fun pastSession(id: String, firstMessage: String) =
+        File(chats.store.projectDir(root).apply { mkdirs() }, "$id.jsonl")
+            .writeText("""{"type":"user","message":{"role":"user","content":"$firstMessage"}}""" + "\n")
+
+    /** Runs [test] with the session folders being the light project's root and no git worktrees. */
+    private fun inRootOnly(test: () -> Unit) {
+        val saved = chats.worktrees
+        chats.worktrees = GitWorktrees(root, brancher = { null }, lister = { null })
+        try {
+            test()
+        } finally {
+            chats.worktrees = saved
+        }
+    }
+
+    fun testArchiveAllArchivesPastSessionsKeepingNamesAndSkipsOpenOnes() = inRootOnly {
+        pastSession("old", "earlier")
+        chats.store.saveTitle(root, "old", "Login fix")
+        pastSession("gone", "already")
+        chats.store.saveTitle(root, "gone", "", archived = true)
+        pastSession("sid-1", "live")
+        val chat = chats.open(ChatSpec.resume(root, chats.store.list(root).single { it.id == "sid-1" }))
+        connections.single().emit(Fx.init(sessionId = "sid-1", cwd = root))
+        assertEquals("sid-1", chat.session.sessionId)
+
+        val archivable = chats.archivable()
+        assertEquals("neither the open nor the archived one", listOf("old"), archivable.map { it.id })
+        assertEquals(1, chats.archiveAll(archivable))
+        assertEquals(listOf("sid-1"), chats.store.list(root).map { it.id })
+        assertEquals("Login fix", chats.store.list(root, archived = true).single { it.id == "old" }.customTitle)
+    }
+
+    fun testArchiveAllSkipsASessionOpenedSinceItWasListed() = inRootOnly {
+        pastSession("sid-1", "live")
+        val listed = chats.archivable()
+        assertEquals(listOf("sid-1"), listed.map { it.id })
+        chats.open(ChatSpec.resume(root, listed.single()))
+        connections.single().emit(Fx.init(sessionId = "sid-1", cwd = root))
+        assertEquals(0, chats.archiveAll(listed))
+        assertEquals(listOf("sid-1"), chats.store.list(root).map { it.id })
     }
 
     private fun awaitTitle(transcript: File, title: String) {

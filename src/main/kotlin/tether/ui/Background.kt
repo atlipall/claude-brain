@@ -35,9 +35,13 @@ internal fun <T> background(
     }
 }
 
-private fun notifyFailure(project: Project, title: String, e: Throwable) {
+private fun notifyFailure(project: Project, title: String, e: Throwable) =
+    notify(project, title, NotificationType.ERROR, content = e.message ?: e.javaClass.simpleName)
+
+/** Shows a Tether notification in [project]. On the EDT. */
+internal fun notify(project: Project, title: String, type: NotificationType, content: String = "") {
     NotificationGroupManager.getInstance().getNotificationGroup(AutoExclude.NOTIFICATION_GROUP)
-        .createNotification(title, e.message ?: e.javaClass.simpleName, NotificationType.ERROR)
+        .createNotification(title, content, type)
         .notify(project)
 }
 
