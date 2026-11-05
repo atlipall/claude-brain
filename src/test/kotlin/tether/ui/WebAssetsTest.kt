@@ -174,7 +174,7 @@ class WebAssetsTest {
         val page = WebAssets.page()
         assertTrue(page.contains("send({ type: 'answer', requestId: id, answers });"))
         assertTrue(page.contains("else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });"))
-        assertTrue(page.contains("if (!b || !trusted.has(b)) return;"))
+        assertTrue(page.contains("if (!trusted.has(b)) return;"))
         assertTrue(page.contains("h('button', { 'data-action': 'skipQuestion', 'data-req': id }, 'Skip')"))
     }
 

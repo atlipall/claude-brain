@@ -60,7 +60,10 @@ object NewChatPopup {
                     if (existing != null && tabs.select(existing)) return@listPopup
                     // The transcript is read in the background: a long session would hold up the IDE.
                     val spec = ChatSpec.resume(chats.projectDir, s)
-                    background(project, { if (archived) chats.unarchive(s); chats.read(spec) }) { tabs.open(spec, it) }
+                    background(project, { if (archived) chats.unarchive(s); chats.read(spec) }) { read ->
+                        val openedMeanwhile = openChat(s)
+                        if (openedMeanwhile == null || !tabs.select(openedMeanwhile)) tabs.open(spec, read)
+                    }
                 })
             }
         }

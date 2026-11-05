@@ -54,7 +54,7 @@ class TetherConfigurable : BoundConfigurable("Tether") {
         row {
             checkBox("Let Claude use IDE tools")
                 .bindSelected({ state.ideTools }, { state.ideTools = it })
-                .comment("Diagnostics (the errors and warnings the editor shows) and Find Usages from the IDE's index. Read-only, so never asks. Applies to new or restarted chats.")
+                .comment("Diagnostics and Find Usages, which never ask, plus quick fixes, Rename and Move, which ask like Claude's own edits. Applies to new or restarted chats.")
         }
         row {
             checkBox("Check Claude's edits for errors")

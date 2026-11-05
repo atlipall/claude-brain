@@ -979,7 +979,7 @@
       if (row && trusted.has(row) && row.hasAttribute('role') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);
       return;
     }
-    if (!b || !trusted.has(b)) return;
+    if (!trusted.has(b)) return;
     const action = b.dataset.action;
     if (action === 'diff') send({ type: 'openDiff', toolUseId: b.dataset.id });
     else if (action === 'turnFiles') toggleTurnFiles(b);

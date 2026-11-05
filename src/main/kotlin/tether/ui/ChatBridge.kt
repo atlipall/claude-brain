@@ -4,12 +4,12 @@ import tether.cli.ContextUsage
 import tether.cli.ModelChoice
 import tether.cli.PermissionMode
 import tether.cli.arr
-import tether.cli.bool
 import tether.cli.long
 import tether.cli.parseJsonObject
 import tether.cli.str
 import tether.ide.CheckoutDiff
 import tether.ide.FileLinker
+import tether.ide.ResolvedPath
 import tether.image.Attachment
 import tether.image.Images
 import tether.image.Prepared
@@ -177,7 +177,7 @@ class ChatBridge(
             }
             "openTurnChanges" -> turnDiffs(msg)?.let(showTurnChanges)
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
-            "resolvePaths" -> post(resolvedMessage(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }))
+            "resolvePaths" -> resolvePaths(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content })
             "resolveImages" -> {
                 val reqId = msg.long("reqId") ?: 0
                 val paths = strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS)
@@ -364,14 +364,27 @@ class ChatBridge(
         put("entries", JsonArray(entries.map(::JsonPrimitive)))
     }.toString()
 
-    private fun resolvedMessage(reqId: Long, candidates: List<String>) = buildJsonObject {
+    /**
+     * Answers the page with the [candidates] that are files, resolved [offEdt] because a lookup that misses refreshes
+     * the file system. The page is always answered, with what was found, even when the lookup fails.
+     */
+    private fun resolvePaths(reqId: Long, candidates: List<String>) {
+        val cwd = chat.cwd
+        offEdt {
+            val found = LinkedHashMap<String, ResolvedPath>()
+            try {
+                for (candidate in candidates) linker.resolve(candidate, cwd)?.let { found[candidate] = it }
+            } finally {
+                onEdt { post(resolvedMessage(reqId, found)) }
+            }
+        }
+    }
+
+    private fun resolvedMessage(reqId: Long, found: Map<String, ResolvedPath>) = buildJsonObject {
         put("type", "resolved")
         put("reqId", reqId)
         putJsonObject("paths") {
-            for (candidate in candidates) {
-                val resolved = linker.resolve(candidate, chat.cwd) ?: continue
-                put(candidate, buildJsonObject { put("target", resolved.target); put("line", resolved.line) })
-            }
+            for ((candidate, resolved) in found) put(candidate, buildJsonObject { put("target", resolved.target); put("line", resolved.line) })
         }
     }.toString()
 
