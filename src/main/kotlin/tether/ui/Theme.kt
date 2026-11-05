@@ -21,6 +21,7 @@ object Theme {
             put("muted", hex(UIUtil.getContextHelpForeground()))
             put("border", hex(JBColor.border()))
             put("accent", hex(JBUI.CurrentTheme.Link.Foreground.ENABLED))
+            put("danger", hex(UIUtil.getErrorForeground()))
             put("codeBg", hex(EditorColorsManager.getInstance().globalScheme.defaultBackground))
             put("font", font.family)
             put("fontSize", font.size)

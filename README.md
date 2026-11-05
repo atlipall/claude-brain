@@ -21,7 +21,7 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   Find in Files to it. The chat header shows `IDE: main` / `IDE: <worktree>`.
 - **Files are clickable.** Paths Claude reads, edits or mentions (in backticks or markdown links)
   open in the editor; edits have a "View diff" link.
-- **See everything that changed.** **Diff** in the chat header opens the IDE's changes browser for the
+- **See everything that changed.** **View changes** in the chat header opens the IDE's changes browser for the
   chat's checkout: since it forked from `main` (or `master`) on a branch, otherwise since the commit
   HEAD was at when the session started (for a resumed session, the last commit before its first
   message). It covers commits, uncommitted edits and new untracked files, yours included.
@@ -56,7 +56,7 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   History tracks, so not excluded folders such as worktrees by default). The conversation goes back too: Claude
   forgets that message and everything after it, the chat continues in a fork of the session, and the message
   returns to the input box.
-- **Images.** Paste, drop or 📎-pick images to send with a message (PNG/JPEG/GIF/WebP, up to 10,
+- **Images.** Paste, drop or pick (paperclip button) images to send with a message (PNG/JPEG/GIF/WebP, up to 10,
   5 MB each, large ones downscaled). Images Claude reads, and local project images referenced in its
   replies, are shown inline. Remote images are never loaded.
 - **Up/Down recall** of previously sent messages, per project, across restarts.

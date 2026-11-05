@@ -386,18 +386,24 @@
     return h('span', { class: 'tool-icon', role: label ? 'img' : null, 'aria-label': label }, icon);
   };
 
-  // A row and the details right after it: a tool row's .tool-detail, or an agent card's .agent-body.
+  /**
+   * The disclosure button of an expandable row. The row itself stays a plain element (clicking anywhere on it still
+   * toggles) because it can hold links and buttons, which may not sit inside a button.
+   */
+  const rowToggle = (name) => h('span', { class: 'tool-toggle', role: 'button', tabindex: '0', 'aria-label': 'Details of ' + name });
+
+  /** Shows or hides the details right after [row]: a tool row's .tool-detail, or an agent card's .agent-body. */
   function setRowExpanded(row, open) {
-    row.setAttribute('aria-expanded', open ? 'true' : 'false');
-    const side = row.querySelector('.tool-toggle');
-    if (side) side.textContent = open ? '\u25BE' : '\u25B8';
+    const toggle = row.querySelector('.tool-toggle');
+    if (toggle) { toggle.setAttribute('aria-expanded', open ? 'true' : 'false'); toggle.textContent = open ? '\u25BE' : '\u25B8'; }
     const detail = row.nextElementSibling;
     if (detail && (detail.classList.contains('tool-detail') || detail.classList.contains('agent-body'))) detail.hidden = !open;
   }
 
   function toggleRow(row) {
     const id = row.dataset.id;
-    const open = row.getAttribute('aria-expanded') !== 'true';
+    const toggle = row.querySelector('.tool-toggle');
+    const open = !toggle || toggle.getAttribute('aria-expanded') !== 'true';
     if (open) expandedTools.add(id); else expandedTools.delete(id);
     setRowExpanded(row, open);
   }
@@ -412,8 +418,8 @@
     const side = h('span', { class: 'tool-side' });
     if (t.status === 'error') side.append(h('span', { class: 'tool-failed' }, ' \u00b7 failed'));
     if (t.hasDiff) side.append(h('button', { class: 'link', 'data-action': 'diff', 'data-id': t.id }, 'View diff'));
-    if (hasDetails) side.append(h('span', { class: 'tool-toggle', 'aria-hidden': 'true' }, '\u25B8'));
-    const row = h('div', { class: 'tool-row', 'data-id': t.id, role: hasDetails ? 'button' : null, tabindex: hasDetails ? '0' : null },
+    if (hasDetails) side.append(rowToggle(t.name));
+    const row = h('div', { class: 'tool-row' + (hasDetails ? ' expandable' : ''), 'data-id': t.id },
       statusIcon(t.status), h('span', { class: 'tool-name' }, t.name), desc, side);
     el.append(row);
     if (hasDetails) {
@@ -555,13 +561,13 @@
     const state = agentState(t);
     el.className = 'msg agent agent-' + state;
     const desc = toolDescription(t);
-    const head = h('div', { class: 'tool-row agent-head', role: 'button', tabindex: '0', 'data-id': t.id },
+    const head = h('div', { class: 'tool-row agent-head expandable', 'data-id': t.id },
       statusIcon(state === 'failed' ? 'error' : state),
       h('span', { class: 'tool-name' }, t.name),
       h('span', { class: 'tool-desc', title: desc || null }, desc),
       a && typeof a.subagentType === 'string' && a.subagentType ? h('span', { class: 'agent-tag' }, a.subagentType.slice(0, 40)) : null,
       a && a.background === true ? h('span', { class: 'agent-tag' }, 'background') : null,
-      h('span', { class: 'tool-side' }, agentSide(a, state), ' ', h('span', { class: 'tool-toggle', 'aria-hidden': 'true' })));
+      h('span', { class: 'tool-side' }, agentSide(a, state), ' ', rowToggle(t.name)));
     const body = h('div', { class: 'agent-body' });
     if (a && typeof a.prompt === 'string' && a.prompt) body.append(h('details', {}, h('summary', {}, 'Prompt'), h('pre', {}, clip(a.prompt))));
     const box = childBox(t.id);
@@ -597,7 +603,7 @@
     el.className = 'msg result' + (r.isError ? ' error' : '');
     const files = Array.isArray(r.files) ? r.files : [];
     const line = h('div', { class: 'result-line' });
-    if (r.isError) line.textContent = r.text || 'Error';
+    if (r.isError) line.textContent = r.text || 'This turn failed.';
     else {
       const parts = [];
       if (r.durationMs != null) parts.push((r.durationMs / 1000).toFixed(1) + 's');
@@ -608,7 +614,7 @@
     const sum = (key) => files.reduce((n, f) => n + (Number(f[key]) || 0), 0);
     line.append(' · ', files.length + (files.length === 1 ? ' file' : ' files') + ' changed ',
       lineCounts(sum('added'), sum('removed')), ' · ',
-      h('button', { class: 'link', 'data-action': 'turnChanges', 'data-id': r.id }, 'Review all'));
+      h('button', { class: 'link', 'data-action': 'turnChanges', 'data-id': r.id }, 'View all changes'));
     const all = files.length <= TURN_FILES_SHOWN || expandedTools.has(r.id);
     const list = h('div', { class: 'tool-detail turn-files' + (all ? '' : ' clipped') });
     files.forEach((f, i) => {
@@ -665,8 +671,8 @@
     const efforts = (Array.isArray(msg.efforts) ? msg.efforts : []).map(String);
     const effort = msg.effort ? String(msg.effort) : '';
     effortSel.replaceChildren(
-      ...(efforts.includes(effort) ? [] : [option(effort, effort ? effort + ' effort' : 'Effort')]),
-      ...efforts.map((level) => option(level, level + ' effort')),
+      ...(efforts.includes(effort) ? [] : [option(effort, effort ? effortLabel(effort) : 'Effort')]),
+      ...efforts.map((level) => option(level, effortLabel(level))),
     );
     effortSel.value = effort;
     effortSel.hidden = !efforts.length;
@@ -749,7 +755,6 @@
     activityStop.hidden = phase === 'agents'; // no turn to interrupt
     const waiting = phase === 'waiting';
     activityDots.hidden = waiting;
-    activityLabel.classList.toggle('shimmer', !waiting);
     activitySecs.hidden = waiting;
     activityEl.hidden = false;
     if (keepTimer) return;
@@ -860,6 +865,9 @@
     input.focus();
   }
 
+  /** "High effort" for "high": the effort menu's label for a level. */
+  const effortLabel = (level) => level.charAt(0).toUpperCase() + level.slice(1) + ' effort';
+
   function applyTheme(t) {
     const s = document.documentElement.style;
     s.setProperty('--bg', t.bg); s.setProperty('--fg', t.fg); s.setProperty('--muted', t.muted);
@@ -867,7 +875,7 @@
     s.setProperty('--font', '"' + t.font + '", system-ui, sans-serif'); s.setProperty('--font-size', t.fontSize + 'px');
     s.setProperty('--add', t.dark ? '#2f5a3a' : '#d7f5dd'); s.setProperty('--del', t.dark ? '#5a2f2f' : '#f9d7d7');
     s.setProperty('--ok', t.dark ? '#5fb865' : '#2e7d32');
-    s.setProperty('--warn', t.dark ? '#d29922' : '#9a6700'); s.setProperty('--danger', t.dark ? '#c75450' : '#c7222d');
+    s.setProperty('--warn', t.dark ? '#d29922' : '#9a6700'); s.setProperty('--danger', t.danger);
     // Native parts (a scrolling text box, scrollbars) follow the scheme, not the colours above.
     s.setProperty('color-scheme', t.dark ? 'dark' : 'light');
     fitInput();
@@ -985,7 +993,7 @@
     const b = e.target.closest('button[data-action]');
     if (!b) {
       const row = e.target.closest('.tool-row');
-      if (row && trusted.has(row) && row.hasAttribute('role') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);
+      if (row && trusted.has(row) && row.classList.contains('expandable') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);
       return;
     }
     if (!trusted.has(b)) return;
@@ -1008,8 +1016,9 @@
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const fileRow = e.target.closest && e.target.closest('.turn-files .tool-row');
     if (fileRow && e.target === fileRow && trusted.has(fileRow)) { e.preventDefault(); openTurnDiff(fileRow); return; }
-    const row = e.target.closest && e.target.closest('.tool-row');
-    if (row && e.target === row && trusted.has(row) && row.hasAttribute('role')) { e.preventDefault(); toggleRow(row); }
+    const toggle = e.target.classList && e.target.classList.contains('tool-toggle') && trusted.has(e.target) ? e.target : null;
+    const row = toggle && toggle.closest('.tool-row.expandable');
+    if (row && trusted.has(row)) { e.preventDefault(); toggleRow(row); }
   });
 
   window.addEventListener('bridge-ready', () => send({ type: 'ready' }));

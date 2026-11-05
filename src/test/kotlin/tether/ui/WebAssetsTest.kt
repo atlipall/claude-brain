@@ -108,7 +108,7 @@ class WebAssetsTest {
     @Test fun pageSendsImagesToTheIdeInChunks() {
         val page = WebAssets.page()
         assertTrue(page.contains("<div id=\"attachments\" hidden></div>"))
-        assertTrue(page.contains("<button id=\"attach\" title=\"Attach images\">📎</button>"))
+        assertTrue(page.contains("<button id=\"attach\" title=\"Attach images\" aria-label=\"Attach images\"><svg"))
         assertTrue(page.contains("const CHUNK = 262144;"))
         assertTrue(page.contains("send({ type: 'attachChunk', id, data: data.slice(i, i + CHUNK) });"))
         assertTrue(page.contains("send({ type: 'pickImages' })"))
@@ -183,7 +183,7 @@ class WebAssetsTest {
         assertTrue(js.contains("class: 'tool-row'"))
         assertTrue(js.contains("firstLine(str(i.description)).trim() || firstLine(str(i.command))"))
         assertTrue(js.contains("const expandedTools = new Set();"))
-        assertTrue(js.contains("row.hasAttribute('role') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);"))
+        assertTrue(js.contains("row.classList.contains('expandable') && !(window.getSelection && window.getSelection().toString())) toggleRow(row);"))
         assertTrue(js.contains("t.status !== 'awaiting_permission'"))
         assertTrue(js.contains("@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }"))
         val body = js.substringAfter("function renderToolRow(").substringBefore("function renderTool(")
