@@ -73,12 +73,13 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
 
 ## Install
 
-Quit WebStorm, then from the project root:
+Quit the IDE, then from the project root:
 
 ```sh
-./install.sh            # builds and installs into the newest WebStorm config folder
-./install.sh --no-build # install the existing zip
-./install.sh --force    # install while WebStorm runs; restart it afterwards
+./install.sh              # builds and installs into the newest WebStorm config folder
+./install.sh --ide pycharm # the same for PyCharm (2026.2 or later; not the old Community Edition)
+./install.sh --no-build   # install the existing zip
+./install.sh --force      # install while the IDE runs; restart it afterwards
 ```
 
 Or manually, after `./gw buildPlugin`, either:
