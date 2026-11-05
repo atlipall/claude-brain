@@ -5,7 +5,7 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.19.0"
 }
 
-group = "local.claudechat"
+group = "local.tether"
 version = "0.1.0"
 
 kotlin {

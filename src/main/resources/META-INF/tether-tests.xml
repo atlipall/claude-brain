@@ -1,6 +1,6 @@
 <idea-plugin>
     <actions>
-        <action id="claudechat.SendTestsToTether" class="claudechat.ide.tests.SendTestsToTether"
+        <action id="tether.SendTestsToTether" class="tether.ide.tests.SendTestsToTether"
                 text="Send Failures to Tether" description="Put the selected failed tests' messages and stack traces into the Tether chat">
             <add-to-group group-id="TestTreePopupMenu" anchor="last"/>
         </action>

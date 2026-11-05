@@ -9,17 +9,18 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
 ## Features
 
 - **Native chat panel.** A "Tether" tool window with streaming replies, markdown, tool calls,
-  and permission prompts (Allow / Allow for session / Deny with a reason). Stop, restart and
-  permission mode (Ask before edits / Accept edits / Plan / Auto) are in the header.
-- **Several chats at once.** One tab per chat, each with its own `claude` process. The `+` button
-  (or "New chat") offers: in this project, in a new git worktree (`claude --worktree <name>`), in an
-  existing worktree, or resume a past session (across the project and its worktrees).
+  and permission prompts (Allow / Allow for session / Deny with a reason). Stop, restart,
+  permission mode (Ask before edits / Accept edits / Plan / Auto), model and effort are in the
+  header. Model and effort change the running session at once; a reopened chat keeps its mode,
+  model and effort.
+- **Several chats at once.** One tab per chat, each with its own agent process. The `+` button opens a draft in this project; no process starts until its first message. **Chat in Workspace…** offers a new git worktree (`claude --worktree <name>`), an existing worktree, or a past Claude session to resume.
 - **The IDE follows the selected chat.** Selecting a worktree chat switches the Project view to that
   checkout's scope, swaps open editors to the same files in that checkout (caret kept), and defaults
-  Find in Files to it. The chat header shows `IDE: main` / `IDE: <worktree>`.
+  Find in Files to it. A chat whose checkout the IDE isn't showing says which one it is
+  (`IDE: main` / `IDE: <worktree>`) in its header.
 - **Files are clickable.** Paths Claude reads, edits or mentions (in backticks or markdown links)
   open in the editor; edits have a "View diff" link.
-- **See everything that changed.** **Diff** in the chat header opens the IDE's changes browser for the
+- **See everything that changed.** **View changes** in the chat header opens the IDE's changes browser for the
   chat's checkout: since it forked from `main` (or `master`) on a branch, otherwise since the commit
   HEAD was at when the session started (for a resumed session, the last commit before its first
   message). It covers commits, uncommitted edits and new untracked files, yours included.
@@ -48,11 +49,13 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   which asks the selected chat to fix the problems on that line. In the test runner, **Send Failures to Tether**
   (right-click) puts the selected failed tests' messages and stack traces into the message box; in a run console,
   **Send to Tether** puts the selected output (or all of it) there.
-- **Revert to before a message.** Each message sent in this IDE session gets a **Revert to here** link (on hover):
-  after asking, it reverts the chat's checkout to how it was before that message went out, using the IDE's Local
-  History, and tells Claude with your next message. The revert can itself be undone from Local History. Only files
-  Local History tracks are reverted (excluded folders, such as worktrees by default, are not).
-- **Images.** Paste, drop or 📎-pick images to send with a message (PNG/JPEG/GIF/WebP, up to 10,
+- **Revert to before a message.** Each message sent in this IDE session gets a **Revert to here** link (on hover).
+  It asks what to revert: **Files and Conversation**, **Files Only** or **Conversation Only**. Files go back to how
+  they were before that message went out, using the IDE's Local History (undoable from there; only files Local
+  History tracks, so not excluded folders such as worktrees by default). The conversation goes back too: Claude
+  forgets that message and everything after it, the chat continues in a fork of the session, and the message
+  returns to the input box.
+- **Images.** Paste, drop or pick (paperclip button) images to send with a message (PNG/JPEG/GIF/WebP, up to 10,
   5 MB each, large ones downscaled). Images Claude reads, and local project images referenced in its
   replies, are shown inline. Remote images are never loaded.
 - **Up/Down recall** of previously sent messages, per project, across restarts.
@@ -68,20 +71,21 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
 
 ## Install
 
-Quit WebStorm, then from the project root:
+Quit the IDE, then from the project root:
 
 ```sh
-./install.sh            # builds and installs into the newest WebStorm config folder
-./install.sh --no-build # install the existing zip
-./install.sh --force    # install while WebStorm runs; restart it afterwards
+./install.sh              # builds and installs into the newest WebStorm config folder
+./install.sh --ide pycharm # the same for PyCharm (2026.2 or later; not the old Community Edition)
+./install.sh --no-build   # install the existing zip
+./install.sh --force      # install while the IDE runs; restart it afterwards
 ```
 
 Or manually, after `./gw buildPlugin`, either:
 
-- Settings → Plugins → ⚙️ → **Install Plugin from Disk…** → `build/distributions/claude-chat-0.1.0.zip`, and restart; or
+- Settings → Plugins → ⚙️ → **Install Plugin from Disk…** → `build/distributions/tether-0.1.0.zip`, and restart; or
 - with WebStorm closed, unzip it into the plugins folder:
   ```sh
-  unzip -o build/distributions/claude-chat-0.1.0.zip \
+  unzip -o build/distributions/tether-0.1.0.zip \
     -d "$HOME/Library/Application Support/JetBrains/WebStorm2026.2/plugins"
   ```
 
@@ -101,10 +105,17 @@ Settings → Tools → **Tether**:
 | Claude binary | auto-detect |
 | Default permission mode | the CLI's own setting |
 | Extra CLI arguments (e.g. `--model sonnet`) | none |
+| ACP agent command | `hermes acp` |
 | IDE follows the selected chat's checkout | on |
 | Attach editor context to messages | on |
 | Let Claude use IDE tools | on (new or restarted chats) |
 | Check Claude's edits for errors | on (new or restarted chats) |
+
+### Other agents (ACP)
+
+Set **ACP agent command** to the command for an Agent Client Protocol agent, such as `hermes acp`, and choose it beside the permission control in a new draft. Selection is remembered and keeps the draft text and attachments. A chat keeps its agent after starting; create another chat to use a different agent.
+
+ACP agents keep their own authentication, model configuration and approval rules. Their advertised permission modes and approval choices are shown directly. Open ACP tabs can be restored through the agent's `session/load`; the past-session browser, archive, conversation rewind, Claude model/effort picker, IDE tools and new-worktree creation remain Claude-only. Images require the agent to advertise image support.
 
 ## Development
 
@@ -113,7 +124,7 @@ There is no system Java needed: `./gw` runs Gradle with WebStorm's bundled JBR
 
 ```sh
 ./gw test          # unit + platform tests
-./gw buildPlugin   # build/distributions/claude-chat-0.1.0.zip
+./gw buildPlugin   # build/distributions/tether-0.1.0.zip
 ./gw runIde        # sandbox WebStorm with the plugin loaded
 ```
 
@@ -124,7 +135,8 @@ Stack: Kotlin, IntelliJ Platform Gradle Plugin 2.x, JCEF for the chat page (plai
 Layout:
 
 ```
-src/main/kotlin/claudechat/
+src/main/kotlin/tether/
+  acp/        ACP client protocol and session adapter
   cli/        CLI protocol, process transport, command line
   session/    chats, sessions, transcripts, prompt history
   context/    editor context (file, caret, enclosing symbol)
@@ -146,6 +158,8 @@ DOMPurify (no images, forms, styles); only page-created elements can open files,
 prompts or show images; the page can't navigate away; only http(s) links open in the browser.
 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` are removed from the CLI's environment so it always uses
 your CLI login.
+
+This filtering applies only to Claude; ACP agents receive the IDE environment unchanged and handle their own authentication.
 
 ## Status
 
