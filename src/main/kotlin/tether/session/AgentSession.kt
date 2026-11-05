@@ -19,10 +19,23 @@ interface AgentSession {
     fun start()
 
     /**
-     * Shows [text] (with [thumbs] above it) in the chat; sends "[prefix]\n\n[text]" and [images] to the agent. While a
-     * turn is running the message is queued instead (see [ChatListener.onQueue]) and enters the chat when it goes out.
+     * Shows [text] (with [thumbs] of its images above it) in the chat; sends "[prefix]\n\n[text]" and [images] to the
+     * agent. [previews] are the images' display copies, which a session may keep for [imagePreview]. While a turn is
+     * running the message is queued instead (see [ChatListener.onQueue]) and enters the chat when it goes out.
      */
-    fun send(text: String, prefix: String? = null, images: List<Image> = emptyList(), thumbs: List<String> = emptyList())
+    fun send(
+        text: String,
+        prefix: String? = null,
+        images: List<Image> = emptyList(),
+        thumbs: List<String> = emptyList(),
+        previews: List<String> = emptyList(),
+    )
+
+    /**
+     * The display copy of image [index] of user message [itemId], or null when none is kept; the image viewer then
+     * shows the thumbnail.
+     */
+    fun imagePreview(itemId: String, index: Int): String? = null
 
     /** Takes queued message [id] out of the queue without sending it; null when it is not queued (any more). */
     fun unqueue(id: String): QueuedMessage?

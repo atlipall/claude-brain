@@ -146,7 +146,7 @@ class AcpSession(
         }
     }
 
-    override fun send(text: String, prefix: String?, images: List<Image>, thumbs: List<String>) {
+    override fun send(text: String, prefix: String?, images: List<Image>, thumbs: List<String>, previews: List<String>) {
         synchronized(lock) {
             if (state == SessionState.DEAD) return
             val payload = listOfNotNull(prefix?.takeIf { it.isNotBlank() }, text.takeIf { it.isNotEmpty() }).joinToString("\n\n")

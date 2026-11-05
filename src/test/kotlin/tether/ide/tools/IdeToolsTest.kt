@@ -1,7 +1,10 @@
 package tether.ide.tools
 
+import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.Editor
+import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.openapi.project.Project
@@ -95,5 +98,39 @@ class IdeToolsTest : BasePlatformTestCase() {
         val a = myFixture.addFileToProject("lib3.ts", "export const x = 1;\n").virtualFile
         val e = runCatching { offEdt { Usages.find(project, SymbolRef(a, 1, "nope", null), GlobalSearchScope.projectScope(project), Deadline(30_000)) } }.exceptionOrNull()
         assertTrue("got $e", e is ToolUnavailable && e.message!!.contains("not on line 1"))
+    }
+
+    /** A fix that records, each time it is asked whether it applies, whether that was on the EDT and where the caret was. */
+    private class Probe(private val name: String, private val applies: Boolean) : IntentionAction {
+        val asked: MutableList<Pair<Boolean, Int>> = java.util.Collections.synchronizedList(mutableListOf())
+        override fun getText() = name
+        override fun getFamilyName() = name
+        override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {
+            asked += ApplicationManager.getApplication().isDispatchThread to editor!!.caretModel.offset
+            return applies
+        }
+        override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {}
+        override fun startInWriteAction() = true
+    }
+
+    fun testFixesAreCheckedOffTheEdtWithTheCaretAtTheirProblem() {
+        val file = myFixture.addFileToProject("probe.ts", "const a = 1; const b = 2;\n").virtualFile
+        val first = Probe("Fix a", applies = true)
+        val second = Probe("Fix b", applies = true)
+        val never = Probe("Never", applies = false)
+        val problemA = Problem(1, 7, Severity.WARNING, "a")
+        val problemB = Problem(1, 20, Severity.WARNING, "b")
+        val fake = object : ProblemSource {
+            override val name = "the probe"
+            override fun start(project: Project, file: VirtualFile): CompletableFuture<List<Problem>>? = null
+            override fun fixes(project: Project, file: VirtualFile, line: Int, deadline: Deadline) =
+                listOf(FixCandidate(problemA, 6, first), FixCandidate(problemB, 19, never), FixCandidate(problemB, 19, second))
+        }
+        ProblemSource.EP.point.registerExtension(fake, testRootDisposable)
+        val fixes = offEdt { Fixes.list(project, file, 1, Deadline(30_000)) }
+        assertEquals(listOf("Fix a", "Fix b"), fixes.map { it.text })
+        assertEquals(listOf(false to 6), first.asked.distinct())
+        assertEquals(listOf(false to 19), second.asked.distinct())
+        assertEquals(listOf(false to 19), never.asked.distinct())
     }
 }

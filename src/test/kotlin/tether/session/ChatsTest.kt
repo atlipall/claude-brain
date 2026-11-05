@@ -1021,7 +1021,7 @@ class ChatsTest : BasePlatformTestCase() {
     }
 
     private fun attachment(id: String) =
-        Attachment(id, "$id.png", Image(ImageType.PNG, TestImages.bytes(TestImages.BLUE_PNG_BASE64), 4, 4), "data:image/png;base64,T$id")
+        Attachment(id, "$id.png", Image(ImageType.PNG, TestImages.bytes(TestImages.BLUE_PNG_BASE64), 4, 4), "data:image/png;base64,T$id", "data:image/png;base64,P$id")
 
     fun testSendCarriesAttachmentsAfterTheNotes() {
         settings.attachEditorContext = false

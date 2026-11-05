@@ -179,8 +179,14 @@ class ChatBridge(
             "openTurnChanges" -> turnDiffs(msg)?.let(showTurnChanges)
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> resolvePaths(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.distinct().take(MAX_PATH_CANDIDATES))
+            "viewImage" -> viewImage(msg.long("reqId") ?: 0, msg.str("id"), msg.long("index")?.toInt() ?: -1)
             "resolveImages" -> resolveImages(msg.long("reqId") ?: 0, strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS))
         }
+    }
+
+    /** Answers the image viewer with the display copy of image [index] of user message [itemId], or null. */
+    private fun viewImage(reqId: Long, itemId: String?, index: Int) {
+        post(imagePreviewMessage(reqId, itemId?.let { session.imagePreview(it, index) }))
     }
 
     /** Forgets every attachment, started upload and preparation: a (re)loaded page shows none. */
@@ -237,13 +243,15 @@ class ChatBridge(
     }
 
     /**
-     * Validates and (if needed) downscales the bytes off the EDT, then adds the attachment and shows its thumbnail,
-     * or refuses it with a notice. [read] runs off the EDT; null means the file is larger than 20 MB.
+     * Validates and (if needed) downscales the bytes off the EDT and makes its preview and, from that, its thumbnail;
+     * then adds the attachment and shows its thumbnail, or refuses it with a notice. [read] runs off the EDT; null
+     * means the file is larger than 20 MB.
      */
     private fun prepare(id: String, name: String, read: () -> ByteArray?) {
         preparing += id
         offEdt {
             var thumb = ""
+            var preview = ""
             val outcome = try {
                 val bytes = read()
                 if (bytes == null) {
@@ -251,7 +259,9 @@ class ChatBridge(
                 } else {
                     val prepared = preparer(bytes)
                     if (prepared is Prepared.Ok) {
-                        thumb = Images.preview(prepared.image.bytes, Images.THUMB_EDGE, Images.THUMB_BYTES)?.dataUrl().orEmpty()
+                        val display = Images.preview(prepared.image.bytes)
+                        preview = display?.dataUrl().orEmpty()
+                        thumb = Images.preview((display ?: prepared.image).bytes, Images.THUMB_EDGE, Images.THUMB_BYTES)?.dataUrl().orEmpty()
                     }
                     prepared
                 }
@@ -267,7 +277,7 @@ class ChatBridge(
                 when (outcome) {
                     is Prepared.Rejected -> refuse(id, "Couldn't attach $name: ${outcome.reason}.")
                     is Prepared.Ok ->
-                        if (chat.attachments.add(Attachment(id, name, outcome.image, thumb))) post(attachmentMessage(id, name, thumb))
+                        if (chat.attachments.add(Attachment(id, name, outcome.image, thumb, preview))) post(attachmentMessage(id, name, thumb))
                         else refuse(id, "Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
                 }
             }
@@ -386,6 +396,13 @@ class ChatBridge(
         put("type", "images")
         put("reqId", reqId)
         putJsonObject("images") { for ((path, url) in found) put(path, url) }
+    }.toString()
+
+    /** `{type:"imagePreview", reqId, src}`: the display copy the viewer asked for; src is null when none is kept. */
+    private fun imagePreviewMessage(reqId: Long, src: String?) = buildJsonObject {
+        put("type", "imagePreview")
+        put("reqId", reqId)
+        put("src", src)
     }.toString()
 
     private fun historyMessage(entries: List<String>) = buildJsonObject {

@@ -544,6 +544,7 @@ class Chat(
             listOfNotNull(message.edits, message.git, context).joinToString("\n\n").ifEmpty { null },
             message.images.map { it.image },
             message.images.map { it.thumb },
+            message.images.map { it.preview },
         )
     }
 

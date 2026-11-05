@@ -167,4 +167,10 @@ This filtering applies only to Claude; ACP agents receive the IDE environment un
 
 ## Status
 
-Personal project, not published to the JetBrains Marketplace.
+Personal open-source project, not published to the JetBrains Marketplace.
+
+## License
+
+[MIT](LICENSE). The bundled [marked](https://github.com/markedjs/marked) (MIT) and
+[DOMPurify](https://github.com/cure53/DOMPurify) (Apache-2.0 or MPL-2.0) keep their own licences,
+noted at the top of each file in `src/main/resources/webview/vendor/`.

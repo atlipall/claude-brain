@@ -1,6 +1,7 @@
 package tether.ide
 
 import tether.image.Images
+import tether.session.FileDiff
 import tether.testutil.TestImages
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -180,5 +181,26 @@ class FileLinkerTest : BasePlatformTestCase() {
             inside.deleteRecursively()
             outside.deleteRecursively()
         }
+    }
+
+    fun testATurnsNewFileOpensInTheEditor() {
+        val dir = Files.createTempDirectory("turn-new").toFile().canonicalFile
+        VfsRootAccess.allowRootAccess(testRootDisposable, dir.path)
+        try {
+            val created = File(dir, "new.txt").apply { writeText("x") }
+            val edited = File(dir, "old.txt").apply { writeText("y") }
+            linker.showTurnDiffs(listOf(FileDiff(edited.path, "z"), FileDiff(created.path, "", isNew = true)), 1)
+            assertEquals(created.path, FileEditorManager.getInstance(project).selectedFiles.first().path)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    fun testTheTurnDiffWindowStepsOnlyThroughEditedFilesAndTheClickedOne() {
+        val a = FileDiff("/p/a.txt", "a")
+        val b = FileDiff("/p/b.txt", "", isNew = true)
+        val c = FileDiff("/p/c.txt", "c")
+        assertEquals(listOf(a, c) to 1, FileLinker.steppableDiffs(listOf(a, b, c), 2))
+        assertEquals(listOf(a, b, c) to 1, FileLinker.steppableDiffs(listOf(a, b, c), 1))
     }
 }

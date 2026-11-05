@@ -297,6 +297,37 @@ class ChatSessionTest {
         assertEquals(listOf(emptyList(), listOf(TestImages.RED_PNG_BASE64)), conn.userImages())
     }
 
+    @Test fun aSentMessageKeepsItsImagesPreviewsForTheViewer() {
+        val s = session()
+        s.send("look", images = listOf(red, red), thumbs = listOf("data:image/png;base64,T", ""), previews = listOf("data:image/png;base64,P", ""))
+        val id = listener.latest<ChatItem.UserText>().id
+        assertEquals("data:image/png;base64,P", s.imagePreview(id, 0))
+        assertNull(s.imagePreview(id, 1))
+        assertNull(s.imagePreview(id, 2))
+        assertNull(s.imagePreview("user-unknown", 0))
+    }
+
+    @Test fun aQueuedMessageKeepsItsPreviewsUnderTheItemItBecomes() {
+        val s = session()
+        s.send("first")
+        s.send("second", images = listOf(red), thumbs = listOf("data:image/png;base64,T"), previews = listOf("data:image/png;base64,P"))
+        conn.emit(Fx.result())
+        assertEquals("data:image/png;base64,P", s.imagePreview(listener.latest<ChatItem.UserText>().id, 0))
+    }
+
+    @Test fun theOldestPreviewsGoWhenTheyAddUpToTooMuch() {
+        val s = session()
+        val big = "data:image/png;base64," + "A".repeat(6_000_000)
+        val ids = (1..3).map { n ->
+            s.send("m$n", images = listOf(red), thumbs = listOf(""), previews = listOf(big))
+            conn.emit(Fx.result())
+            listener.current().filterIsInstance<ChatItem.UserText>().last().id
+        }
+        assertNull(s.imagePreview(ids[0], 0))
+        assertEquals(big, s.imagePreview(ids[1], 0))
+        assertEquals(big, s.imagePreview(ids[2], 0))
+    }
+
     private fun userTexts() = listener.current().filterIsInstance<ChatItem.UserText>().map { it.text }
 
     @Test fun aQueuedMessageIsShownQueuedAndEntersTheLogWhenItGoesOut() {
@@ -501,11 +532,12 @@ class ChatSessionTest {
         assertEquals(FileDiff("/p/f.txt", "line two\n"), s.diffFor("t1"))
     }
 
-    @Test fun createdFileDiffsAgainstEmpty() {
+    @Test fun createdFileHasNoDiff() {
         val s = session()
         s.send("x")
         conn.emit(Fx.toolUse("m1", "t1", "Write", writeInput), Fx.toolResult("t1", "ok", toolUseResultJson = Fx.createResult("/p/a.txt")))
-        assertEquals(FileDiff("/p/a.txt", ""), s.diffFor("t1"))
+        assertFalse(listener.latest<ChatItem.ToolCall>().hasDiff)
+        assertNull(s.diffFor("t1"))
     }
 
     // --- files a turn edited ---
