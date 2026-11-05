@@ -55,18 +55,20 @@ img.zoomable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
 #send { position: absolute; right: 6px; bottom: 6px; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: var(--accent); color: #fff; }
 #send svg { width: 15px; height: 15px; }
 #input:placeholder-shown + #send, #send:disabled { background: var(--border); color: var(--muted); }
-#composer-tools { display: flex; align-items: center; gap: 2px; margin-top: 4px; }
-#composer-tools .composer-tool { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+#composer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 4px; }
+#composer-tools .composer-tool { position: relative; display: inline-flex; align-items: center; gap: 4px; max-width: min(14em, calc(100vw - 24px)); height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+#composer-tools [hidden] { display: none; }
 #composer-tools .composer-tool:hover { background: var(--code-bg); color: var(--fg); }
 #composer-tools svg { width: 16px; height: 16px; flex: none; }
-#mode-label { font-size: .9em; }
-#mode-picker { position: relative; }
-#mode[aria-expanded="true"] { background: var(--code-bg); color: var(--fg); }
-#mode-menu { position: absolute; left: 0; bottom: calc(100% + 4px); z-index: 10; min-width: 170px; padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
-#mode-menu [role="menuitemradio"] { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
-#mode-menu [role="menuitemradio"]::before { content: ""; width: 14px; flex: none; text-align: center; }
-#mode-menu [aria-checked="true"]::before { content: "\2713"; }
-#mode-menu [role="menuitemradio"]:focus { outline: none; background: var(--accent); color: #fff; }
+#agent-label, #mode-label { font-size: .9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-picker { position: relative; min-width: 0; }
+#agent::after { content: ""; width: 5px; height: 5px; flex: none; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); }
+#composer-tools .composer-tool[aria-expanded="true"] { background: var(--code-bg); color: var(--fg); }
+.composer-menu { position: fixed; z-index: 10; min-width: min(170px, calc(100vw - 16px)); max-width: calc(100vw - 16px); overflow-y: auto; overscroll-behavior: contain; padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
+.composer-menu [role="menuitemradio"] { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 6px; border-radius: 4px; cursor: pointer; overflow-wrap: anywhere; }
+.composer-menu [role="menuitemradio"]::before { content: ""; width: 14px; flex: none; text-align: center; }
+.composer-menu [aria-checked="true"]::before { content: "\2713"; }
+.composer-menu [role="menuitemradio"]:focus { outline: none; background: var(--accent); color: #fff; }
 button { background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .q-other:focus-visible { outline-offset: -1px; }

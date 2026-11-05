@@ -2,6 +2,7 @@ package tether.ui
 
 import tether.follow.CheckoutFollower
 import tether.session.ChatSpec
+import tether.session.Agent
 import tether.session.Chats
 import tether.session.Transcript
 import tether.session.OpenChats
@@ -26,7 +27,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
             toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(label, null, false))
             return
         }
-        toolWindow.setTitleActions(listOf(NewChatAction()))
+        toolWindow.setTitleActions(listOf(NewChatAction(), WorkspaceChatAction()))
         val tabs = ChatTabs(project, toolWindow)
         followSelectedTab(project, toolWindow)
         var restoring = true
@@ -71,8 +72,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
         val chats = Chats.getInstance(project)
         background(project, { readRestorable(chats) }, expired = { project.isDisposed || toolWindow.isDisposed }, failed = "Couldn't reopen the chats") { restored ->
             done()
-            val open = chats.openSessionIds()
-            for ((spec, resumed) in restored.filter { it.first.resumeId !in open }) {
+            for ((spec, resumed) in restored.filter { it.first.resumeId !in chats.openSessionIds(it.first.agentId ?: Agent.CLAUDE.id) }) {
                 try {
                     tabs.open(spec, resumed)
                 } catch (e: Exception) {

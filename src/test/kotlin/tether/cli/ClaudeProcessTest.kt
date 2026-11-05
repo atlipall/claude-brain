@@ -140,6 +140,27 @@ class ClaudeProcessTest {
         assertEquals(mapOf("PATH" to "/bin", "X" to "1"), env)
     }
 
+    @Test fun childEnvironmentKeepsEverythingWhenNothingIsStripped() {
+        val env = ClaudeProcess.childEnvironment(mapOf("ANTHROPIC_API_KEY" to "k"), mapOf("X" to "1"), stripped = emptyList())
+        assertEquals(mapOf("ANTHROPIC_API_KEY" to "k", "X" to "1"), env)
+    }
+
+    @Test fun deferredAcpLaunchKeepsCredentialsAndPreparesOffTheCallerThread() {
+        val lines = CopyOnWriteArrayList<String>()
+        val exited = CountDownLatch(1)
+        var prepareThread: Thread? = null
+        val p = ClaudeProcess(tmp, stripped = emptyList()) {
+            prepareThread = Thread.currentThread()
+            Launch(listOf("/bin/sh", "-c", "echo \"\${ANTHROPIC_API_KEY}:\${ANTHROPIC_AUTH_TOKEN}\""),
+                mapOf("ANTHROPIC_API_KEY" to "test-key", "ANTHROPIC_AUTH_TOKEN" to "test-token"))
+        }
+        p.start(onLine = { lines += it }, onExit = { _, _ -> exited.countDown() })
+
+        assertTrue(exited.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf("test-key:test-token"), lines.toList())
+        assertTrue(prepareThread !== Thread.currentThread())
+    }
+
     @Test fun spawnedProcessSeesNoApiKey() {
         val lines = CopyOnWriteArrayList<String>()
         val exited = CountDownLatch(1)

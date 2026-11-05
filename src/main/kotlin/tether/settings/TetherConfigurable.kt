@@ -46,6 +46,14 @@ class TetherConfigurable : BoundConfigurable("Tether") {
                 .bindSelected({ state.followCheckout }, { state.followCheckout = it })
                 .comment("Selecting a worktree chat scopes the Project view and Find in Files to that worktree and swaps open editors to its files.")
         }
+        row("ACP agent command:") {
+            textField()
+                .bindText({ state.acpCommand.orEmpty() }, { state.acpCommand = it })
+                .align(AlignX.FILL)
+                .comment("An Agent Client Protocol agent that the message box offers besides Claude, e.g. hermes acp. Empty offers none. " +
+                    "The agent keeps its own credentials, model and approval rules. IDE tools, edit checks, new worktrees and " +
+                    "the past-session browser are for Claude only.")
+        }
         row {
             checkBox("Attach editor context to messages")
                 .bindSelected({ state.attachEditorContext }, { state.attachEditorContext = it })

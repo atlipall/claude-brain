@@ -70,8 +70,13 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
 
     fun selectedChat(): Chat? = toolWindow.contentManager.selectedContent?.getUserData(CHAT)
 
-    /** Shows the New-chat popup; [place] positions it. */
-    fun newChat(place: (JBPopup) -> Unit) = NewChatPopup.show(project, this, place)
+    /** Opens a new chat in the project. */
+    fun newChat() {
+        open(chats.mainSpec())
+    }
+
+    /** Shows the popup of checkouts and past sessions; [place] positions it. */
+    fun chooseWorkspace(place: (JBPopup) -> Unit) = NewChatPopup.show(project, this, place)
 
     companion object {
         val CHAT: Key<Chat> = Key.create("tether.chat")

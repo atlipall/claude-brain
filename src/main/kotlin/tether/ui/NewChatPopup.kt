@@ -15,13 +15,13 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.util.text.DateFormatUtil
 
-/** The New-chat popups. Their contents are computed off the EDT (git, transcript files); [place] shows them. */
+/** The popups that open a chat in a checkout or resume one. Their contents are computed off the EDT (git, transcript files); [place] shows them. */
 object NewChatPopup {
     fun show(project: Project, tabs: ChatTabs, place: (JBPopup) -> Unit) {
         val chats = Chats.getInstance(project)
         background(project, { chats.worktrees.list() }, failed = "Couldn't list this project's worktrees") { worktrees ->
             val choices = NewChatChoices.build(chats.projectDir, worktrees)
-            place(listPopup(project, "New Chat", choices, NewChatChoice::text) { choice ->
+            place(listPopup(project, "Chat in Workspace", choices, NewChatChoice::text) { choice ->
                 chosen(project, tabs, choice, worktrees, place)
             })
         }
@@ -70,7 +70,9 @@ object NewChatPopup {
         }
     }
 
-    private fun openSessions(chats: Chats): List<Pair<String?, Chat>> = chats.all().map { it.session.sessionId to it }
+    /** Only native chats own the transcript IDs offered by the resume and archive browsers. */
+    private fun openSessions(chats: Chats): List<Pair<String?, Chat>> =
+        chats.all().filter { it.agent.native }.map { it.session.sessionId to it }
 
     private fun askWorktreeName(project: Project, existing: Set<String>): String? = Messages.showInputDialog(
         project,

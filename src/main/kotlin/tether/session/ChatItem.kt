@@ -24,6 +24,9 @@ data class AgentInfo(
     val report: String? = null,
 )
 
+/** An option an agent offers: a permission answer or a mode. */
+data class Choice(val id: String, val label: String)
+
 /** A file a turn edited, by absolute path: lines added and removed since the turn began; [isNew] when the turn created it. */
 data class TurnFile(val path: String, val added: Int, val removed: Int, val isNew: Boolean)
 
@@ -33,7 +36,7 @@ sealed interface ChatItem {
 
     /**
      * [images]: thumbnails of the attached images as `data:` URLs ("" for one that has no thumbnail); the page asks
-     * for a larger copy ([ChatSession.imagePreview]) when one is opened. [revertable]:
+     * for a larger copy ([AgentSession.imagePreview]) when one is opened. [revertable]:
      * the IDE marked the files' state when this message went out, so they can be reverted to it.
      */
     data class UserText(override val id: String, val text: String, val images: List<String> = emptyList(), val revertable: Boolean = false) : ChatItem
@@ -54,6 +57,8 @@ sealed interface ChatItem {
         val parentId: String? = null,
         /** Set for an Agent/Task call once the CLI reports on its subagent. */
         val agent: AgentInfo? = null,
+        /** The answers an ACP agent offers for its permission request; empty shows Claude's Allow / Deny buttons. */
+        val choices: List<Choice> = emptyList(),
     ) : ChatItem
     /** The end of a turn; [files] are those its edit tools and Bash calls changed, in the order it first changed them. */
     data class TurnResult(
@@ -102,6 +107,7 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
                     put("report", a.report)
                 })
             }
+            if (item.choices.isNotEmpty()) put("choices", JsonArray(item.choices.map { it.toJson() }))
         }
         is ChatItem.TurnResult -> {
             put("kind", "result")
@@ -117,4 +123,9 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
         }
         is ChatItem.Notice -> { put("kind", "notice"); put("text", item.text); put("isError", item.isError) }
     }
+}
+
+fun Choice.toJson(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("label", label)
 }

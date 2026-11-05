@@ -9,12 +9,11 @@
   const toBottom = document.getElementById('to-bottom');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
-  const modeBtn = document.getElementById('mode');
-  const modeMenu = document.getElementById('mode-menu');
-  const modeItems = [...modeMenu.querySelectorAll('[role="menuitemradio"]')];
-  /** The permission mode shown on the picker: the session's last reported one, or the one just picked. */
-  let mode = modeItems[0].dataset.mode;
-  const modeLabel = document.getElementById('mode-label');
+  const agentPicker = { button: document.getElementById('agent'), menu: document.getElementById('agent-menu'), label: document.getElementById('agent-label'), name: 'Agent' };
+  const modePicker = { button: document.getElementById('mode'), menu: document.getElementById('mode-menu'), label: document.getElementById('mode-label'), name: 'Permission mode' };
+  const composerPickers = [agentPicker, modePicker];
+  /** The session's reported identity and permission mode; choosing only requests a change from the host. */
+  let agent = '', mode = '', agentName = 'the agent';
   const modelBtn = document.getElementById('model');
   const modelLabel = document.getElementById('model-label');
   const effortLabel = document.getElementById('effort-label');
@@ -129,6 +128,8 @@
         case 'items': msg.items.forEach(upsert); break;
         case 'item': upsert(msg.item); break;
         case 'state': setState(msg); break;
+        case 'modes': setModes(msg.modes); break;
+        case 'agent': setAgent(msg); break;
         case 'activity': setActivity(msg); break;
         case 'resolved': answer(msg.reqId, msg.paths); break;
         case 'imagePreview': answer(msg.reqId, msg.src); break;
@@ -291,7 +292,7 @@
   }
 
   /**
-   * Messages sent while Claude works wait here, under the log, until their turn starts; then they enter the log.
+   * Messages sent while the agent works wait here, under the log, until their turn starts; then they enter the log.
    * Only a text message can be edited: its images could not go back to the tray.
    */
   function setQueue(list) {
@@ -305,7 +306,7 @@
       el.classList.add('queued');
       el.prepend(h('div', { class: 'queued-bar' },
           h('span', { class: 'queued-label' }, 'Queued'),
-          h('button', { class: 'link', 'data-action': 'queueSendNow', 'data-id': m.id, title: 'Stop Claude and send this' }, 'Send now'),
+          h('button', { class: 'link', 'data-action': 'queueSendNow', 'data-id': m.id, title: 'Stop ' + agentName + ' and send this' }, 'Send now'),
           editable ? h('button', { class: 'link', 'data-action': 'queueEdit', 'data-id': m.id, title: 'Move back to the message box' }, 'Edit') : null,
           h('button', { class: 'link', 'data-action': 'queueRemove', 'data-id': m.id, title: 'Don’t send this' }, 'Remove')));
       queueEl.append(el);
@@ -508,8 +509,13 @@
     if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => zoomableImage(src, '[image]'))));
   }
 
+  /** Page-created permission actions: agent-advertised choices or Claude's existing allow and deny controls. */
   function permissionCard(t) {
     const id = t.permissionRequestId;
+    if (Array.isArray(t.choices) && t.choices.length) {
+      return h('div', { class: 'perm' }, h('span', {}, t.name),
+        ...t.choices.map((choice) => h('button', { 'data-action': 'choose', 'data-req': id, 'data-option': choice.id }, choice.label)));
+    }
     return h('div', { class: 'perm' },
       h('span', {}, 'Allow ' + t.name + '?'),
       h('button', { 'data-action': 'allow', 'data-req': id }, 'Allow'),
@@ -736,7 +742,10 @@
     if (msg.state === 'DEAD') setActivity({ phase: null });
     restartBtn.hidden = msg.state !== 'DEAD';
     input.disabled = sendBtn.disabled = attachBtn.disabled = msg.state === 'DEAD';
-    if (msg.mode && msg.mode !== mode) showMode(msg.mode);
+    if (typeof msg.mode === 'string') {
+      mode = msg.mode;
+      showSelection(modePicker, mode);
+    }
     idle = msg.state === 'IDLE';
     if (!idle) setSuggestion('');
   }
@@ -750,8 +759,10 @@
   /**
    * The header's model chip and the picker dialog show what the CLI says runs; the chip stays hidden until it says,
    * and the effort row shows only for a model that takes an effort. Every string is CLI text and goes in as text.
+   * Claude metadata arriving after an agent change is discarded rather than reopening stale controls.
    */
   function setModel(msg) {
+    if (agent !== 'claude') { clearModel(); return; }
     const options = (Array.isArray(msg.options) ? msg.options : []).map((o) => ({
       value: String(o.value), name: String(o.name), description: o.description ? String(o.description) : '',
     }));
@@ -775,8 +786,9 @@
     if (modelDialog.open && !modelDialog.contains(document.activeElement)) focusCurrentChoice();
   }
 
+  /** Opens Claude's native picker only while its model capabilities are available. */
   function openModelDialog() {
-    if (modelDialog.open) return;
+    if (modelDialog.open || modelBtn.hidden || agent !== 'claude') return;
     modelDialog.showModal();
     focusCurrentChoice();
   }
@@ -827,52 +839,107 @@
     viewerFrom = null;
   });
 
-  /**
-   * Makes [value] the shown permission mode: its name beside the hand icon, and the checkmark in the menu. A mode the
-   * menu doesn't list is ignored, so the picker never goes blank.
-   */
-  function showMode(value) {
-    const picked = modeItems.find((item) => item.dataset.mode === value);
-    if (!picked) return;
-    mode = value;
-    for (const item of modeItems) item.setAttribute('aria-checked', String(item === picked));
-    modeLabel.textContent = picked.textContent;
+  /** Discards Claude-only capabilities on an identity change and returns a removed dialog's focus to the composer. */
+  function clearModel() {
+    const heldFocus = modelDialog.contains(document.activeElement);
+    modelBtn.hidden = true;
+    modelLabel.textContent = effortLabel.textContent = '';
+    modelOptions.replaceChildren();
+    effortOptions.replaceChildren();
+    effortSection.hidden = effortLabel.hidden = true;
+    if (modelDialog.open) modelDialog.close();
+    if (heldFocus) input.focus({ preventScroll: true });
   }
 
-  /**
-   * Opens the mode menu above its button (the picker sits at the bottom of the page, where a native select's popup
-   * would be cut off by the webview's edge) with the current mode focused.
-   */
-  function openModeMenu() {
-    modeMenu.hidden = false;
-    modeBtn.setAttribute('aria-expanded', 'true');
-    (modeItems.find((item) => item.dataset.mode === mode) || modeItems[0]).focus();
+  /** Rebuilds the upstream radio menu from host-provided ids and plain-text labels. */
+  function setChoices(picker, choices, selected) {
+    closeMenu(picker, picker.menu.contains(document.activeElement));
+    const list = (Array.isArray(choices) ? choices : []).filter((choice) => choice && typeof choice.id === 'string' && typeof choice.label === 'string');
+    picker.menu.replaceChildren(...list.map((choice) => h('div',
+      { role: 'menuitemradio', 'data-value': choice.id, 'aria-checked': 'false', tabindex: '-1' }, choice.label)));
+    showSelection(picker, selected);
   }
 
-  /** Closes the mode menu; [refocus] puts focus back on its button, as when it was dismissed from the keyboard. */
-  function closeModeMenu(refocus) {
-    if (modeMenu.hidden) return;
-    modeMenu.hidden = true;
-    modeBtn.setAttribute('aria-expanded', 'false');
-    if (refocus) modeBtn.focus();
+  /** Shows only the host's selected choice, never an unconfirmed request or an invented first option. */
+  function showSelection(picker, value) {
+    const entries = [...picker.menu.children];
+    const picked = entries.find((item) => item.dataset.value === value);
+    for (const item of entries) item.setAttribute('aria-checked', String(item === picked));
+    picker.label.textContent = picked ? picked.textContent : picker.name;
+    picker.button.setAttribute('aria-label', picker.name + (picked ? ': ' + picked.textContent : ''));
   }
 
-  /** Picks [item]'s mode: shows it, tells the session, and closes the menu. */
-  function pickMode(item) {
-    closeModeMenu(true);
-    if (item.dataset.mode === mode) return;
-    showMode(item.dataset.mode);
-    send({ type: 'setMode', mode });
+  /** An empty capability list hides the permission control until the selected agent advertises its modes. */
+  function setModes(modes) {
+    const heldFocus = modePicker.menu.contains(document.activeElement) || document.activeElement === modePicker.button;
+    setChoices(modePicker, modes, mode);
+    modePicker.button.hidden = modePicker.button.parentElement.hidden = !modePicker.menu.childElementCount;
+    if (modePicker.button.hidden && heldFocus) input.focus({ preventScroll: true });
   }
 
-  /** Arrow keys move through the menu (wrapping), Home and End jump, Enter or Space picks, Escape and Tab close it. */
-  function onModeMenuKey(e) {
-    if (e.key === 'Tab') return closeModeMenu(false);
-    const at = modeItems.indexOf(document.activeElement);
-    const moves = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: modeItems.length - 1 };
-    if (e.key in moves) modeItems[(moves[e.key] + modeItems.length) % modeItems.length].focus();
-    else if ((e.key === 'Enter' || e.key === ' ') && at >= 0) pickMode(modeItems[at]);
-    else if (e.key === 'Escape') closeModeMenu(true);
+  /** A started chat keeps its identity; a draft's host-confirmed choice resets capabilities, not its text or images. */
+  function setAgent(msg) {
+    const changed = agent !== msg.selected;
+    agent = typeof msg.selected === 'string' ? msg.selected : '';
+    const agents = Array.isArray(msg.agents) ? msg.agents : [];
+    const current = agents.find((choice) => choice && choice.id === agent);
+    agentName = current && typeof current.label === 'string' ? current.label : 'the agent';
+    agentPicker.button.disabled = !!msg.locked || agents.length < 2;
+    setChoices(agentPicker, agents, agent);
+    agentPicker.button.title = msg.locked ? 'This chat runs ' + agentName + '. Start a new chat for another agent.' : 'Agent for this chat';
+    if (changed) { mode = ''; setModes([]); clearModel(); }
+    placeholder = 'Message ' + agentName + ' (Enter to send, Shift+Enter for a new line)';
+    activityStop.title = 'Stop ' + agentName;
+    setSuggestion(changed ? '' : suggestion);
+  }
+
+  /** Focuses a menu choice without moving the page, then scrolls the menu to keep that choice visible. */
+  function focusMenuItem(item) {
+    item.focus({ preventScroll: true });
+    item.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** Opens the shared upstream popout above its trigger, bounded by the webview even for long capability lists. */
+  function openMenu(picker) {
+    if (picker.button.disabled || picker.button.hidden || !picker.menu.childElementCount) return;
+    for (const other of composerPickers) closeMenu(other, false);
+    const menu = picker.menu;
+    menu.hidden = false;
+    const anchor = picker.button.getBoundingClientRect();
+    menu.style.maxHeight = Math.min(280, Math.max(0, anchor.top - 12)) + 'px';
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8)) + 'px';
+    menu.style.top = Math.max(8, anchor.top - bounds.height - 4) + 'px';
+    picker.button.setAttribute('aria-expanded', 'true');
+    focusMenuItem(menu.querySelector('[aria-checked="true"]') || menu.firstElementChild);
+  }
+
+  /** Keyboard dismissal and selection return focus; outside clicks and window blur preserve the new focus owner. */
+  function closeMenu(picker, refocus) {
+    if (picker.menu.hidden) return;
+    picker.menu.hidden = true;
+    picker.button.setAttribute('aria-expanded', 'false');
+    if (refocus) (picker.button.disabled || picker.button.hidden ? input : picker.button).focus({ preventScroll: true });
+  }
+
+  /** Requests a host change using the advertised id; the reported selection remains authoritative. */
+  function pickChoice(picker, item) {
+    if (!trusted.has(item) || !picker.menu.contains(item) || picker.button.disabled) return;
+    closeMenu(picker, true);
+    const value = item.dataset.value;
+    if (picker === agentPicker) { if (value !== agent) send({ type: 'setAgent', agent: value }); }
+    else if (value !== mode) send({ type: 'setMode', mode: value });
+  }
+
+  /** Arrow keys wrap, Home and End jump, Enter or Space requests a choice, and Escape or Tab dismisses. */
+  function onMenuKey(picker, e) {
+    if (e.key === 'Tab') return closeMenu(picker, true);
+    const entries = [...picker.menu.children];
+    const at = entries.indexOf(document.activeElement);
+    const moves = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: entries.length - 1 };
+    if (e.key in moves) focusMenuItem(entries[(moves[e.key] + entries.length) % entries.length]);
+    else if ((e.key === 'Enter' || e.key === ' ') && at >= 0) pickChoice(picker, entries[at]);
+    else if (e.key === 'Escape') closeMenu(picker, true);
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -897,11 +964,11 @@
     fitInput();
   }
 
-  const PLACEHOLDER = input.placeholder;
+  let placeholder = input.placeholder;
   /** Only offered into an empty box while idle; typing, sending or a new turn takes it away. */
   function setSuggestion(text) {
     suggestion = idle && !input.value ? text : '';
-    input.placeholder = suggestion ? suggestion + '   (Tab to use)' : PLACEHOLDER;
+    input.placeholder = suggestion ? suggestion + '   (Tab to use)' : placeholder;
   }
 
   function acceptSuggestion() {
@@ -1235,23 +1302,28 @@
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
-  modeBtn.addEventListener('click', () => (modeMenu.hidden ? openModeMenu() : closeModeMenu(true)));
-  modeBtn.addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-    e.preventDefault();
-    openModeMenu();
-  });
-  modeMenu.addEventListener('keydown', onModeMenuKey);
-  modeMenu.addEventListener('pointermove', (e) => e.target.closest('[role="menuitemradio"]')?.focus());
-  modeMenu.addEventListener('click', (e) => {
-    const item = e.target.closest('[role="menuitemradio"]');
-    if (item) pickMode(item);
-  });
-  document.addEventListener('pointerdown', (e) => {
-    if (!modeMenu.hidden && !e.target.closest('#mode-picker')) closeModeMenu(false);
-  });
-  window.addEventListener('blur', () => closeModeMenu(false));
-  showMode(mode);
+  for (const picker of composerPickers) {
+    picker.button.addEventListener('click', () => (picker.menu.hidden ? openMenu(picker) : closeMenu(picker, true)));
+    picker.button.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      openMenu(picker);
+    });
+    picker.menu.addEventListener('keydown', (e) => onMenuKey(picker, e));
+    picker.menu.addEventListener('pointermove', (e) => {
+      const item = e.target.closest('[role="menuitemradio"]');
+      if (item && trusted.has(item)) focusMenuItem(item);
+    });
+    picker.menu.addEventListener('click', (e) => {
+      const item = e.target.closest('[role="menuitemradio"]');
+      if (item) pickChoice(picker, item);
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (!picker.button.parentElement.contains(e.target)) closeMenu(picker, false);
+    });
+    window.addEventListener('blur', () => closeMenu(picker, false));
+    window.addEventListener('resize', () => closeMenu(picker, true));
+  }
   modelBtn.addEventListener('click', openModelDialog);
   modelDialog.addEventListener('click', closeOnBackdropClick);
   viewer.addEventListener('click', closeOnBackdropClick);
@@ -1331,9 +1403,10 @@
     else if (action === 'turnChanges') send({ type: 'openTurnChanges', id: b.dataset.id });
     else if (action === 'detach') { send({ type: 'detach', id: b.dataset.id }); removeTile(b.dataset.id); }
     else if (action === 'allow' || action === 'allowSession') send({ type: 'permission', requestId: b.dataset.req, decision: action });
+    else if (action === 'choose') send({ type: 'permission', requestId: b.dataset.req, optionId: b.dataset.option });
     else if (action === 'queueSendNow' || action === 'queueEdit' || action === 'queueRemove' || action === 'revertTo') send({ type: action, id: b.dataset.id });
-    else if (action === 'pickModel') send({ type: 'setModel', model: b.dataset.value });
-    else if (action === 'pickEffort') send({ type: 'setEffort', effort: b.dataset.value });
+    else if (action === 'pickModel' && agent === 'claude') send({ type: 'setModel', model: b.dataset.value });
+    else if (action === 'pickEffort' && agent === 'claude') send({ type: 'setEffort', effort: b.dataset.value });
     else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });
     else if (action === 'deny') {
       const reason = b.parentElement.querySelector('.deny-reason').value.trim();

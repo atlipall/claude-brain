@@ -1,10 +1,10 @@
 package tether.cli
 
-enum class PermissionMode(val cli: String) {
-    DEFAULT("default"),
-    ACCEPT_EDITS("acceptEdits"),
-    PLAN("plan"),
-    AUTO("auto");
+enum class PermissionMode(val cli: String, val label: String) {
+    DEFAULT("default", "Ask before edits"),
+    ACCEPT_EDITS("acceptEdits", "Accept edits"),
+    PLAN("plan", "Plan only"),
+    AUTO("auto", "Auto");
 
     companion object {
         fun fromCli(value: String?): PermissionMode? = entries.firstOrNull { it.cli == value }

@@ -2,7 +2,6 @@ package tether.ui
 
 import tether.cli.ContextUsage
 import tether.cli.ModelChoice
-import tether.cli.PermissionMode
 import tether.cli.arr
 import tether.cli.long
 import tether.cli.parseJsonObject
@@ -16,8 +15,10 @@ import tether.image.Prepared
 import tether.image.Uploads
 import tether.context.ContextNotes
 import tether.session.Activity
+import tether.session.Agent
 import tether.session.Chat
 import tether.session.ChatItem
+import tether.session.Choice
 import tether.session.FileDiff
 import tether.session.PermissionDecision
 import tether.session.QuestionAnswer
@@ -142,7 +143,7 @@ class ChatBridge(
             "pickImages" -> chooseImages { files -> files.forEach(::attachFile) }
             "permission" -> {
                 val requestId = msg.str("requestId") ?: return
-                val decision = when (msg.str("decision")) {
+                val decision = msg.str("optionId")?.let(PermissionDecision::Option) ?: when (msg.str("decision")) {
                     "allow" -> PermissionDecision.Allow
                     "allowSession" -> PermissionDecision.AllowForSession
                     else -> PermissionDecision.Deny(msg.str("message") ?: "The user denied this action.")
@@ -158,7 +159,8 @@ class ChatBridge(
                 val requestId = msg.str("requestId") ?: return
                 if (session.pendingQuestions(requestId) != null) session.respond(requestId, PermissionDecision.Deny("The user skipped the question."))
             }
-            "setMode" -> PermissionMode.fromCli(msg.str("mode"))?.let(session::setPermissionMode)
+            "setMode" -> msg.str("mode")?.let(session::setMode)
+            "setAgent" -> msg.str("agent")?.let(chat::selectAgent)
             "setModel" -> msg.str("model")?.takeIf { it.isNotBlank() }?.let(session::setModel)
             "setEffort" -> msg.str("effort")?.takeIf { it.isNotBlank() }?.let(session::setEffort)
             "interrupt" -> chat.interrupt()
@@ -228,7 +230,7 @@ class ChatBridge(
         val id = "k${++pickSeq}"
         val name = displayName(file.name)
         if (slotsUsed() >= Images.MAX_PER_MESSAGE) {
-            session.notice("Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
+            chat.notice("Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
             return
         }
         post(buildJsonObject {
@@ -285,7 +287,7 @@ class ChatBridge(
     /** Tells the page the attachment is gone and the chat why. */
     private fun refuse(id: String, notice: String) {
         uploads.cancel(id)
-        session.notice(notice)
+        chat.notice(notice)
         post(buildJsonObject {
             put("type", "attachment")
             put("id", id)
@@ -326,10 +328,23 @@ class ChatBridge(
         put("item", item.toJson())
     }.toString())
 
-    override fun state(state: SessionState, mode: PermissionMode?) = post(buildJsonObject {
+    override fun state(state: SessionState, mode: String?) = post(buildJsonObject {
         put("type", "state")
         put("state", state.name)
-        put("mode", mode?.cli)
+
+        put("mode", mode)
+    }.toString())
+
+    override fun modes(modes: List<Choice>) = post(buildJsonObject {
+        put("type", "modes")
+        put("modes", JsonArray(modes.map { it.toJson() }))
+    }.toString())
+
+    override fun agent(agents: List<Agent>, selected: Agent, locked: Boolean) = post(buildJsonObject {
+        put("type", "agent")
+        put("agents", JsonArray(agents.map { Choice(it.id, it.name).toJson() }))
+        put("selected", selected.id)
+        put("locked", locked)
     }.toString())
 
     override fun activity(activity: Activity?) = post(activityMessage(activity))

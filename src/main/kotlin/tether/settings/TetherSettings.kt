@@ -28,6 +28,10 @@ class TetherSettings : SimplePersistentStateComponent<TetherSettings.State>(Stat
         var ideTools by property(true)
         /** After each of Claude's edits, the IDE checks the file and tells Claude about errors in it. */
         var checkEdits by property(true)
+        /** Command line of the ACP agent the message box offers besides Claude; empty offers none. */
+        var acpCommand by string("hermes acp")
+        /** The agent last selected in a new chat's message box (`claude` or `acp`); the next new chat starts with it. */
+        var lastAgent by string("")
         /** Whether [savedFindScope] holds the user's own Find in Files default while a plugin scope replaces it. */
         var findScopeSaved by property(false)
         /** The user's own Find in Files default scope (null: none) to put back; see `SearchDefaults`. */

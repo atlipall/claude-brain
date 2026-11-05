@@ -9,17 +9,23 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-/** The command line and the extra environment to run claude with. */
+/** The command line and extra environment for an agent process. */
 class Launch(val command: List<String>, val env: Map<String, String>)
 
 /**
- * Runs the claude CLI and exchanges NDJSON over its stdin/stdout. [start] returns at once: [prepare] (which may block,
+ * Runs an agent CLI and exchanges NDJSON over its stdin/stdout. [start] returns at once: [prepare] (which may block,
  * e.g. on the IDE's shell environment) and the spawn run on a thread of their own, and lines sent meanwhile are queued
  * and written once the process is up. When [prepare] or the spawn fails, `onExit` gets [CliConnection.LAUNCH_FAILED]
  * and the error message as the tail.
  */
-class ClaudeProcess(private val workDir: File, private val prepare: () -> Launch) : CliConnection {
-    constructor(command: List<String>, workDir: File, env: Map<String, String>) : this(workDir, { Launch(command, env) })
+class ClaudeProcess(
+    private val workDir: File,
+    /** Variables removed from the child environment; empty for ACP agents. */
+    private val stripped: Collection<String> = STRIPPED,
+    private val prepare: () -> Launch,
+) : CliConnection {
+    constructor(command: List<String>, workDir: File, env: Map<String, String>, stripped: Collection<String> = STRIPPED) :
+        this(workDir, stripped, { Launch(command, env) })
 
     @Volatile private var process: Process? = null
 
@@ -50,7 +56,7 @@ class ClaudeProcess(private val workDir: File, private val prepare: () -> Launch
 
     private fun spawn(launch: Launch): Process {
         val builder = ProcessBuilder(launch.command).directory(workDir)
-        val childEnv = childEnvironment(builder.environment(), launch.env)
+        val childEnv = childEnvironment(builder.environment(), launch.env, stripped)
         builder.environment().apply { clear(); putAll(childEnv) }
         return builder.start()
     }
@@ -138,7 +144,7 @@ class ClaudeProcess(private val workDir: File, private val prepare: () -> Launch
         /** Variables that would make claude bill an API account instead of the user's logged-in subscription. */
         private val STRIPPED = listOf("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
-        internal fun childEnvironment(base: Map<String, String>, extra: Map<String, String>): Map<String, String> =
-            (base + extra) - STRIPPED.toSet()
+        internal fun childEnvironment(base: Map<String, String>, extra: Map<String, String>, stripped: Collection<String> = STRIPPED): Map<String, String> =
+            (base + extra) - stripped.toSet()
     }
 }

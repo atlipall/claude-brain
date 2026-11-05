@@ -70,7 +70,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         chat.attach(object : tether.session.SessionView {
             override fun reset(items: List<ChatItem>) { shown = items }
             override fun item(item: ChatItem) {}
-            override fun state(state: tether.session.SessionState, mode: tether.cli.PermissionMode?) {}
+            override fun state(state: tether.session.SessionState, mode: String?) {}
             override fun insert(text: String) { inserted += text }
         })
         return shown.filterIsInstance<ChatItem.UserText>()
@@ -157,6 +157,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
     fun testRevertingFilesAndConversationDropsTheMessageAndRefillsTheInputBox() {
         write("f.txt", "before")
         val chat = chats.open(ChatSpec.inProject(root.path))
+        chat.start()
         conn.emit(Fx.init("sess-1", cwd = root.path))
         chat.send("first")
         conn.emit(Fx.assistantText("m1", "ok", uuid = "a-1"))
@@ -176,6 +177,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
     fun testRevertingOnlyTheConversationLeavesTheFiles() {
         write("g.txt", "before")
         val chat = chats.open(ChatSpec.inProject(root.path))
+        chat.start()
         conn.emit(Fx.init("sess-1", cwd = root.path))
         val item = turn(chat, "change it")
         write("g.txt", "after")
@@ -189,6 +191,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
     fun testAnUntrackedCheckoutOffersOnlyTheConversation() {
         val outside = untrackedFolder()
         val chat = chats.open(ChatSpec.inProject(outside.path))
+        chat.start()
         conn.emit(Fx.init("sess-1", cwd = outside.path))
         chat.send("change it")
         conn.emit(Fx.result())
@@ -205,6 +208,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
     fun testATurnOpeningWhileTheQuestionIsUpChangesNothing() {
         write("h.txt", "before")
         val chat = chats.open(ChatSpec.inProject(root.path))
+        chat.start()
         conn.emit(Fx.init("sess-1", cwd = root.path))
         val item = turn(chat, "change it")
         write("h.txt", "after")

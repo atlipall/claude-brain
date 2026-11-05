@@ -29,10 +29,22 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
         var mode by string()
         var model by string()
         var effort by string()
+        var agentId by string(Agent.CLAUDE.id)
+        var title by string()
     }
 
-    /** A saved chat: its session, folder, and how it was set up. */
-    data class Saved(val sessionId: String, val cwd: String, val setup: SessionSetup = SessionSetup())
+    /**
+     * A saved chat's provider and setup. An ACP chat's name is kept here because its transcript belongs to the agent,
+     * and so is its [agentMode], an id only that agent knows; a Claude chat's mode is in [setup].
+     */
+    data class Saved(
+        val sessionId: String,
+        val cwd: String,
+        val setup: SessionSetup = SessionSetup(),
+        val agentId: String = Agent.CLAUDE.id,
+        val title: String? = null,
+        val agentMode: String? = null,
+    )
 
     class State : BaseState() {
         var chats by list<Entry>()
@@ -52,11 +64,13 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
         })
     }
 
-    /** The saved sessions in tab order; a mode this version doesn't know is dropped. */
+    /** The saved sessions in tab order; a Claude permission mode this version doesn't know is dropped. */
     fun saved(): List<Saved> = state.chats.mapNotNull { e ->
         val id = e.sessionId ?: return@mapNotNull null
         val cwd = e.cwd ?: return@mapNotNull null
-        Saved(id, cwd, SessionSetup(PermissionMode.fromCli(e.mode), e.model, e.effort))
+        val agentId = e.agentId ?: Agent.CLAUDE.id
+        if (Agent.isNative(agentId)) Saved(id, cwd, SessionSetup(PermissionMode.fromCli(e.mode), e.model, e.effort), agentId, e.title)
+        else Saved(id, cwd, agentId = agentId, title = e.title, agentMode = e.mode)
     }
 
     /** From now on the list follows the open chats. Call once the restored tabs are open. */
@@ -79,17 +93,20 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
     @Synchronized private fun remember() {
         if (!tracking || closing) return
         val open = project.serviceIfCreated<Chats>()?.all().orEmpty()
-            .mapNotNull { c -> c.session.sessionId?.let { id -> Triple(id, c.cwd, c.session.setup) } }
-            .distinctBy { it.first }
-            .map { (id, folder, setup) ->
+            .mapNotNull { chat ->
+                val id = chat.session.sessionId ?: return@mapNotNull null
+                val setup = chat.session.setup
                 Entry().apply {
                     sessionId = id
-                    cwd = folder
-                    mode = setup.mode?.cli
+                    cwd = chat.cwd
+                    mode = chat.session.modeId
                     model = setup.model
                     effort = setup.effort
+                    agentId = chat.agent.id
+                    title = chat.customTitle.takeUnless { chat.agent.native }
                 }
             }
+            .distinctBy { it.agentId to it.sessionId }
         if (open == state.chats) return
         state.chats = open.toMutableList()
     }

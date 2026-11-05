@@ -16,6 +16,10 @@ data class ChatSpec(
     val resumeId: String? = null,
     val title: String? = null,
     val setup: SessionSetup = SessionSetup(),
+    /** The provider of a restored session; null lets a new draft use the last selected agent. */
+    val agentId: String? = null,
+    /** The mode a restored ACP session was left in, asked for again when it opens; Claude's mode is in [setup]. */
+    val agentMode: String? = null,
 ) {
     companion object {
         const val MAIN = "main"
@@ -33,6 +37,26 @@ data class ChatSpec(
 
 /** A chat's permission mode, model and effort as the user left them; null leaves each to the defaults. */
 data class SessionSetup(val mode: PermissionMode? = null, val model: String? = null, val effort: String? = null)
+
+/** What a chat runs: Claude, or the ACP agent started from [acp]. */
+data class Agent(val id: String, val name: String, val acp: List<String>? = null) {
+    /**
+     * True for Claude, whose sessions Tether keeps in transcripts it reads and writes itself: they can be named,
+     * archived and resumed from Tether's lists, and Tether knows their permission modes, models and effort levels.
+     * False for an ACP agent, which keeps its own history and advertises its own modes.
+     */
+    val native: Boolean get() = acp == null
+
+    companion object {
+        val CLAUDE = Agent("claude", "Claude")
+
+        /** Whether the agent saved or asked for as [id] is [native]; no id means Claude. */
+        fun isNative(id: String?): Boolean = id == null || id == CLAUDE.id
+
+        /** Names the configured agent after its executable, such as `hermes acp`. */
+        fun acp(command: List<String>) = Agent("acp", command.first().substringAfterLast('/').replaceFirstChar(Char::uppercase), command)
+    }
+}
 
 object ChatNames {
     /** A chat's name until the user renames it: [label], or `label 2`, `label 3`… when [taken] has it. */

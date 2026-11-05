@@ -42,6 +42,11 @@ class RenameChatAction : ChatTabAction() {
  * closes the chat. A chat with no session yet has nothing to keep: it just closes.
  */
 class ArchiveChatAction : ChatTabAction() {
+    override fun update(e: AnActionEvent, toolWindow: ToolWindow, content: Content?) {
+        super.update(e, toolWindow, content)
+        if (content?.getUserData(ChatTabs.CHAT)?.agent?.native == false) e.presentation.isEnabledAndVisible = false
+    }
+
     override fun perform(toolWindow: ToolWindow, content: Content, chat: Chat) {
         chat.archive()
         toolWindow.contentManager.removeContent(content, true)

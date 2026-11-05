@@ -107,14 +107,14 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
             Messages.showInfoMessage(project, "This message is too old to revert to.", title)
             return null
         }
-        if (chat.busy) return stillWorking()
+        if (chat.busy) return stillWorking(chat.agent.name)
         val dir = checkpoint?.let { LocalFileSystem.getInstance().refreshAndFindFileByPath(it.dir) }
         val choices = RevertChoice.entries.filter { (!it.files || dir != null) && (!it.conversation || conversation) }
         val message = shorten(item.text)
         val text = buildString {
             append("Revert to before “$message”?\n\n")
             if (dir != null) {
-                append("Files: every file in ${dir.presentableUrl} goes back to how it was then. This undoes Claude's ")
+                append("Files: every file in ${dir.presentableUrl} goes back to how it was then. This undoes ${chat.agent.name}'s ")
                 append("changes from that message on, and your own changes since then too. You can undo it from Local History.\n\n")
             } else {
                 append("The files can't be reverted: their folder isn't tracked by Local History, the message is too old, or its checkpoint isn't ready yet.\n\n")
@@ -123,7 +123,7 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
         }
         val answer = Messages.showDialog(project, text, title, (choices.map { it.label } + "Cancel").toTypedArray(), 0, Messages.getWarningIcon())
         val choice = choices.getOrNull(answer) ?: return null
-        if (chat.busy) return stillWorking()
+        if (chat.busy) return stillWorking(chat.agent.name)
         if (choice.files && !revertFiles(chat, checkpoint!!, dir!!)) return null
         if (choice.files) notes[chat.id] = "The user reverted the files in this checkout to how they were before their message " +
             "“$message”. Changes made since then are gone; re-read files before relying on what you remember of them."
@@ -143,8 +143,8 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
         }
     }
 
-    private fun stillWorking(): RevertChoice? {
-        Messages.showInfoMessage(project, "Claude is still working. Stop it, or wait for it to finish, then revert.", "Revert to Before This Message")
+    private fun stillWorking(agentName: String): RevertChoice? {
+        Messages.showInfoMessage(project, "$agentName is still working. Stop it, or wait for it to finish, then revert.", "Revert to Before This Message")
         return null
     }
 

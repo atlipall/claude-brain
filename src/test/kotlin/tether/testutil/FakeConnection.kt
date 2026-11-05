@@ -8,6 +8,7 @@ import tether.cli.parseJsonObject
 import tether.cli.str
 import tether.session.ChatItem
 import tether.session.ChatListener
+import tether.session.Choice
 import tether.session.SessionState
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -15,10 +16,12 @@ import kotlinx.serialization.json.jsonObject
 class FakeConnection : CliConnection {
     val sent = mutableListOf<String>()
     var stopped = false
+    var started = false
     private var onLine: ((String) -> Unit)? = null
     private var onExit: ((Int, String) -> Unit)? = null
 
     override fun start(onLine: (String) -> Unit, onExit: (Int, String) -> Unit) {
+        started = true
         this.onLine = onLine
         this.onExit = onExit
     }
@@ -50,11 +53,20 @@ class FakeConnection : CliConnection {
         }
 }
 
-class RecordingListener : ChatListener {
+class RecordingListener(private val currentMode: (() -> String?)? = null) : ChatListener {
     val items = mutableListOf<ChatItem>()
+    val liveItems = mutableListOf<ChatItem>()
+    val historyItems = mutableListOf<ChatItem>()
     val states = mutableListOf<Triple<SessionState, String?, PermissionMode?>>()
-    override fun onItem(item: ChatItem) { items += item }
-    override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) { states += Triple(state, sessionId, mode) }
+    override fun onItem(item: ChatItem) { items += item; liveItems += item }
+    override fun onHistoryItem(item: ChatItem) { items += item; historyItems += item }
+    override fun onState(state: SessionState, sessionId: String?, mode: PermissionMode?) {
+        states += Triple(state, sessionId, mode)
+        modeIds += currentMode?.invoke() ?: mode?.cli
+    }
+    val modes = mutableListOf<List<Choice>>()
+    override fun onModes(modes: List<Choice>) { this.modes += modes }
+    val modeIds = mutableListOf<String?>()
     val activities = mutableListOf<tether.session.Activity?>()
     override fun onActivity(activity: tether.session.Activity?) { activities += activity }
     val contexts = mutableListOf<tether.cli.ContextUsage>()

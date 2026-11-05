@@ -13,9 +13,7 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   permission mode (Ask before edits / Accept edits / Plan / Auto), model and effort are in the
   header. Model and effort change the running session at once; a reopened chat keeps its mode,
   model and effort.
-- **Several chats at once.** One tab per chat, each with its own `claude` process. The `+` button
-  in the tool window's title bar offers: in this project, in a new git worktree (`claude --worktree <name>`), in an
-  existing worktree, or resume a past session (across the project and its worktrees).
+- **Several chats at once.** One tab per chat, each with its own agent process. The `+` button opens a draft in this project; no process starts until its first message. **Chat in Workspace…** offers a new git worktree (`claude --worktree <name>`), an existing worktree, or a past Claude session to resume.
 - **The IDE follows the selected chat.** Selecting a worktree chat switches the Project view to that
   checkout's scope, swaps open editors to the same files in that checkout (caret kept), and defaults
   Find in Files to it. A chat whose checkout the IDE isn't showing says which one it is
@@ -111,10 +109,17 @@ Settings → Tools → **Tether**:
 | Claude binary | auto-detect |
 | Default permission mode | the CLI's own setting |
 | Extra CLI arguments (e.g. `--model sonnet`) | none |
+| ACP agent command | `hermes acp` |
 | IDE follows the selected chat's checkout | on |
 | Attach editor context to messages | on |
 | Let Claude use IDE tools | on (new or restarted chats) |
 | Check Claude's edits for errors | on (new or restarted chats) |
+
+### Other agents (ACP)
+
+Set **ACP agent command** to the command for an Agent Client Protocol agent, such as `hermes acp`, and choose it beside the permission control in a new draft. Selection is remembered and keeps the draft text and attachments. A chat keeps its agent after starting; create another chat to use a different agent.
+
+ACP agents keep their own authentication, model configuration and approval rules. Their advertised permission modes and approval choices are shown directly. Open ACP tabs can be restored through the agent's `session/load`; the past-session browser, archive, conversation rewind, Claude model/effort picker, IDE tools and new-worktree creation remain Claude-only. Images require the agent to advertise image support.
 
 ## Development
 
@@ -135,6 +140,7 @@ Layout:
 
 ```
 src/main/kotlin/tether/
+  acp/        ACP client protocol and session adapter
   cli/        CLI protocol, process transport, command line
   session/    chats, sessions, transcripts, prompt history
   context/    editor context (file, caret, enclosing symbol)
@@ -156,6 +162,8 @@ DOMPurify (no images, forms, styles); only page-created elements can open files,
 prompts or show images; the page can't navigate away; only http(s) links open in the browser.
 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` are removed from the CLI's environment so it always uses
 your CLI login.
+
+This filtering applies only to Claude; ACP agents receive the IDE environment unchanged and handle their own authentication.
 
 ## Status
 
