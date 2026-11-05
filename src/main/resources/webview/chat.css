@@ -168,4 +168,5 @@ img.md-img { display: block; max-width: 100%; max-height: 400px; margin: 4px 0; 
 #activity-stop:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
 @keyframes act-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .4; } 40% { transform: translateY(-4px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #activity * { animation: none !important; } }
-@media (prefers-contrast: more) { :root { --muted: var(--fg) !important; } .tool-detail, .q-opt, .choice, .segment, #input-box, button { border-width: 2px; } }
+#tip { position: fixed; z-index: 100; max-width: min(280px, calc(100vw - 16px)); padding: 4px 8px; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,.3); font-size: .9em; line-height: 1.35; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; }
+@media (prefers-contrast: more) { :root { --muted: var(--fg) !important; } .tool-detail, .q-opt, .choice, .segment, #input-box, #tip, button { border-width: 2px; } }
