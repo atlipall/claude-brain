@@ -10,6 +10,7 @@
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const modeSel = document.getElementById('mode');
+  const modeLabel = document.getElementById('mode-label');
   const modelBtn = document.getElementById('model');
   const modelLabel = document.getElementById('model-label');
   const effortLabel = document.getElementById('effort-label');
@@ -703,7 +704,7 @@
     if (msg.state === 'DEAD') setActivity({ phase: null });
     restartBtn.hidden = msg.state !== 'DEAD';
     input.disabled = sendBtn.disabled = attachBtn.disabled = msg.state === 'DEAD';
-    if (msg.mode) modeSel.value = msg.mode;
+    if (msg.mode && msg.mode !== modeSel.value) { modeSel.value = msg.mode; showMode(); }
     idle = msg.state === 'IDLE';
     if (!idle) setSuggestion('');
   }
@@ -761,17 +762,19 @@
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) modelDialog.close();
   }
 
-  /** The box's resting height (its height with no inline height) as last given to the CSS, which the buttons keep. */
-  let inputRest = '';
+  /** Shows the selected permission mode beside the hand icon that opens the mode picker. */
+  function showMode() {
+    modeLabel.textContent = modeSel.selectedOptions[0]?.textContent || '';
+  }
+
   /**
    * Grows the box to fit its text (capped by max-height in the CSS) so the log above gives way.
    * All reads come before any write, so each call lays the page out once.
    */
   function fitInput() {
     input.style.height = 'auto';
-    const rest = input.offsetHeight, borders = rest - input.clientHeight, fit = input.scrollHeight + borders;
-    if (inputRest !== rest + 'px') input.parentElement.style.setProperty('--input-rest', inputRest = rest + 'px');
-    input.style.height = fit + 'px';
+    const borders = input.offsetHeight - input.clientHeight;
+    input.style.height = input.scrollHeight + borders + 'px';
   }
   let resizeFrame = 0;
   window.addEventListener('resize', () => { cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(fitInput); });
@@ -1050,7 +1053,8 @@
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
-  modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
+  modeSel.addEventListener('change', () => { showMode(); send({ type: 'setMode', mode: modeSel.value }); });
+  showMode();
   modelBtn.addEventListener('click', openModelDialog);
   modelDialog.addEventListener('click', closeOnBackdropClick);
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));

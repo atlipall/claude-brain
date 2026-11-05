@@ -7,12 +7,6 @@
 </head>
 <body>
 <header id="bar">
-  <select id="mode" title="Permission mode">
-    <option value="default">Ask before edits</option>
-    <option value="acceptEdits">Accept edits</option>
-    <option value="plan">Plan only</option>
-    <option value="auto">Auto</option>
-  </select>
   <button id="model" class="chip" title="Change the model and effort" aria-haspopup="dialog" hidden><span id="model-label"></span><span id="effort-label"></span></button>
   <button id="show-changes" class="icon" aria-label="View changes" title="View changes: everything changed in this checkout, since main on a branch, otherwise since this session started"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" d="M3.5 1.5h6l3 3v10h-9zM8 5v4M6 7h4M6 11.5h4"/></svg></button>
   <span id="checkout" hidden></span>
@@ -37,9 +31,23 @@
 <div id="activity" hidden><span id="activity-dots" class="dots"><span></span><span></span><span></span></span><span id="activity-label" class="label" role="status"></span><span id="activity-secs" class="secs" aria-hidden="true"></span><button id="activity-stop" class="stop" title="Stop Claude">Stop</button></div>
 <div id="attachments" hidden></div>
 <footer id="composer">
-  <textarea id="input" rows="3" placeholder="Message Claude (Enter to send, Shift+Enter for a new line)"></textarea>
-  <button id="attach" title="Attach images" aria-label="Attach images"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M13 7.5 8 12.5a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.5 11a1 1 0 0 1-1.5-1.5L10 4.5"/></svg></button>
-  <button id="send">Send</button>
+  <div id="input-box">
+    <textarea id="input" rows="3" placeholder="Message Claude (Enter to send, Shift+Enter for a new line)"></textarea>
+    <button id="send" aria-label="Send" title="Send (Enter)"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></button>
+  </div>
+  <div id="composer-tools">
+    <label id="mode-picker" class="composer-tool" title="Permission mode">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" d="M5.5 9V4a1 1 0 0 1 2 0v3.5M7.5 7V2.8a1 1 0 0 1 2 0V7.5M9.5 7.5V3.8a1 1 0 0 1 2 0V10c0 2.6-1.7 4.5-4.2 4.5-1.7 0-2.7-.8-3.5-2L2.3 10a1 1 0 0 1 1.6-1.2L5.5 10.5"/></svg>
+      <span id="mode-label"></span>
+      <select id="mode" aria-label="Permission mode">
+        <option value="default">Ask before edits</option>
+        <option value="acceptEdits">Accept edits</option>
+        <option value="plan">Plan only</option>
+        <option value="auto">Auto</option>
+      </select>
+    </label>
+    <button id="attach" class="composer-tool" title="Attach images" aria-label="Attach images"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" d="M8 3v10M3 8h10"/></svg></button>
+  </div>
 </footer>
 <script>/*INLINE:marked*/</script>
 <script>/*INLINE:purify*/</script>

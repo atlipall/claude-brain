@@ -40,13 +40,24 @@ body { display: flex; flex-direction: column; background: var(--bg); color: var(
 #log { flex: 1; overflow-y: auto; padding: 8px 10px; }
 #to-bottom { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: 30px; height: 30px; padding: 0; border-radius: 50%; font-size: 16px; line-height: 1; color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 #to-bottom:hover { filter: brightness(1.15); }
-#composer { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
-/* The box grows upward with its text; the buttons keep the box's resting height and stay at the bottom. */
-#composer > button { align-self: flex-end; height: var(--input-rest, auto); }
-#input { flex: 1; resize: none; min-height: 3em; max-height: 50vh; overflow-y: auto; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px; font: inherit; }
+#composer { padding: 8px 8px 4px; }
+#input-box { position: relative; display: flex; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; }
+#input-box:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+#input { flex: 1; min-width: 0; resize: none; min-height: 4.5em; max-height: 50vh; overflow-y: auto; background: transparent; color: var(--fg); border: 0; padding: 8px 44px 8px 10px; font: inherit; }
+#input:focus-visible { outline: none; }
+#send { position: absolute; right: 6px; bottom: 6px; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: var(--accent); color: #fff; }
+#send svg { width: 15px; height: 15px; }
+#input:placeholder-shown + #send, #send:disabled { background: var(--border); color: var(--muted); }
+#composer-tools { display: flex; align-items: center; gap: 2px; margin-top: 4px; }
+#composer-tools .composer-tool { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+#composer-tools .composer-tool:hover { background: var(--code-bg); color: var(--fg); }
+#composer-tools .composer-tool:has(:focus-visible) { outline: 2px solid var(--accent); }
+#composer-tools svg { width: 16px; height: 16px; flex: none; }
+#mode-label { font-size: .9em; }
+#mode { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
 button, select { background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-#input:focus-visible, .q-other:focus-visible { outline-offset: -1px; }
+.q-other:focus-visible { outline-offset: -1px; }
 button:disabled, textarea:disabled { opacity: .5; cursor: default; }
 button.link { background: none; border: none; color: var(--accent); padding: 2px 4px; min-height: 20px; }
 .msg { margin: 8px 0; line-height: 1.45; overflow-wrap: anywhere; }
@@ -152,5 +163,4 @@ img.md-img { display: block; max-width: 100%; max-height: 400px; margin: 4px 0; 
 #activity-stop:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
 @keyframes act-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .4; } 40% { transform: translateY(-4px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #activity * { animation: none !important; } }
-#attach svg { width: 14px; height: 14px; vertical-align: -2px; }
-@media (prefers-contrast: more) { :root { --muted: var(--fg) !important; } .tool-detail, .q-opt, .choice, .segment, #input, button, select { border-width: 2px; } }
+@media (prefers-contrast: more) { :root { --muted: var(--fg) !important; } .tool-detail, .q-opt, .choice, .segment, #input-box, button, select { border-width: 2px; } }

@@ -119,7 +119,7 @@ class WebAssetsTest {
     @Test fun pageSendsImagesToTheIdeInChunks() {
         val page = WebAssets.page()
         assertTrue(page.contains("<div id=\"attachments\" hidden></div>"))
-        assertTrue(page.contains("<button id=\"attach\" title=\"Attach images\" aria-label=\"Attach images\"><svg"))
+        assertTrue(page.contains("<button id=\"attach\" class=\"composer-tool\" title=\"Attach images\" aria-label=\"Attach images\"><svg"))
         assertTrue(page.contains("const CHUNK = 262144;"))
         assertTrue(page.contains("send({ type: 'attachChunk', id, data: data.slice(i, i + CHUNK) });"))
         assertTrue(page.contains("send({ type: 'pickImages' })"))
