@@ -12,6 +12,8 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModChooseAction
 import com.intellij.modcommand.ModCommand
 import com.intellij.modcommand.ModShowConflicts
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Document
@@ -55,15 +57,41 @@ object Fixes {
                     emptyList()
                 }
             }).filter { runsWithoutDialogs(it.action) }
-        val fixes = if (candidates.isEmpty()) emptyList() else deadline.onEdt(project) {
-            withEditor(project, document) { psiFile, editor ->
-                candidates.filter { available(psiFile, editor, it.offset, it.action) }
-                    .map { Fix(it.action.text, it.problem, it.action, it.offset) }
-                    .distinctBy { it.problem to it.text }
-            }
-        }
+        val fixes = availableOf(project, document, candidates, deadline)
+            .map { Fix(it.action.text, it.problem, it.action, it.offset) }
+            .distinctBy { it.problem to it.text }
         last = Listed(file, line, stamp, fixes)
         return fixes
+    }
+
+    /**
+     * The [candidates] that apply as Alt+Enter would judge them, in their order. Like the IDE's own intentions pass,
+     * the checks run in a background read action, so a slow one (TypeScript's imports) doesn't freeze the IDE; only
+     * moving the hidden editor's caret to each problem, which the checks read, happens on the EDT. When time runs out
+     * (or a dialog takes the EDT) part way, the ones found to apply so far are returned. An edit made while it runs
+     * can leave the caret off the problem it was placed for; the list is then judged as of before the edit. Pooled
+     * thread.
+     *
+     * @throws ToolUnavailable when the file can't be read, the EDT can't be had to make the editor, or time ran out
+     *   before any was found to apply.
+     */
+    private fun availableOf(project: Project, document: Document, candidates: List<FixCandidate>, deadline: Deadline): List<FixCandidate> {
+        if (candidates.isEmpty()) return emptyList()
+        return withEditorOffEdt(project, document, deadline) { psiFile, editor ->
+            val applicable = HashSet<FixCandidate>()
+            try {
+                for ((offset, atOffset) in candidates.groupBy { it.offset }) {
+                    deadline.onEdt(project) { placeCaret(editor, offset) }
+                    applicable += deadline.read("Checking the fixes") {
+                        atOffset.filter { ShowIntentionActionsHandler.availableFor(psiFile, editor, offset, it.action) }
+                    }
+                }
+            } catch (e: ToolUnavailable) {
+                if (applicable.isEmpty()) throw e
+                LOG.info("Listing only the fixes checked in time: ${e.message}")
+            }
+            candidates.filter { it in applicable }
+        }
     }
 
     /** Waits for the fixes of [infos] that are computed only when asked for (often imports). */
@@ -75,7 +103,9 @@ object Fixes {
 
     /**
      * Applies the fix on [line] whose text is [text] (or, failing that, the only one containing it), as Alt+Enter
-     * would, and saves the files it changed.
+     * would, and saves the files it changed. Unlike [list], this checks on the EDT whether the fix still applies:
+     * `ShowIntentionActionsHandler.chooseActionAndInvoke` judges that there again anyway, so a check in the background
+     * first would only add to it.
      *
      * @throws ToolUnavailable when there is no such fix, it no longer applies, or it changed nothing.
      */
@@ -127,8 +157,13 @@ object Fixes {
 
     /** Whether [action] applies with the caret at [offset], as Alt+Enter would judge it. EDT. */
     private fun available(psiFile: PsiFile, editor: Editor, offset: Int, action: IntentionAction): Boolean {
-        editor.caretModel.moveToOffset(offset.coerceIn(0, editor.document.textLength))
+        placeCaret(editor, offset)
         return ShowIntentionActionsHandler.availableFor(psiFile, editor, offset, action)
+    }
+
+    /** Puts [editor]'s caret at [offset], where Alt+Enter would be pressed. EDT. */
+    private fun placeCaret(editor: Editor, offset: Int) {
+        editor.caretModel.moveToOffset(offset.coerceIn(0, editor.document.textLength))
     }
 
     private fun registeredFixes(document: Document, info: HighlightInfo): List<FixCandidate> {
@@ -144,7 +179,7 @@ object Fixes {
 
     /** Runs [block] with an editor (never shown) on [document]: fixes decide whether they apply from one. EDT. */
     private fun <T> withEditor(project: Project, document: Document, block: (PsiFile, Editor) -> T): T {
-        val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document) ?: throw ToolUnavailable("The IDE can't read this file.")
+        val psiFile = psiFileOf(project, document)
         val editor = EditorFactory.getInstance().createEditor(document, project)
         try {
             return block(psiFile, editor)
@@ -152,6 +187,27 @@ object Fixes {
             EditorFactory.getInstance().releaseEditor(editor)
         }
     }
+
+    /**
+     * Runs [block] on this pooled thread with an editor (never shown) on [document], created and released on the EDT.
+     * When the EDT can't be had in time to release it, it is released as soon as it can be.
+     */
+    private fun <T> withEditorOffEdt(project: Project, document: Document, deadline: Deadline, block: (PsiFile, Editor) -> T): T {
+        val (psiFile, editor) = deadline.onEdt(project) { psiFileOf(project, document) to EditorFactory.getInstance().createEditor(document, project) }
+        try {
+            return block(psiFile, editor)
+        } finally {
+            val release = { EditorFactory.getInstance().releaseEditor(editor) }
+            try {
+                deadline.onEdt(project, release)
+            } catch (e: ToolUnavailable) {
+                ApplicationManager.getApplication().invokeLater(release, ModalityState.any())
+            }
+        }
+    }
+
+    private fun psiFileOf(project: Project, document: Document): PsiFile =
+        PsiDocumentManager.getInstance(project).getPsiFile(document) ?: throw ToolUnavailable("The IDE can't read this file.")
 
     private val LOG = logger<Fixes>()
 }
