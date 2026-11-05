@@ -1,6 +1,5 @@
 package tether.ide
 
-import tether.git.canonicalPath
 import tether.git.isUnder
 import tether.image.Images
 import tether.session.FileDiff

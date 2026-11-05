@@ -40,7 +40,11 @@ object NewChatPopup {
         }
     }
 
-    /** The past sessions, or with [archived] the archived ones (resuming one unarchives it). */
+    /**
+     * The past sessions, or with [archived] the archived ones (resuming one unarchives it). A session already live in a
+     * tab is selected instead of resumed again, also when it was opened while its transcript was being read in the
+     * background: two claude processes would write one transcript.
+     */
     private fun showResume(project: Project, tabs: ChatTabs, worktrees: List<Worktree>?, place: (JBPopup) -> Unit, archived: Boolean) {
         val chats = Chats.getInstance(project)
         background(project, { chats.store.listAll(chats.worktrees.knownFolders(worktrees), archived = archived) }) { sessions ->
@@ -50,19 +54,16 @@ object NewChatPopup {
             } else {
                 // The list is built on the EDT, so the open chats are current when it is shown.
                 val openChat = { s: SessionSummary -> NewChatChoices.openChatFor(s.id, openSessions(chats)) }
+                val selectOpen = { s: SessionSummary -> openChat(s)?.let(tabs::select) == true }
                 val text = { s: SessionSummary ->
                     NewChatChoices.resumeText(s, chats.projectDir, isOpen = openChat(s) != null, DateFormatUtil::formatPrettyDateTime)
                 }
                 val title = if (archived) "Resume an Archived Session" else "Resume a Past Session"
                 place(listPopup(project, title, sessions, text) { s ->
-                    // A session already live in a tab is never resumed twice: two claude processes would write one transcript.
-                    val existing = openChat(s)
-                    if (existing != null && tabs.select(existing)) return@listPopup
-                    // The transcript is read in the background: a long session would hold up the IDE.
+                    if (selectOpen(s)) return@listPopup
                     val spec = ChatSpec.resume(chats.projectDir, s)
                     background(project, { if (archived) chats.unarchive(s); chats.read(spec) }) { read ->
-                        val openedMeanwhile = openChat(s)
-                        if (openedMeanwhile == null || !tabs.select(openedMeanwhile)) tabs.open(spec, read)
+                        if (!selectOpen(s)) tabs.open(spec, read)
                     }
                 })
             }

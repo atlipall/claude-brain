@@ -58,7 +58,7 @@ class McpServer(private val name: String, private val tools: List<McpTool>) {
                     tool == null -> ToolOutput("Unknown tool: ${params?.str("name")}", isError = true)
                     else -> try {
                         tool.call(params?.obj("arguments") ?: JsonObject(emptyMap()))
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         if (e is InterruptedException) Thread.currentThread().interrupt()
                         ToolOutput("The IDE failed to run ${tool.name}: ${e.message ?: e.javaClass.simpleName}", isError = true)
                     }

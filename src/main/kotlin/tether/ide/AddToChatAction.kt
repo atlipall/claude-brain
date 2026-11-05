@@ -1,17 +1,10 @@
 package tether.ide
 
-import tether.session.Chats
-import tether.ui.ChatTabs
-import tether.ui.ChatToolWindowFactory
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.project.DumbAware
-import com.intellij.openapi.roots.ProjectFileIndex
-import com.intellij.openapi.vfs.VfsUtilCore
-import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.ui.jcef.JBCefApp
 
 object Mention {
     fun format(path: String, startLine: Int?, endLine: Int?): String = when {

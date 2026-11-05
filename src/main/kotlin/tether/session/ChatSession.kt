@@ -147,7 +147,7 @@ class ChatSession(
     /** The permission mode the session runs in; also read by the IDE's save thread (see OpenChats). */
     @Volatile var mode: PermissionMode? = setup.mode
         private set
-    /** Written under the lock, also read from the EDT without it. */
+    /** Where the session is in its lifecycle; written under [lock], also read from the EDT without it. */
     @Volatile var state: SessionState = SessionState.IDLE
         private set
     /** The model the user picked for this chat, passed to every new process; null for the CLI's own choice. Also read by the save thread. */
@@ -443,7 +443,7 @@ class ChatSession(
 
     private fun notifyQueue() = listener.onQueue(queue.map { it.shown })
 
-    /** Respawns a dead session with --resume and the current permission mode, model, effort and fork. */
+    /** Respawns a dead session with --resume, the current permission mode, model and effort, and the pending fork if any. */
     fun restart() {
         synchronized(lock) {
             if (state != SessionState.DEAD) return
@@ -636,15 +636,7 @@ class ChatSession(
         when {
             server == null -> conn.send(CliMessages.controlError(event.requestId, "No MCP server named ${event.server}"))
             !server.isRequest(event.message) -> conn.send(CliMessages.mcpResponse(event.requestId, McpServer.ACK))
-            else -> background {
-                var replied = false
-                try {
-                    conn.send(CliMessages.mcpResponse(event.requestId, server.reply(event.message)))
-                    replied = true
-                } finally {
-                    if (!replied) conn.send(CliMessages.controlError(event.requestId, "The IDE tool failed"))
-                }
-            }
+            else -> background { conn.send(CliMessages.mcpResponse(event.requestId, server.reply(event.message))) }
         }
     }
 
@@ -809,7 +801,10 @@ class ChatSession(
         listener.onSuggestion(text)
     }
 
-    /** Drops everything that belonged to the claude process that is gone or being replaced. */
+    /**
+     * Drops everything that belonged to the claude process that is gone or being replaced; text it was still streaming
+     * is re-emitted as finished.
+     */
     private fun forgetProcess() {
         connection = null
         interruptRequested = false

@@ -1,11 +1,6 @@
 package tether.ide.tools
 
 import tether.cli.McpTool
-import tether.cli.ToolOutput
-import tether.cli.arr
-import tether.cli.bool
-import tether.cli.long
-import tether.cli.str
 import tether.follow.CheckoutMapper
 import tether.follow.Placement
 import tether.git.canonicalPath
@@ -21,12 +16,6 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.GlobalSearchScopesCore
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import java.io.File
 
 internal const val TOOL_TIMEOUT_MS = 30_000L
@@ -43,7 +32,11 @@ class ChatIdeHost(internal val project: Project, private val projectDir: String,
     override fun afterEdit(filePath: String): String? {
         val file = resolve(filePath) ?: return null
         if (skipReason(file) != null) return null
-        val checked = Diagnostics.collect(project, listOf(file), HighlightSeverity.ERROR, Deadline(AFTER_EDIT_TIMEOUT_MS))[file]
+        val checked = try {
+            Diagnostics.collect(project, listOf(file), HighlightSeverity.ERROR, Deadline(AFTER_EDIT_TIMEOUT_MS))[file]
+        } catch (_: ToolUnavailable) {
+            return null
+        }
         return ProblemReport.afterEdit(display(file), checked?.problems.orEmpty())
     }
 

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
@@ -118,9 +119,13 @@ class SessionStore(private val claudeHome: File) {
             put("customTitle", if (archived) "${ChatNames.ARCHIVED} $title".trimEnd() else title)
             put("sessionId", sessionId)
         }.toString()
-        val midLine = file.exists() && RandomAccessFile(file, "r").use { f ->
-            val end = f.length()
-            end > 0 && f.run { seek(end - 1); read() != '\n'.code }
+        val midLine = try {
+            RandomAccessFile(file, "r").use { f ->
+                val end = f.length()
+                end > 0 && f.run { seek(end - 1); read() != '\n'.code }
+            }
+        } catch (_: FileNotFoundException) {
+            false
         }
         FileOutputStream(file, true).use { it.write(((if (midLine) "\n" else "") + line + "\n").toByteArray()) }
     }

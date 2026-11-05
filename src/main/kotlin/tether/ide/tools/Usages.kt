@@ -1,6 +1,5 @@
 package tether.ide.tools
 
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
@@ -19,7 +18,6 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.usageView.UsageViewTypeLocation
 import com.intellij.util.Processor
-import java.util.concurrent.Callable
 
 /** A place in a file: [line] is 1-based, [text] is that line, trimmed. */
 data class Spot(val file: VirtualFile, val line: Int, val text: String)

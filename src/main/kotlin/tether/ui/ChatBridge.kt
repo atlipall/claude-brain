@@ -61,6 +61,9 @@ class ChatBridge(
     /** Runs image work (decoding, scaling, reading files) off the EDT. Tests make it synchronous. */
     internal var offEdt: (() -> Unit) -> Unit = { task -> IMAGE_EXECUTOR.execute { task() } }
 
+    /** Resolves the paths a reply mentions off the EDT, apart from image work so neither waits behind the other. Tests make it synchronous. */
+    internal var pathsOffEdt: (() -> Unit) -> Unit = { task -> PATH_EXECUTOR.execute { task() } }
+
     /** Validates and downscales image bytes. Tests replace it. */
     internal var preparer: (ByteArray) -> Prepared = { Images.prepare(it) }
 
@@ -177,7 +180,7 @@ class ChatBridge(
             }
             "openTurnChanges" -> turnDiffs(msg)?.let(showTurnChanges)
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
-            "resolvePaths" -> resolvePaths(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content })
+            "resolvePaths" -> resolvePaths(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.distinct().take(MAX_PATH_CANDIDATES))
             "resolveImages" -> {
                 val reqId = msg.long("reqId") ?: 0
                 val paths = strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS)
@@ -365,12 +368,12 @@ class ChatBridge(
     }.toString()
 
     /**
-     * Answers the page with the [candidates] that are files, resolved [offEdt] because a lookup that misses refreshes
+     * Answers the page with the [candidates] that are files, resolved [pathsOffEdt] because a lookup that misses refreshes
      * the file system. The page is always answered, with what was found, even when the lookup fails.
      */
     private fun resolvePaths(reqId: Long, candidates: List<String>) {
         val cwd = chat.cwd
-        offEdt {
+        pathsOffEdt {
             val found = LinkedHashMap<String, ResolvedPath>()
             try {
                 for (candidate in candidates) linker.resolve(candidate, cwd)?.let { found[candidate] = it }
@@ -457,7 +460,9 @@ class ChatBridge(
         /** All image work (decoding, scaling, reading files) runs here, one task at a time. */
         private val IMAGE_EXECUTOR = AppExecutorUtil.createBoundedApplicationPoolExecutor("Tether images", 1)
         /** Local images one reply may ask for at a time. */
+        private val PATH_EXECUTOR = AppExecutorUtil.createBoundedApplicationPoolExecutor("Tether paths", 1)
         const val MAX_IMAGE_PATHS = 20
+        const val MAX_PATH_CANDIDATES = 200
 
         /** Consecutive groups of [items] whose JSON adds up to at most [limit] characters; a larger item goes alone. */
         fun batches(items: List<JsonObject>, limit: Int): List<List<JsonObject>> {

@@ -56,6 +56,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         chat = chats.open(ChatSpec.inProject(root))
         bridge = ChatBridge(project, chat) { posted += parseJsonObject(it)!! }
         bridge.offEdt = { it() }
+        bridge.pathsOffEdt = { it() }
         bridge.onEdt = { it() }
     }
 
@@ -247,7 +248,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         val wtChat = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
         val wtPosted = mutableListOf<JsonObject>()
         val wtBridge = ChatBridge(project, wtChat) { wtPosted += parseJsonObject(it)!! }
-        wtBridge.offEdt = { it() }
+        wtBridge.pathsOffEdt = { it() }
         wtBridge.onEdt = { it() }
         wtBridge.handle("""{"type":"resolvePaths","reqId":1,"candidates":["lib/z.txt"]}""")
         assertEquals(inWorktree.url, wtPosted.single().obj("paths")!!.obj("lib/z.txt")!!.str("target"))
