@@ -18,7 +18,8 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   existing worktree, or resume a past session (across the project and its worktrees).
 - **The IDE follows the selected chat.** Selecting a worktree chat switches the Project view to that
   checkout's scope, swaps open editors to the same files in that checkout (caret kept), and defaults
-  Find in Files to it. The chat header shows `IDE: main` / `IDE: <worktree>`.
+  Find in Files to it. A chat whose checkout the IDE isn't showing says which one it is
+  (`IDE: main` / `IDE: <worktree>`) in its header.
 - **Files are clickable.** Paths Claude reads, edits or mentions (in backticks or markdown links)
   open in the editor; edits have a "View diff" link.
 - **See everything that changed.** **View changes** in the chat header opens the IDE's changes browser for the

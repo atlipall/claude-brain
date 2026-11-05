@@ -11,13 +11,18 @@ import com.intellij.openapi.project.Project
 import java.io.File
 
 object Indicator {
-    /** The chat header's text: empty when following is off, otherwise `IDE: <checkout>` plus a note for a chat outside this window. */
+    /**
+     * The chat header's text: `IDE: <checkout>` when the IDE shows a checkout other than the chat's, with a note for a
+     * chat outside this window or while worktrees are excluded from indexing. Empty when following is off, or when the
+     * IDE shows the chat's own checkout and there is nothing to note: the tab already says which checkout that is.
+     */
     fun text(enabled: Boolean, ide: Checkout, chat: Placement, worktreesExcluded: Boolean = false): String = when {
         !enabled -> ""
         !ide.isMain && worktreesExcluded && chat !is Placement.Outside ->
             "IDE: ${ide.name} · worktrees are excluded from indexing (no Project view / Find scope)"
         chat is Placement.Outside ->
             "IDE: ${ide.name} · ${chat.dir} is outside this window; open it as a separate project to follow it"
+        chat == Placement.Followable(ide) -> ""
         else -> "IDE: ${ide.name}"
     }
 }

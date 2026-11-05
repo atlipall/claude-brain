@@ -69,7 +69,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         assertEquals(setOf(".claude/worktrees/wt1/a.txt"), openPaths())
         assertEquals(listOf("Claude: main", "Claude: wt1"), scopeNames())
         assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
-        assertEquals("IDE: wt1", wt.checkoutText)
+        assertEquals("the IDE shows this chat's checkout", "", wt.checkoutText)
         assertEquals("IDE: wt1", main.checkoutText)
     }
 
@@ -82,7 +82,8 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         assertEquals("main", follower.current?.name)
         assertEquals(setOf("a.txt"), openPaths())
         assertEquals("Claude: main", FindSettings.getInstance().defaultScopeName)
-        assertEquals("IDE: main", main.checkoutText)
+        assertEquals("", main.checkoutText)
+        assertEquals("IDE: main", wt.checkoutText)
     }
 
     fun testChatOutsideTheProjectChangesNothingAndSaysWhy() {
@@ -118,7 +119,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
     fun testSelectedChatMovingOutsideIsReflected() {
         val wt = chats.open(ChatSpec.newWorktree(root, "wt2"))
         follower.follow(wt)
-        assertEquals("IDE: wt2", wt.checkoutText)
+        assertEquals("", wt.checkoutText)
         connections.single().emit(Fx.init(cwd = "/elsewhere/wt2"))
         follower.refresh()
         assertEquals("still the checkout the IDE shows", listOf("Claude: main", "Claude: wt2"), scopeNames())
@@ -135,13 +136,16 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         follower.refresh()
         assertEquals("wt1", follower.current?.name)
         assertEquals(setOf(".claude/worktrees/wt1/a.txt"), openPaths())
-        assertEquals("IDE: wt1", wt.checkoutText)
+        assertEquals("", wt.checkoutText)
     }
 
     fun testIndicatorText() {
         val main = Checkout("main", "/p")
         assertEquals("", Indicator.text(false, main, Placement.Followable(main)))
-        assertEquals("IDE: main", Indicator.text(true, main, Placement.Followable(main)))
+        assertEquals("the chat's own checkout goes unsaid", "", Indicator.text(true, main, Placement.Followable(main)))
+        assertEquals("IDE: wt1", Indicator.text(true, Checkout("wt1", "/p/wt1"), Placement.Followable(main)))
+        assertEquals("IDE: wt1 · worktrees are excluded from indexing (no Project view / Find scope)",
+            Indicator.text(true, Checkout("wt1", "/p/wt1"), Placement.Followable(Checkout("wt1", "/p/wt1")), worktreesExcluded = true))
         assertEquals("IDE: main · /x is outside this window; open it as a separate project to follow it",
             Indicator.text(true, main, Placement.Outside("/x")))
     }
@@ -164,7 +168,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
         follower.follow(wt)
         assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
-        assertEquals("IDE: wt1", wt.checkoutText)
+        assertEquals("", wt.checkoutText)
         assertEquals(0, offers)
     }
 
@@ -195,7 +199,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
         follower.follow(main)
         assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
-        assertEquals("IDE: main", main.checkoutText)
+        assertEquals("", main.checkoutText)
         assertEquals(listOf("Claude: main", "Claude: wt1"), scopeNames())
         follower.follow(wt)
         assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
