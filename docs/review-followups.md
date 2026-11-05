@@ -40,7 +40,8 @@ Still open: availability still runs on the EDT. Alt+Enter judges a fix with the 
 
 ## Behaviour
 
-### 4. Find in Files default scope can be left pointing at a Tether scope
+### 4. Find in Files default scope can be left pointing at a Tether scope — done
+Done: the user's own default is kept in `TetherSettings` (`findScopeSaved`, `savedFindScope`), so it survives a crash, and `SearchDefaults` remembers which project set the plugin scope. It is put back when that project stops following or closes (not when some other project does), and when a project's `CheckoutFollower` starts while a scope from a crash is still set. Tests cover the crash and two-project cases.
 - Where: `follow/IdeViews.kt` (Find scope save/restore), `follow/CheckoutFollower.kt` `dispose`.
 - Problem: `FindSettings.defaultScopeName` is saved application-wide, but the user's own value is kept only in memory
   and restored only when the *last* `CheckoutFollower` is disposed.
@@ -49,7 +50,8 @@ Still open: availability still runs on the EDT. Alt+Enter judges a fix with the 
   - Two projects open and the Tether one closes first: the other project keeps a scope that doesn't exist there.
 - Options: persist the saved name (e.g. in `TetherSettings`) and restore it when the project that set it closes.
 
-### 5. Theme changes don't reach open chat tabs; the page can't be reloaded
+### 5. Theme changes don't reach open chat tabs; the page can't be reloaded — done
+Done: `ChatPanel` listens to `LafManagerListener.TOPIC` and `EditorColorsManager.TOPIC` and re-sends the theme. A navigation to the page's own URL (a reload) is allowed. When the renderer process dies, the page is loaded afresh, at most 3 times per tab, and the bridge re-sends everything on `ready`. Not covered by tests (needs JCEF); checked by compiling and reading the code only.
 - Where: `ui/ChatBridge.kt` posts `Theme.message()` only on `ready`; `ui/ChatPanel.kt` cancels every main-frame
   navigation once `pageUrl` is set.
 - Problem: after switching Light/Dark or the editor colour scheme, open tabs keep the old colours until reopened. A
@@ -58,7 +60,8 @@ Still open: availability still runs on the EDT. Alt+Enter judges a fix with the 
   `post(Theme.message())`; `applyTheme` is already idempotent. Optionally allow a navigation to `pageUrl` itself so a
   reload re-runs `onLoadEnd` and re-injects `__send`.
 
-### 6. Background failures make the New Chat popup silently do nothing
+### 6. Background failures make the New Chat popup silently do nothing — done
+Done: `background()` catches a failure in `compute`, logs it and shows an error notification in the "Tether" group. Each New Chat popup step names what failed ("Couldn't list the sessions", …).
 - Where: `ui/Background.kt` `background()`; callers in `ui/NewChatPopup.kt` (worktree listing, `store.listAll`,
   `chats.read`).
 - Problem: an exception in `compute` ends the task; `show` never runs and nothing is reported, so clicking `+` or Resume

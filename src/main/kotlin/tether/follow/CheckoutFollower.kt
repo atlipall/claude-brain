@@ -9,7 +9,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import java.io.File
-import java.util.concurrent.atomic.AtomicInteger
 
 object Indicator {
     /** The chat header's text: empty when following is off, otherwise `IDE: <checkout>` plus a note for a chat outside this window. */
@@ -26,11 +25,12 @@ object Indicator {
 /**
  * Makes the IDE window follow the selected chat's checkout: keeps the plugin's named scopes, swaps open editors,
  * switches the Project view and the Find in Files scope, and tells every chat page what the IDE shows. EDT only.
+ * Starting puts back a Find default a crash left on a plugin scope; closing puts back the one this project set.
  */
 @Service(Service.Level.PROJECT)
 class CheckoutFollower(private val project: Project) : Disposable {
     init {
-        live.incrementAndGet()
+        SearchDefaults.restore(project)
     }
 
     private val chats = Chats.getInstance(project)
@@ -93,7 +93,7 @@ class CheckoutFollower(private val project: Project) : Disposable {
             val target = selected?.let { followable(mapper, it) }
             if (target != null && (selecting || target != (current ?: mapper.main) || pendingSwapFrom != null || (current?.isMain == false && !viewsApplied))) show(mapper, target)
         } else if (viewsApplied) {
-            SearchDefaults.restore() // following stopped: the user's own Find default comes back
+            SearchDefaults.restore(project)
             viewsApplied = false
         }
         val ide = current ?: mapper.main
@@ -152,12 +152,10 @@ class CheckoutFollower(private val project: Project) : Disposable {
     private fun followable(mapper: CheckoutMapper, chat: Chat): Checkout? = (mapper.place(chat.cwd) as? Placement.Followable)?.checkout
 
     override fun dispose() {
-        if (live.decrementAndGet() <= 0) SearchDefaults.restore()
+        SearchDefaults.restore(project)
     }
 
     companion object {
-        private val live = AtomicInteger()
-
         fun getInstance(project: Project): CheckoutFollower = project.service()
     }
 }

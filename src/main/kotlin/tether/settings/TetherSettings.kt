@@ -28,6 +28,10 @@ class TetherSettings : SimplePersistentStateComponent<TetherSettings.State>(Stat
         var ideTools by property(true)
         /** After each of Claude's edits, the IDE checks the file and tells Claude about errors in it. */
         var checkEdits by property(true)
+        /** Whether [savedFindScope] holds the user's own Find in Files default while a plugin scope replaces it. */
+        var findScopeSaved by property(false)
+        /** The user's own Find in Files default scope (null: none) to put back; see `SearchDefaults`. */
+        var savedFindScope by string(null)
     }
 
     companion object {

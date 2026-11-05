@@ -2,7 +2,9 @@ package tether.follow
 
 import com.intellij.find.FindManager
 import com.intellij.find.FindSettings
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import tether.settings.TetherSettings
 
 class SearchDefaultsTest : BasePlatformTestCase() {
     private var savedScopeName: String? = null
@@ -33,18 +35,42 @@ class SearchDefaultsTest : BasePlatformTestCase() {
         FindSettings.getInstance().defaultScopeName = "Mine"
         SearchDefaults.use(project, "Claude: wt1")
         SearchDefaults.use(project, "Claude: wt2") // the second switch must not overwrite the remembered value
-        SearchDefaults.restore()
+        SearchDefaults.restore(project)
         assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
         FindSettings.getInstance().defaultScopeName = "Other"
-        SearchDefaults.restore()
+        SearchDefaults.restore(project)
         assertEquals("Other", FindSettings.getInstance().defaultScopeName)
+    }
+
+    fun testTheUsersDefaultIsKeptInTheSettingsSoACrashDoesNotLoseIt() {
+        FindSettings.getInstance().defaultScopeName = "Mine"
+        SearchDefaults.use(project, "Claude: wt1")
+        assertEquals("Mine", TetherSettings.getInstance().state.savedFindScope)
+        assertTrue(TetherSettings.getInstance().state.findScopeSaved)
+    }
+
+    fun testAScopeLeftByACrashIsPutBackByTheNextProjectToStart() {
+        TetherSettings.getInstance().state.apply { findScopeSaved = true; savedFindScope = "Mine" }
+        FindSettings.getInstance().defaultScopeName = "Claude: wt1"
+        SearchDefaults.restore(project)
+        assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
+        assertFalse(TetherSettings.getInstance().state.findScopeSaved)
+    }
+
+    fun testOnlyTheProjectThatSetTheScopePutsTheDefaultBack() {
+        FindSettings.getInstance().defaultScopeName = "Mine"
+        SearchDefaults.use(project, "Claude: wt1")
+        SearchDefaults.restore(ProjectManager.getInstance().defaultProject)
+        assertEquals("Claude: wt1", FindSettings.getInstance().defaultScopeName)
+        SearchDefaults.restore(project)
+        assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
     }
 
     fun testRestoreLeavesAScopeTheUserPickedLater() {
         FindSettings.getInstance().defaultScopeName = "Mine"
         SearchDefaults.use(project, "Claude: wt1")
         FindSettings.getInstance().defaultScopeName = "Changed"
-        SearchDefaults.restore()
+        SearchDefaults.restore(project)
         assertEquals("Changed", FindSettings.getInstance().defaultScopeName)
     }
 }

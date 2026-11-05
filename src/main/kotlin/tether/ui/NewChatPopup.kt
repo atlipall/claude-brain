@@ -19,7 +19,7 @@ import com.intellij.util.text.DateFormatUtil
 object NewChatPopup {
     fun show(project: Project, tabs: ChatTabs, place: (JBPopup) -> Unit) {
         val chats = Chats.getInstance(project)
-        background(project, { chats.worktrees.list() }) { worktrees ->
+        background(project, { chats.worktrees.list() }, failed = "Couldn't list this project's worktrees") { worktrees ->
             val choices = NewChatChoices.build(chats.projectDir, worktrees)
             place(listPopup(project, "New Chat", choices, NewChatChoice::text) { choice ->
                 chosen(project, tabs, choice, worktrees, place)
@@ -32,7 +32,7 @@ object NewChatPopup {
         when (choice) {
             is NewChatChoice.Open -> tabs.open(choice.spec)
             NewChatChoice.NewWorktree ->
-                background(project, { chats.worktrees.existingNames(worktrees) }) { existing ->
+                background(project, { chats.worktrees.existingNames(worktrees) }, failed = "Couldn't read the existing worktrees") { existing ->
                     askWorktreeName(project, existing)?.let { tabs.open(ChatSpec.newWorktree(chats.projectDir, it)) }
                 }
             NewChatChoice.Resume -> showResume(project, tabs, worktrees, place, archived = false)
@@ -47,7 +47,7 @@ object NewChatPopup {
      */
     private fun showResume(project: Project, tabs: ChatTabs, worktrees: List<Worktree>?, place: (JBPopup) -> Unit, archived: Boolean) {
         val chats = Chats.getInstance(project)
-        background(project, { chats.store.listAll(chats.worktrees.knownFolders(worktrees), archived = archived) }) { sessions ->
+        background(project, { chats.store.listAll(chats.worktrees.knownFolders(worktrees), archived = archived) }, failed = "Couldn't list the sessions") { sessions ->
             if (sessions.isEmpty()) {
                 val what = if (archived) "archived sessions" else "past sessions"
                 place(JBPopupFactory.getInstance().createMessage("No $what in this project or its worktrees."))
@@ -62,7 +62,7 @@ object NewChatPopup {
                 place(listPopup(project, title, sessions, text) { s ->
                     if (selectOpen(s)) return@listPopup
                     val spec = ChatSpec.resume(chats.projectDir, s)
-                    background(project, { if (archived) chats.unarchive(s); chats.read(spec) }) { read ->
+                    background(project, { if (archived) chats.unarchive(s); chats.read(spec) }, failed = "Couldn't open the session") { read ->
                         if (!selectOpen(s)) tabs.open(spec, read)
                     }
                 })
