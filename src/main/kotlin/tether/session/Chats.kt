@@ -92,7 +92,10 @@ class Chats(private val project: Project) : Disposable {
         }
     }
 
-    /** [spec]'s transcript as [open] needs it; null for a new chat. Reads the whole transcript: off the EDT if it can. */
+    /**
+     * [spec]'s native transcript as [open] needs it; null for a new chat or an ACP session, which replays its own history.
+     * Reads the whole native transcript: off the EDT if it can.
+     */
     fun read(spec: ChatSpec): Transcript? =
         if (spec.agentId != null && spec.agentId != Agent.CLAUDE.id) null
         else spec.resumeId?.let { store.read(spec.cwd, it) }

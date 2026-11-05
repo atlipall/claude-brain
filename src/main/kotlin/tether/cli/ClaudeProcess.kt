@@ -9,11 +9,11 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-/** The command line and the extra environment to run claude with. */
+/** The command line and extra environment for an agent process. */
 class Launch(val command: List<String>, val env: Map<String, String>)
 
 /**
- * Runs the claude CLI and exchanges NDJSON over its stdin/stdout. [start] returns at once: [prepare] (which may block,
+ * Runs an agent CLI and exchanges NDJSON over its stdin/stdout. [start] returns at once: [prepare] (which may block,
  * e.g. on the IDE's shell environment) and the spawn run on a thread of their own, and lines sent meanwhile are queued
  * and written once the process is up. When [prepare] or the spawn fails, `onExit` gets [CliConnection.LAUNCH_FAILED]
  * and the error message as the tail.

@@ -17,6 +17,7 @@ import com.intellij.testFramework.PlatformTestUtil
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import tether.settings.TetherSettings
+import tether.ui.NewChatPopup
 import tether.testutil.FakeConnection
 import tether.testutil.Fx
 import tether.testutil.TestImages
@@ -123,6 +124,12 @@ class ChatsTest : BasePlatformTestCase() {
         val id = connection.sentJson().last { it.str("method") == method }["id"]
         connection.emit("""{"jsonrpc":"2.0","id":$id,"result":$result}""")
     }
+
+    /** Reads the native resume popup's current tab inventory without displaying a popup. */
+    private fun nativeResumeSessions(): Any? = NewChatPopup::class.java
+        .getDeclaredMethod("openSessions", Chats::class.java)
+        .apply { isAccessible = true }
+        .invoke(NewChatPopup, chats)
 
     fun testOpenChatsWithASessionAreRememberedOnceRestoreHasRun() {
         openChats.loadState(OpenChats.State())
@@ -312,10 +319,12 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(listOf("claude" to "shared-id", "acp" to "shared-id"), openChats.state.chats.map { it.agentId to it.sessionId })
         assertEquals(setOf("shared-id"), chats.openSessionIds("claude"))
         assertEquals(setOf("shared-id"), chats.openSessionIds("acp"))
+        assertEquals(listOf("shared-id" to native), nativeResumeSessions())
         chats.close(native)
         assertEquals(listOf("acp" to "shared-id"), openChats.state.chats.map { it.agentId to it.sessionId })
         assertEquals(setOf("shared-id"), chats.openSessionIds())
         assertTrue(chats.openSessionIds("claude").isEmpty())
+        assertEquals(emptyList<Pair<String?, Chat>>(), nativeResumeSessions())
         val archivable = chats.archivable()
         assertEquals(listOf("shared-id"), archivable.map { it.id })
         assertEquals(1, chats.archiveAll(archivable))

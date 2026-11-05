@@ -254,7 +254,7 @@
     el.className = 'msg user';
     if (item.revertable) {
       el.append(h('button', { class: 'link revert', 'data-action': 'revertTo', 'data-id': item.id,
-        title: 'Revert the files, the conversation or both to before this message (asks first)' }, 'Revert to here'));
+        title: 'Go back to before this message: files, conversation or both (asks first)' }, 'Revert to here'));
     }
     const images = Array.isArray(item.images) ? item.images : [];
     if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
@@ -276,8 +276,8 @@
       el.classList.add('queued');
       el.prepend(h('div', { class: 'queued-bar' },
           h('span', { class: 'queued-label' }, 'Queued'),
-          h('button', { class: 'link', 'data-action': 'queueSendNow', 'data-id': m.id, title: 'Stop ' + agentName + ' and send this now' }, 'Send now'),
-          editable ? h('button', { class: 'link', 'data-action': 'queueEdit', 'data-id': m.id, title: 'Move back into the message box' }, 'Edit') : null,
+          h('button', { class: 'link', 'data-action': 'queueSendNow', 'data-id': m.id, title: 'Stop ' + agentName + ' and send this' }, 'Send now'),
+          editable ? h('button', { class: 'link', 'data-action': 'queueEdit', 'data-id': m.id, title: 'Move back to the message box' }, 'Edit') : null,
           h('button', { class: 'link', 'data-action': 'queueRemove', 'data-id': m.id, title: 'Don’t send this' }, 'Remove')));
       queueEl.append(el);
     }
@@ -1016,7 +1016,7 @@
   function addTile(id, name) {
     const tile = h('div', { class: 'tile loading', title: name },
       h('span', { class: 'img-alt' }, '…'),
-      h('button', { class: 'tile-x', 'data-action': 'detach', 'data-id': id, title: 'Remove' }, '×'));
+      h('button', { class: 'tile-x', 'data-action': 'detach', 'data-id': id, title: 'Remove image' }, '×'));
     pending.set(id, { el: tile, ready: false });
     attachEl.append(tile);
     attachEl.hidden = false;
@@ -1282,6 +1282,100 @@
     const row = toggle && toggle.closest('.tool-row.expandable');
     if (row && trusted.has(row)) { e.preventDefault(); toggleRow(row); }
   });
+
+  /**
+   * Tooltips for anything with a title. JCEF doesn't show the browser's own, so one shared #tip shows the text instead,
+   * after a short hover or when keyboard focus lands on the element, and moves straight on when the pointer goes to
+   * another titled element while one is showing. The title moves to data-tip the first time, so the browser's tooltip
+   * never shows as well; the text stays available to screen readers as the element's aria-label when it has no other
+   * name, otherwise as its aria-description. While a tooltip is up it follows its element: gone when the element is
+   * removed or scrolled, updated when its title is set again.
+   */
+  const tip = document.getElementById('tip');
+  const TIP_DELAY_MS = 500;
+  const TIP_GAP = 6;
+  /** The element whose tooltip is showing or about to show; also the one just pressed, so it stays quiet until left. */
+  let tipFor = null;
+  let tipTimer = 0;
+  const tipWatch = new MutationObserver(() => {
+    if (!tipFor || !tipFor.isConnected) hideTip();
+    else if (tipFor.hasAttribute('title')) showTip(tipFor);
+  });
+
+  /** [el]'s tooltip text, taking over its title (which code may set again at any time). */
+  function tipText(el) {
+    const title = el.getAttribute('title');
+    if (title !== null) {
+      el.removeAttribute('title');
+      el.dataset.tip = title;
+      const named = el.hasAttribute('aria-label') || el.textContent.trim();
+      if (!named) el.setAttribute('aria-label', title);
+      else if (!el.hasAttribute('aria-description')) el.setAttribute('aria-description', title);
+    }
+    return el.dataset.tip || '';
+  }
+
+  /** The titled element at or around [target], or null; none while its menu or popup is open. */
+  function tipTarget(target) {
+    const el = target instanceof Element ? target.closest('[title], [data-tip]') : null;
+    return el && el.getAttribute('aria-expanded') !== 'true' ? el : null;
+  }
+
+  /** Shows [el]'s tooltip centred below it, or above when there's no room below, kept inside the page. */
+  function showTip(el) {
+    const text = tipText(el);
+    if (!text || !el.isConnected) return hideTip();
+    tip.textContent = text;
+    tip.style.top = tip.style.left = '0';
+    tip.hidden = false;
+    tipWatch.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['title'] });
+    const at = el.getBoundingClientRect(), size = tip.getBoundingClientRect();
+    const below = at.bottom + TIP_GAP + size.height <= window.innerHeight;
+    const top = below ? at.bottom + TIP_GAP : Math.max(TIP_GAP, at.top - TIP_GAP - size.height);
+    const left = Math.min(Math.max(TIP_GAP, at.left + (at.width - size.width) / 2), window.innerWidth - size.width - TIP_GAP);
+    tip.style.top = top + 'px';
+    tip.style.left = left + 'px';
+  }
+
+  /** Hides the tooltip, cancels one about to show, and stops following its element. */
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tipWatch.disconnect();
+    tipFor = null;
+    tip.hidden = true;
+  }
+
+  /** Shows [el]'s tooltip now if one is already up (moving along a toolbar), otherwise after the hover delay. */
+  function scheduleTip(el) {
+    clearTimeout(tipTimer);
+    tipFor = el;
+    if (!tip.hidden) return showTip(el);
+    tipTimer = setTimeout(() => showTip(el), TIP_DELAY_MS);
+  }
+
+  document.addEventListener('pointerover', (e) => {
+    const el = tipTarget(e.target);
+    if (el === tipFor) return;
+    if (el) scheduleTip(el);
+    else hideTip();
+  });
+  document.addEventListener('pointerout', (e) => {
+    if (!e.relatedTarget || !tipTarget(e.relatedTarget)) hideTip();
+  });
+  document.addEventListener('focusin', (e) => {
+    const el = tipTarget(e.target);
+    if (el && e.target.matches(':focus-visible')) scheduleTip(el);
+  });
+  document.addEventListener('focusout', hideTip);
+  document.addEventListener('pointerdown', (e) => {
+    hideTip();
+    tipFor = tipTarget(e.target);
+  }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); }, true);
+  document.addEventListener('scroll', (e) => {
+    if (tipFor && e.target.contains(tipFor)) hideTip();
+  }, { capture: true, passive: true });
+  window.addEventListener('blur', hideTip);
 
   window.addEventListener('bridge-ready', () => send({ type: 'ready' }));
 })();
