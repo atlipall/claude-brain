@@ -38,7 +38,7 @@ class ChatsTest : BasePlatformTestCase() {
         val inserted = mutableListOf<String>()
         override fun reset(items: List<ChatItem>) { resets += items }
         override fun item(item: ChatItem) { items += item }
-        override fun state(state: SessionState, sessionId: String?, mode: PermissionMode?) { states += state }
+        override fun state(state: SessionState, mode: PermissionMode?) { states += state }
         override fun insert(text: String) { inserted += text }
         val activities = mutableListOf<Activity?>()
         override fun activity(activity: Activity?) { activities += activity }

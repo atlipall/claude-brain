@@ -69,7 +69,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         chat.attach(object : tether.session.SessionView {
             override fun reset(items: List<ChatItem>) { shown = items }
             override fun item(item: ChatItem) {}
-            override fun state(state: tether.session.SessionState, sessionId: String?, mode: tether.cli.PermissionMode?) {}
+            override fun state(state: tether.session.SessionState, mode: tether.cli.PermissionMode?) {}
             override fun insert(text: String) { inserted += text }
         })
         return shown.filterIsInstance<ChatItem.UserText>()

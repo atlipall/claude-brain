@@ -26,7 +26,8 @@ class CheckoutScopes(private val project: Project) {
         holder.scopes = next.toTypedArray()
     }
 
-    fun find(checkout: Checkout): NamedScope? = holder.getScope(checkout.scopeName)
+    /** The plugin scope [sync] made for [checkout], or null; only tests look scopes up this way. */
+    internal fun find(checkout: Checkout): NamedScope? = holder.getScope(checkout.scopeName)
 
     private fun key(scope: NamedScope) = scope.scopeId to scope.value?.text
 

@@ -304,10 +304,9 @@ class ChatBridge(
         put("item", item.toJson())
     }.toString())
 
-    override fun state(state: SessionState, sessionId: String?, mode: PermissionMode?) = post(buildJsonObject {
+    override fun state(state: SessionState, mode: PermissionMode?) = post(buildJsonObject {
         put("type", "state")
         put("state", state.name)
-        put("sessionId", sessionId)
         put("mode", mode?.cli)
     }.toString())
 

@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 interface SessionView {
     fun reset(items: List<ChatItem>)
     fun item(item: ChatItem)
-    fun state(state: SessionState, sessionId: String?, mode: PermissionMode?)
+    fun state(state: SessionState, mode: PermissionMode?)
     fun insert(text: String)
 
     /** What the IDE window shows for this chat (`IDE: <checkout>`); empty hides it. */
@@ -216,7 +216,7 @@ class Chat(
             if (state != SessionState.IDLE) suggestion = null
             idleSince = if (state == SessionState.IDLE) idleSince ?: System.currentTimeMillis() else null
             saveTitleIfReady()
-            view?.state(state, sessionId, mode)
+            view?.state(state, mode)
             val now = cwd
             if (now != knownCwd) {
                 knownCwd = now
@@ -281,7 +281,7 @@ class Chat(
     fun attach(view: SessionView) {
         this.view = view
         view.reset(synchronized(lock) { items.values.toList() })
-        view.state(session.state, session.sessionId, session.mode)
+        view.state(session.state, session.mode)
         synchronized(activityLock) { shownActivity }?.let(view::activity)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         contextUsage?.let(view::context)
