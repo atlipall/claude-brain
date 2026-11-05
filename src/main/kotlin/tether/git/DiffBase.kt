@@ -36,10 +36,9 @@ class DiffBases(private val git: GitRunner = ::gitRunner) {
         return if (start != null) DiffBase(root, start, SESSION_START) else DiffBase(root, head, "HEAD")
     }
 
-    private fun commit(dir: File, rev: String) = run(dir, "rev-parse", "--verify", "-q", "$rev^{commit}")
+    private fun commit(dir: File, rev: String) = git.commit(dir, rev)
 
-    /** Trimmed stdout, or null when git failed or printed nothing. */
-    private fun run(dir: File, vararg args: String): String? = git(dir, args.toList())?.trim()?.takeIf { it.isNotEmpty() }
+    private fun run(dir: File, vararg args: String): String? = git.output(dir, *args)
 
     private companion object {
         val MAIN_NAMES = listOf("main", "master")

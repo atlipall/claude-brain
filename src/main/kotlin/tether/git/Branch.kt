@@ -9,8 +9,7 @@ private const val BRANCH_REF = "ref: refs/heads/"
  * when detached, outside a repository, or unreadable.
  */
 fun currentBranch(dir: String): String? = try {
-    val dotGit = generateSequence(File(dir).absoluteFile) { it.parentFile }.map { File(it, ".git") }.firstOrNull { it.exists() }
-    dotGit?.let(::gitDir)
+    dotGit(dir)?.let(::gitDir)
         ?.let { File(it, "HEAD").readText().trim() }
         ?.takeIf { it.startsWith(BRANCH_REF) }
         ?.removePrefix(BRANCH_REF)
@@ -18,6 +17,16 @@ fun currentBranch(dir: String): String? = try {
 } catch (_: Exception) {
     null
 }
+
+/** Whether [dir] lies in a git checkout: a `.git` in it or a folder above. No git process, so safe on the EDT. */
+fun insideRepository(dir: String): Boolean = try {
+    dotGit(dir) != null
+} catch (_: Exception) {
+    false
+}
+
+private fun dotGit(dir: String): File? =
+    generateSequence(File(dir).absoluteFile) { it.parentFile }.map { File(it, ".git") }.firstOrNull { it.exists() }
 
 /** A linked worktree's `.git` is a file, `gitdir: <path>` (absolute or relative to the worktree). */
 private fun gitDir(dotGit: File): File {

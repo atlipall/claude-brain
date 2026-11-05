@@ -16,6 +16,15 @@ fun runGit(dir: File, vararg args: String, timeoutSeconds: Long = 5): String? =
 /** The default [GitRunner]: [runGit] with a 30-second timeout (diffs of large checkouts take a while). */
 fun gitRunner(dir: File, args: List<String>): String? = runGit(dir, *args.toTypedArray(), timeoutSeconds = 30)
 
+/** A [GitRunner] for quick reads that a waiting message depends on: [runGit] with its short default timeout. */
+fun quickGitRunner(dir: File, args: List<String>): String? = runGit(dir, *args.toTypedArray())
+
+/** Trimmed stdout, or null when git failed or printed nothing. */
+fun GitRunner.output(dir: File, vararg args: String): String? = this(dir, args.toList())?.trim()?.takeIf { it.isNotEmpty() }
+
+/** The full hash of the commit [rev] names in [dir], or null when it names none. */
+fun GitRunner.commit(dir: File, rev: String): String? = output(dir, "rev-parse", "--verify", "-q", "$rev^{commit}")
+
 /** Runs the blocking reads and writes of git's pipes, so they never tie up the shared ForkJoin pool. */
 private val pipeThreads = Executor { Thread.ofVirtual().name("tether-git-pipe").start(it) }
 

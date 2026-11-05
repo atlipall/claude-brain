@@ -12,7 +12,10 @@ import com.intellij.testFramework.PlatformTestUtil
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import tether.settings.TetherSettings
+import tether.ide.GitTracker
 import tether.testutil.FakeConnection
+import tether.testutil.git
+import tether.testutil.gitAvailable
 import tether.testutil.Fx
 import tether.testutil.TestImages
 import tether.image.Attachment
@@ -531,6 +534,75 @@ class ChatsTest : BasePlatformTestCase() {
         } finally {
             chat.dispose()
         }
+    }
+
+    /** A real git repository with one commit, for the git-note tests; null (test skipped) without git. */
+    private fun gitRepo(): File? {
+        if (!gitAvailable()) return null
+        val repo = Files.createTempDirectory("chat-repo").toFile()
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "commit", "-q", "--allow-empty", "-m", "one")
+        return repo
+    }
+
+    private val gitTracker get() = GitTracker.getInstance(project)
+
+    fun testACommitBetweenTurnsIsToldWithTheNextMessage() {
+        val repo = gitRepo() ?: return
+        val chat = chats.open(ChatSpec.inProject(repo.path))
+        gitTracker.drain()
+        git(repo, "commit", "-q", "--allow-empty", "-m", "by hand")
+        chat.send("hi")
+        awaitMessages(connections.single(), 1)
+        val message = connections.single().userMessages().single()
+        assertTrue(message, message.startsWith("[IDE] Since your last turn, git changed in this checkout"))
+        assertTrue(message, message.contains("1 new commit on `main`"))
+        assertTrue(message, message.contains("“by hand”"))
+        assertTrue(message, message.endsWith("\n\nhi"))
+    }
+
+    fun testClaudesOwnCommitsDuringATurnAreNotReportedBack() {
+        val repo = gitRepo() ?: return
+        val chat = chats.open(ChatSpec.inProject(repo.path))
+        gitTracker.drain()
+        chat.send("commit it")
+        awaitMessages(connections.single(), 1)
+        git(repo, "commit", "-q", "--allow-empty", "-m", "by claude")
+        connections.single().emit(Fx.result())
+        gitTracker.drain()
+        chat.send("thanks")
+        awaitMessages(connections.single(), 2)
+        assertEquals(listOf("commit it", "thanks"), connections.single().userMessages())
+    }
+
+    fun testAMessageQueuedDuringATurnGetsNoGitNote() {
+        val repo = gitRepo() ?: return
+        val chat = chats.open(ChatSpec.inProject(repo.path))
+        gitTracker.drain()
+        chat.send("one")
+        awaitMessages(connections.single(), 1)
+        git(repo, "commit", "-q", "--allow-empty", "-m", "mid-turn")
+        chat.send("two")
+        connections.single().emit(Fx.result())
+        awaitMessages(connections.single(), 2)
+        assertEquals(listOf("one", "two"), connections.single().userMessages())
+    }
+
+    fun testAMessageStoppedBeforeItWentOutLeavesItsGitNoteForTheNext() {
+        val repo = gitRepo() ?: return
+        val chat = chats.open(ChatSpec.inProject(repo.path))
+        gitTracker.drain()
+        git(repo, "commit", "-q", "--allow-empty", "-m", "by hand")
+        chat.send("dropped")
+        chat.interrupt()
+        gitTracker.drain()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals(emptyList<String>(), connections.single().userMessages())
+        chat.send("kept")
+        awaitMessages(connections.single(), 1)
+        val message = connections.single().userMessages().single()
+        assertTrue(message, message.contains("“by hand”"))
+        assertTrue(message, message.endsWith("\n\nkept"))
     }
 
     private val calc = "function total(a) {\n  return a<caret> + 1;\n}\n"

@@ -11,6 +11,7 @@ import tether.git.DiffBases
 import tether.git.GitWorktrees
 import tether.context.EditorContextService
 import tether.ide.EditTracker
+import tether.ide.GitTracker
 import tether.ide.TurnCheckpoints
 import tether.ide.tools.ChatIdeHost
 import tether.settings.TetherSettings
@@ -54,6 +55,8 @@ class Chats(private val project: Project) : Disposable {
     private val context = EditorContextService.getInstance(project)
     /** Cached like [tracker]. */
     private val checkpoints = TurnCheckpoints.getInstance(project)
+    /** Cached like [tracker]. */
+    private val git = GitTracker.getInstance(project)
 
     fun all(): List<Chat> = chats.toList()
 
@@ -98,6 +101,7 @@ class Chats(private val project: Project) : Disposable {
             resolveContext = { c, done ->
                 if (TetherSettings.getInstance().state.attachEditorContext) context.resolve(c.cwd, done) else done(null)
             },
+            gitNotes = git,
             log = { LOG.info(it) },
             startedAt = if (spec.resumeId == null) System.currentTimeMillis() else resumed?.startedAt,
             ide = ide,
@@ -107,6 +111,7 @@ class Chats(private val project: Project) : Disposable {
             saveTitle = ::saveTitle,
         )
         tracker.register(chat.id)
+        git.settle(chat.id, chat.cwd)
         chats += chat
         recordStartCommit(chat, spec)
         chat.start()
@@ -128,6 +133,7 @@ class Chats(private val project: Project) : Disposable {
             chat.dispose()
             tracker.forget(chat.id)
             checkpoints.forget(chat.id)
+            git.forget(chat.id)
         }
     }
 

@@ -32,6 +32,9 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
   and after every turn, using the CLI's `get_context_usage` request (no model call).
 - **Claude knows what you edited.** Files you save between messages are listed in a hidden note
   on your next message, so Claude re-reads them instead of working from stale contents.
+- **Claude knows what you did in git.** If you commit, push, pull or fetch, switch branch, reset or amend, stash, or
+  start or finish a merge or rebase between messages, from the IDE or a terminal, a hidden note on your next message
+  says what changed (with the commits). Claude's own git commands aren't reported back to it.
 - **Claude knows where you are looking.** Every message carries your current file, caret line,
   selection and enclosing function, so "what does this function do?" just works.
 - **Claude can ask the IDE.** Claude gets two read-only tools, called without a prompt:
