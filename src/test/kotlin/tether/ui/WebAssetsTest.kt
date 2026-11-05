@@ -222,12 +222,16 @@ class WebAssetsTest {
         assertFalse(body.contains("marked"))
     }
 
-    @Test fun composerHasTheAgentAndModeSelectorsBesideAttachAndSend() {
+    @Test fun agentSelectorLeadsTheHeaderAndModeSelectorSitsInTheComposer() {
         val page = WebAssets.page()
+        val header = page.substring(page.indexOf("<header id=\"bar\">"), page.indexOf("</header>"))
         val composer = page.substring(page.indexOf("<footer id=\"composer\">"), page.indexOf("</footer>"))
-        val order = listOf("id=\"input\"", "id=\"send\"", "id=\"composer-tools\"", "id=\"agent\"", "id=\"mode\"", "id=\"attach\"").map(composer::indexOf)
-        assertTrue(order.all { it >= 0 } && order == order.sorted())
-        assertFalse(page.substring(page.indexOf("<header id=\"bar\">"), page.indexOf("</header>")).contains("id=\"mode\""))
+        val headerOrder = listOf("id=\"agent\"", "id=\"model\"").map(header::indexOf)
+        assertTrue(headerOrder.all { it >= 0 } && headerOrder == headerOrder.sorted())
+        val composerOrder = listOf("id=\"input\"", "id=\"send\"", "id=\"composer-tools\"", "id=\"mode\"", "id=\"attach\"").map(composer::indexOf)
+        assertTrue(composerOrder.all { it >= 0 } && composerOrder == composerOrder.sorted())
+        assertFalse(header.contains("id=\"mode\""))
+        assertFalse(composer.contains("id=\"agent\""))
         assertTrue(page.contains("case 'agent': setAgent(msg); break;"))
         assertTrue(page.contains("send({ type: 'setAgent', agent: value })"))
     }

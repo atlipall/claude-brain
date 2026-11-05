@@ -11,7 +11,7 @@
   const sendBtn = document.getElementById('send');
   const agentPicker = { button: document.getElementById('agent'), menu: document.getElementById('agent-menu'), label: document.getElementById('agent-label'), name: 'Agent' };
   const modePicker = { button: document.getElementById('mode'), menu: document.getElementById('mode-menu'), label: document.getElementById('mode-label'), name: 'Permission mode' };
-  const composerPickers = [agentPicker, modePicker];
+  const pickers = [agentPicker, modePicker];
   /** The session's reported identity and permission mode; choosing only requests a change from the host. */
   let agent = '', mode = '', agentName = 'the agent';
   const modelBtn = document.getElementById('model');
@@ -899,17 +899,22 @@
     item.scrollIntoView({ block: 'nearest' });
   }
 
-  /** Opens the shared upstream popout above its trigger, bounded by the webview even for long capability lists. */
+  /**
+   * Opens a picker's menu above or below its trigger, whichever side has more room. The menu stays inside the webview,
+   * scrolling when its list is long.
+   */
   function openMenu(picker) {
     if (picker.button.disabled || picker.button.hidden || !picker.menu.childElementCount) return;
-    for (const other of composerPickers) closeMenu(other, false);
+    for (const other of pickers) closeMenu(other, false);
     const menu = picker.menu;
     menu.hidden = false;
     const anchor = picker.button.getBoundingClientRect();
-    menu.style.maxHeight = Math.min(280, Math.max(0, anchor.top - 12)) + 'px';
+    const below = anchor.top < innerHeight - anchor.bottom;
+    const room = below ? innerHeight - anchor.bottom - 12 : anchor.top - 12;
+    menu.style.maxHeight = Math.min(280, Math.max(0, room)) + 'px';
     const bounds = menu.getBoundingClientRect();
     menu.style.left = Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8)) + 'px';
-    menu.style.top = Math.max(8, anchor.top - bounds.height - 4) + 'px';
+    menu.style.top = (below ? anchor.bottom + 4 : Math.max(8, anchor.top - bounds.height - 4)) + 'px';
     picker.button.setAttribute('aria-expanded', 'true');
     focusMenuItem(menu.querySelector('[aria-checked="true"]') || menu.firstElementChild);
   }
@@ -1302,7 +1307,7 @@
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
-  for (const picker of composerPickers) {
+  for (const picker of pickers) {
     picker.button.addEventListener('click', () => (picker.menu.hidden ? openMenu(picker) : closeMenu(picker, true)));
     picker.button.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
