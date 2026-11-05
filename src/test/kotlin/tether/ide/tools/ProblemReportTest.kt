@@ -55,9 +55,9 @@ class ProblemReportTest {
     }
 
     @Test fun locatePicksTheOccurrenceNearestTheColumn() {
-        // "a = a + a": a at indexes 0, 4, 8
-        assertEquals(4, Usages.locate("a = a + a", "a", 5))
-        assertEquals(8, Usages.locate("a = a + a", "a", 9))
-        assertEquals(0, Usages.locate("a = a + a", "a", null))
+        val aAtIndexes0And4And8 = "a = a + a"
+        assertEquals(4, Usages.locate(aAtIndexes0And4And8, "a", 5))
+        assertEquals(8, Usages.locate(aAtIndexes0And4And8, "a", 9))
+        assertEquals(0, Usages.locate(aAtIndexes0And4And8, "a", null))
     }
 }

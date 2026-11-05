@@ -24,9 +24,12 @@ import com.intellij.usageView.UsageViewTypeLocation
 object SymbolFinder {
     private const val MAX_DEPTH = 32
 
-    /** The innermost element at [offset] and its function-like container (see [Symbols.pick]); both null without a structure model. */
+    /**
+     * The innermost element at [offset] and its function-like container (see [Symbols.pick]); both null without a
+     * structure model, and in dumb mode, since structure models may need indexes.
+     */
     fun find(file: PsiFile, document: Document, offset: Int): Pair<Symbol?, Symbol?> {
-        if (DumbService.isDumb(file.project)) return null to null // structure models may need indexes
+        if (DumbService.isDumb(file.project)) return null to null
         return safely {
             val builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(file) as? TreeBasedStructureViewBuilder
                 ?: return@safely null to null
@@ -71,6 +74,7 @@ object SymbolFinder {
     private fun psiOf(element: TreeElement, file: PsiFile): PsiElement? =
         ((element as? StructureViewTreeElement)?.value as? PsiElement)?.takeIf { it.isValid && it.containingFile == file }
 
+    /** The hit for [psi]; its lines span the first and last offset of the element's text range (end offsets are exclusive). */
     private fun hit(element: TreeElement, psi: PsiElement, document: Document): StructureHit? {
         val name = (psi as? PsiNamedElement)?.name?.takeIf { it.isNotBlank() }
             ?: Symbols.nameFromLabel(element.presentation.presentableText)
@@ -78,8 +82,8 @@ object SymbolFinder {
         val kind = Symbols.kindWord(ElementDescriptionUtil.getElementDescription(psi, UsageViewTypeLocation.INSTANCE))
         val range = psi.textRange
         val start = range.startOffset.coerceIn(0, document.textLength)
-        val last = (range.endOffset - 1).coerceIn(start, document.textLength) // end offsets are exclusive
-        val lines = Lines(document.getLineNumber(start) + 1, document.getLineNumber(last) + 1)
+        val lastOffset = (range.endOffset - 1).coerceIn(start, document.textLength)
+        val lines = Lines(document.getLineNumber(start) + 1, document.getLineNumber(lastOffset) + 1)
         return StructureHit(Symbol(name, kind, lines), Symbols.isFunctionLike(kind, psi.javaClass.simpleName))
     }
 }

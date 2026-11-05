@@ -33,12 +33,14 @@ class CheckoutMapper(projectDir: String) {
 
     val main = Checkout(Checkout.MAIN, project)
 
-    /** The project folder is main, `<project>/.claude/worktrees/<name>` is that worktree, anything else is outside. */
+    /**
+     * The project folder is main, `<project>/.claude/worktrees/<name>` is that worktree, anything else is outside.
+     * "main" names the project itself, so a worktree folder with that name (in any case) is not followable.
+     */
     fun place(cwd: String): Placement {
         val dir = canonicalPath(cwd)
         if (dir == project) return Placement.Followable(main)
         val name = dir.removePrefix(worktrees)
-        // "main" names the project itself, so a worktree folder with that name is not followable.
         return if (dir.startsWith(worktrees) && name.isNotEmpty() && '/' !in name && VALID_NAME.matches(name) &&
             !name.equals(Checkout.MAIN, ignoreCase = true)
         ) {
@@ -48,12 +50,14 @@ class CheckoutMapper(projectDir: String) {
         }
     }
 
-    /** [path] at the same relative path in [to], or null when [path] is not a file inside [from]. */
+    /**
+     * [path] at the same relative path in [to], or null when [path] is not a file inside [from]. Main does not own the
+     * worktrees folder inside it, so a worktree file has no counterpart from main.
+     */
     fun counterpart(path: String, from: Checkout, to: Checkout): String? {
         val file = canonicalPath(path)
         val relative = file.removePrefix(from.dir.trimEnd('/') + "/")
         if (relative == file || relative.isEmpty()) return null
-        // Main does not own the worktrees folder inside it.
         if (from.isMain && file.startsWith(worktrees)) return null
         return to.dir.trimEnd('/') + "/" + relative
     }

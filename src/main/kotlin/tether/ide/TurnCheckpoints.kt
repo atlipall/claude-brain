@@ -48,12 +48,7 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
             if (dir == null || !tracked(dir)) return
             refreshBeforeLabel(dir, settled)
             val message = shorten(item.text)
-            // Local History is shared by every open project. A label put while a command or refresh is open anywhere
-            // joins that change set, and revert never finds a label whose change set changes nothing in its folder.
-            // In a write action on the EDT none is half-open, so the label gets a change set of its own.
-            val label = WriteAction.computeAndWait<Label, RuntimeException> {
-                LocalHistory.getInstance().putSystemLabel(project, "Tether: before “$message”")
-            }
+            val label = putLabelInOwnChangeSet(message)
             val forChat = checkpoints.computeIfAbsent(chat.id) {
                 java.util.Collections.synchronizedMap(object : LinkedHashMap<String, Checkpoint>() {
                     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Checkpoint>) = size > MAX_PER_CHAT
@@ -64,6 +59,16 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
             LOG.warn("Could not put a Local History label", e)
         }
     }
+
+    /**
+     * Puts the label for [message] from a write action on the EDT, so it gets a change set of its own. Local History
+     * is shared by every open project: a label put while a command or refresh is open anywhere joins that change set,
+     * and revert never finds a label whose change set changes nothing in its folder. In a write action none is half-open.
+     */
+    private fun putLabelInOwnChangeSet(message: String): Label =
+        WriteAction.computeAndWait<Label, RuntimeException> {
+            LocalHistory.getInstance().putSystemLabel(project, "Tether: before “$message”")
+        }
 
     /**
      * Brings the VFS up to date with [dir] on disk, so writes the previous turn made behind the IDE's back land before
@@ -90,6 +95,11 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
     /** Whether message [itemId] of chat [chatId] has a checkpoint its files can be reverted to. */
     fun hasCheckpoint(chatId: Int, itemId: String): Boolean = checkpoints[chatId]?.containsKey(itemId) == true
 
+    /**
+     * Asks what to revert and reverts the files when chosen. Refuses while the chat is busy, both before the dialog and
+     * again after it: a turn's edits in flight would land after the revert, and a turn can open while the dialog is up
+     * (a background agent finishing), so the user stops it (and sees what it did) first.
+     */
     override fun revert(chat: Chat, item: ChatItem.UserText, conversation: Boolean): RevertChoice? {
         val title = "Revert to Before This Message"
         val checkpoint = checkpoints[chat.id]?.get(item.id)
@@ -97,7 +107,6 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
             Messages.showInfoMessage(project, "This message is too old to revert to.", title)
             return null
         }
-        // A turn's edits in flight would land after the revert; the user stops it (and sees what it did) first.
         if (chat.busy) return stillWorking()
         val dir = checkpoint?.let { LocalFileSystem.getInstance().refreshAndFindFileByPath(it.dir) }
         val choices = RevertChoice.entries.filter { (!it.files || dir != null) && (!it.conversation || conversation) }
@@ -114,7 +123,6 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
         }
         val answer = Messages.showDialog(project, text, title, (choices.map { it.label } + "Cancel").toTypedArray(), 0, Messages.getWarningIcon())
         val choice = choices.getOrNull(answer) ?: return null
-        // A turn can open while the dialog is up (a background agent finishing); it would outrun the revert.
         if (chat.busy) return stillWorking()
         if (choice.files && !revertFiles(chat, checkpoint!!, dir!!)) return null
         if (choice.files) notes[chat.id] = "The user reverted the files in this checkout to how they were before their message " +
@@ -122,9 +130,13 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
         return choice
     }
 
+    /**
+     * Records what to tell Claude after the conversation was rewound: nothing when the files were reverted too (its
+     * memory and the files agree again), otherwise that the files may still hold later changes.
+     */
     override fun conversationRewound(chat: Chat, item: ChatItem.UserText, filesReverted: Boolean) {
         if (filesReverted) {
-            notes.remove(chat.id) // Claude's memory and the files agree again
+            notes.remove(chat.id)
         } else {
             notes[chat.id] = "The user took the conversation back to before their message “${shorten(item.text)}”. " +
                 "The files may still hold changes made after that point; re-read files before relying on what you remember of them."
@@ -136,9 +148,12 @@ class TurnCheckpoints(private val project: Project) : Checkpoints {
         return null
     }
 
-    /** Reverts [dir] to [checkpoint]'s label; false (with a notice in the chat) when Local History can't. */
+    /**
+     * Reverts [dir] to [checkpoint]'s label; false (with a notice in the chat) when Local History can't. Saves and
+     * refreshes first so Local History has the latest state, Claude's last writes included, and the revert is complete
+     * and undoable.
+     */
     private fun revertFiles(chat: Chat, checkpoint: Checkpoint, dir: VirtualFile): Boolean {
-        // Local History must have the latest state, Claude's last writes included, so the revert is complete and undoable.
         FileDocumentManager.getInstance().saveAllDocuments()
         VfsUtil.markDirtyAndRefresh(false, true, true, dir)
         try {

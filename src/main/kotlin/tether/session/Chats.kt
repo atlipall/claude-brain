@@ -45,9 +45,14 @@ class Chats(private val project: Project) : Disposable {
 
     val projectDir: String get() = project.basePath ?: System.getProperty("user.home")
 
-    // Cached: services must not be looked up while the project is being disposed (close runs then).
-    private val tracker = EditTracker.getInstance(project) // also starts recording saves before the first message
-    private val context = EditorContextService.getInstance(project) // also starts tracking the focused editor
+    /**
+     * Looked up now, like [context] and [checkpoints]: services must not be looked up while the project is being
+     * disposed, which is when [close] runs. Getting it also starts recording saves before the first message.
+     */
+    private val tracker = EditTracker.getInstance(project)
+    /** Cached like [tracker]; getting it also starts tracking the focused editor. */
+    private val context = EditorContextService.getInstance(project)
+    /** Cached like [tracker]. */
     private val checkpoints = TurnCheckpoints.getInstance(project)
 
     fun all(): List<Chat> = chats.toList()
@@ -73,12 +78,15 @@ class Chats(private val project: Project) : Disposable {
     /** [spec]'s transcript as [open] needs it; null for a new chat. Reads the whole transcript: off the EDT if it can. */
     fun read(spec: ChatSpec): Transcript? = spec.resumeId?.let { store.read(spec.cwd, it) }
 
-    /** Creates and starts a chat (a resumed one shows its transcript, [resumed] when already [read]). EDT. */
+    /**
+     * Creates and starts a chat (a resumed one shows its transcript, [resumed] when already [read]). EDT. The IDE host
+     * asks the chat for its folder only once the chat runs, so it is built first.
+     */
     fun open(spec: ChatSpec, resumed: Transcript? = read(spec)): Chat {
         val history = resumed?.items.orEmpty()
         val started = spec.copy(setup = spec.setup.copy(mode = spec.setup.mode ?: defaultMode()))
         lateinit var chat: Chat
-        val ide = ChatIdeHost(project, projectDir) { chat.cwd } // asked only once the chat runs
+        val ide = ChatIdeHost(project, projectDir) { chat.cwd }
         chat = Chat(
             id = ids.incrementAndGet(),
             spec = started,
@@ -100,12 +108,18 @@ class Chats(private val project: Project) : Disposable {
         )
         tracker.register(chat.id)
         chats += chat
-        // A resumed session started earlier: its base is found from startedAt. A new worktree is a branch (diffed against main).
-        if (spec.resumeId == null && spec.worktree == null) {
-            AppExecutorUtil.getAppExecutorService().execute { chat.startCommit = DiffBases().head(spec.cwd) }
-        }
+        recordStartCommit(chat, spec)
         chat.start()
         return chat
+    }
+
+    /**
+     * Records HEAD as the diff base of a new chat in an existing checkout, off the EDT. A resumed session started
+     * earlier: its base is found from [Chat.startedAt]. A new worktree is a branch, diffed against main.
+     */
+    private fun recordStartCommit(chat: Chat, spec: ChatSpec) {
+        if (spec.resumeId != null || spec.worktree != null) return
+        AppExecutorUtil.getAppExecutorService().execute { chat.startCommit = DiffBases().head(spec.cwd) }
     }
 
     /** Stops the chat's process. Its transcript stays on disk. */

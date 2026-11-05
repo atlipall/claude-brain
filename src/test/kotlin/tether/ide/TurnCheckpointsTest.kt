@@ -2,6 +2,7 @@ package tether.ide
 
 import tether.session.ChatItem
 import tether.session.ChatSpec
+import tether.session.RevertChoice
 import tether.session.Chats
 import tether.session.SessionStore
 import tether.testutil.FakeConnection
@@ -78,10 +79,22 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
 
     private var asked: String? = null
 
-    /** Answers the revert dialog with button [index] (see RevertChoice order; Cancel is last). */
+    /** Answers the revert dialog with button [index]: the offered [RevertChoice]s in their order, then Cancel. */
     private fun answer(index: Int) = TestDialogManager.setTestDialog { message -> asked = message; index }
 
+    /** The dialog's buttons on a tracked checkout, where every [RevertChoice] is offered. */
+    private val filesAndConversation = RevertChoice.FILES_AND_CONVERSATION.ordinal
+    private val filesOnly = RevertChoice.FILES.ordinal
+    private val conversationOnly = RevertChoice.CONVERSATION.ordinal
+    private val cancel = RevertChoice.entries.size
+
     private fun read(name: String) = root.findChild(name)?.let { VfsUtil.loadText(it) }
+
+    /** A folder that is no content root, so Local History does not track it. */
+    private fun untrackedFolder() = VfsUtil.findFile(Files.createTempDirectory("untracked"), true)!!
+
+    /** Gives a label put straight from the pooled thread time to land inside the open command's change set. */
+    private fun letTheLabelLandInTheOpenCommand() = Thread.sleep(500)
 
     fun testRevertRestoresTheFilesAsTheyWereBeforeTheMessage() {
         write("a.txt", "before")
@@ -89,7 +102,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         val item = turn(chat, "change it")
         write("a.txt", "after")
         write("new.txt", "created by Claude")
-        answer(1) // Files Only
+        answer(filesOnly)
         chat.revertTo(item.id)
         assertEquals("before", read("a.txt"))
         assertNull("files created since are removed", read("new.txt"))
@@ -108,12 +121,11 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         com.intellij.openapi.command.CommandProcessor.getInstance().executeCommand(project, {
             write("x.txt", "typed meanwhile", elsewhere)
             chat.send("change it")
-            // Time for a label put straight from the pooled thread to land inside this command's change set.
-            Thread.sleep(500)
+            letTheLabelLandInTheOpenCommand()
         }, "Typing", null)
         val item = endTurn(chat)
         write("d.txt", "after")
-        answer(1) // Files Only
+        answer(filesOnly)
         chat.revertTo(item.id)
         assertEquals("before", read("d.txt"))
     }
@@ -126,7 +138,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         PlatformTestUtil.waitWithEventsDispatching("The message was not marked",
             { TurnCheckpoints.getInstance(project).hasCheckpoint(chat.id, id) }, 10)
         write("c.txt", "after")
-        answer(1)
+        answer(filesOnly)
         chat.revertTo(id)
         assertEquals("after", read("c.txt"))
     }
@@ -136,7 +148,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         val chat = chats.open(ChatSpec.inProject(root.path))
         val item = turn(chat, "change it")
         write("b.txt", "after")
-        answer(3) // Cancel
+        answer(cancel)
         chat.revertTo(item.id)
         assertEquals("after", read("b.txt"))
         assertNull(TurnCheckpoints.getInstance(project).consumeNote(chat.id))
@@ -152,7 +164,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         val second = turn(chat, "second")
         write("f.txt", "after")
         val old = conn
-        answer(0) // Files and Conversation
+        answer(filesAndConversation)
         chat.revertTo(second.id)
         assertEquals("before", read("f.txt"))
         assertTrue(old.stopped)
@@ -167,7 +179,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         conn.emit(Fx.init("sess-1", cwd = root.path))
         val item = turn(chat, "change it")
         write("g.txt", "after")
-        answer(2) // Conversation Only
+        answer(conversationOnly)
         chat.revertTo(item.id)
         assertEquals("after", read("g.txt"))
         assertTrue(sent(chat).isEmpty())
@@ -175,7 +187,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
     }
 
     fun testAnUntrackedCheckoutOffersOnlyTheConversation() {
-        val outside = VfsUtil.findFile(Files.createTempDirectory("untracked"), true)!! // not a content root
+        val outside = untrackedFolder()
         val chat = chats.open(ChatSpec.inProject(outside.path))
         conn.emit(Fx.init("sess-1", cwd = outside.path))
         chat.send("change it")
@@ -183,7 +195,8 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         val item = sent(chat).single()
         assertTrue("the link shows without a checkpoint", item.revertable)
-        answer(0) // the only choice: Conversation Only
+        val conversationOnlyAsTheOnlyChoice = 0
+        answer(conversationOnlyAsTheOnlyChoice)
         chat.revertTo(item.id)
         assertTrue(asked!!.contains("can't be reverted"))
         assertTrue(sent(chat).isEmpty())
@@ -195,7 +208,7 @@ class TurnCheckpointsTest : BasePlatformTestCase() {
         conn.emit(Fx.init("sess-1", cwd = root.path))
         val item = turn(chat, "change it")
         write("h.txt", "after")
-        TestDialogManager.setTestDialog { _ -> chat.send("meanwhile"); 0 } // Files and Conversation
+        TestDialogManager.setTestDialog { _ -> chat.send("meanwhile"); filesAndConversation }
         chat.revertTo(item.id)
         assertEquals("after", read("h.txt"))
         assertEquals(listOf("change it", "meanwhile"), sent(chat).map { it.text })

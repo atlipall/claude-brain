@@ -45,10 +45,7 @@ object Fixes {
         }
         val infos = Diagnostics.highlights(project, listOf(file), HighlightSeverity.WEAK_WARNING, deadline)[document].orEmpty()
             .filter { it.startOffset in range }
-        // Some fixes (often imports) are computed only when asked for.
-        deadline.run("Computing the fixes") {
-            infos.filter(HighlightInfo::hasLazyQuickFixes).forEach { LazyQuickFixUpdater.getInstance(project).waitQuickFixesSynchronously(it, project, document) }
-        }
+        computeLazyFixes(project, document, infos, deadline)
         val candidates = (ReadAction.compute<List<FixCandidate>, RuntimeException> { infos.flatMap { registeredFixes(document, it) } } +
             ProblemSource.EP.extensionList.flatMap { source ->
                 try {
@@ -67,6 +64,13 @@ object Fixes {
         }
         last = Listed(file, line, stamp, fixes)
         return fixes
+    }
+
+    /** Waits for the fixes of [infos] that are computed only when asked for (often imports). */
+    private fun computeLazyFixes(project: Project, document: Document, infos: List<HighlightInfo>, deadline: Deadline) {
+        deadline.run("Computing the fixes") {
+            infos.filter(HighlightInfo::hasLazyQuickFixes).forEach { LazyQuickFixUpdater.getInstance(project).waitQuickFixesSynchronously(it, project, document) }
+        }
     }
 
     /**

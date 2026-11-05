@@ -79,6 +79,10 @@ object Usages {
             ?: throw ToolUnavailable("The IDE does not resolve `$symbol` on line $line to a declaration.")
     }
 
+    /**
+     * [ref]'s declaration and its usages in [scope]. Every usage is counted, but only the first
+     * [UsageReport.MAX_USAGES] (the shown ones) are worth a document and a line of text.
+     */
     private fun search(project: Project, ref: SymbolRef, scope: GlobalSearchScope): FoundUsages {
         val target = resolve(project, ref)
         val symbol = ref.symbol
@@ -88,7 +92,6 @@ object Usages {
         val usages = LinkedHashSet<Spot>()
         ReferencesSearch.search(target, scope).forEach(Processor { ref ->
             total++
-            // Only the shown ones are worth a document and a line of text.
             if (usages.size < UsageReport.MAX_USAGES) {
                 spotOf(ref.element, ref.element.textRange.startOffset + ref.rangeInElement.startOffset)?.let(usages::add)
             }

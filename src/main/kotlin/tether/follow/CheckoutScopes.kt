@@ -15,14 +15,17 @@ import com.intellij.psi.search.scope.packageSet.ParsingException
 class CheckoutScopes(private val project: Project) {
     private val holder get() = NamedScopeManager.getInstance(project)
 
-    /** Makes the plugin's scopes exactly [checkouts] (first one wins for a repeated name). */
+    /**
+     * Makes the plugin's scopes exactly [checkouts] (first one wins for a repeated name). The scopes are only written
+     * when they changed, as every write makes every scope view rebuild.
+     */
     fun sync(checkouts: List<Checkout>) {
         val ours = checkouts.distinctBy { it.scopeName }.mapNotNull { c ->
             compile(ScopePatterns.forCheckout(c))?.let { holder.createScope(c.scopeName, it) }
         }
         val current = holder.editableScopes.toList()
         val next = current.filterNot { it.scopeId.startsWith(Checkout.SCOPE_PREFIX) } + ours
-        if (next.map(::key) == current.map(::key)) return // unchanged: do not make every scope view rebuild
+        if (next.map(::key) == current.map(::key)) return
         holder.scopes = next.toTypedArray()
     }
 

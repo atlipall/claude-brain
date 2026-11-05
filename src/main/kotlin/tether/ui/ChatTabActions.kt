@@ -34,10 +34,13 @@ class RenameChatAction : ChatTabAction() {
     }
 }
 
-/** "Archive Chat": hides the session from the resume list (it stays under Archived sessions) and closes the tab. */
+/**
+ * "Archive Chat": hides the session from the resume list (it stays under Archived sessions) and closes the tab, which
+ * closes the chat. A chat with no session yet has nothing to keep: it just closes.
+ */
 class ArchiveChatAction : ChatTabAction() {
     override fun perform(toolWindow: ToolWindow, content: Content, chat: Chat) {
-        chat.archive() // a chat with no session yet has nothing to keep: it just closes
-        toolWindow.contentManager.removeContent(content, true) // closes the chat
+        chat.archive()
+        toolWindow.contentManager.removeContent(content, true)
     }
 }

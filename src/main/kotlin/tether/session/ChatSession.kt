@@ -221,6 +221,11 @@ class ChatSession(
     private class Fork(val from: String, val at: String)
     private var fork: Fork? = null
 
+    /**
+     * Starts the claude process and sends it the initialize request; a failed launch shows a notice and leaves the
+     * session dead. Each output line is parsed, and its images decoded, on the reader thread before the lock is taken,
+     * as that can be slow; events from an earlier process are dropped.
+     */
     fun start() {
         synchronized(lock) {
             val gen = ++generation
@@ -232,7 +237,6 @@ class ChatSession(
                 connection = conn
                 conn.start(
                     onLine = { line ->
-                        // Parsing and image decoding happen before the lock is taken: they can be slow.
                         val events = CliParser.parse(line).map { it to displayCopiesOf(it) }
                         synchronized(lock) { if (gen == generation) for ((event, copies) in events) handle(event, copies) }
                     },
@@ -311,10 +315,13 @@ class ChatSession(
         synchronized(lock) { emit(ChatItem.Notice(nextId("notice"), text, isError)) }
     }
 
+    /**
+     * Settles permission request [requestId] with [decision]. A question is answered with [answer] or denied; allowing
+     * it is ignored, as it can't be allowed without answers.
+     */
     fun respond(requestId: String, decision: PermissionDecision) {
         synchronized(lock) {
             val pending = pendingPermissions[requestId] ?: return
-            // A question is answered with answer() or declined; it can't be allowed without answers.
             if (pending.toolName == ASK_USER_QUESTION && decision !is PermissionDecision.Deny) return
             val req = pendingPermissions.remove(requestId) ?: return
             val toolId = req.toolUseId ?: "perm-$requestId"
@@ -392,7 +399,8 @@ class ChatSession(
 
     /**
      * Records [value] and sends the request [message] builds. Once it is answered the settings are asked for again, so
-     * the pickers show what runs; a refused value is forgotten (the old one is kept for the next process).
+     * the pickers show what runs; a refused value is forgotten (the old one is kept for the next process) unless a newer
+     * pick has replaced it meanwhile.
      */
     private fun choose(current: () -> String?, set: (String?) -> Unit, value: String, message: (String) -> String) {
         synchronized(lock) {
@@ -401,7 +409,7 @@ class ChatSession(
             set(value)
             val conn = connection ?: return
             val id = nextId("choice")
-            pendingChoices[id] = { if (current() == value) set(before) } // a newer pick stays
+            pendingChoices[id] = { if (current() == value) set(before) }
             conn.send(message(id))
         }
     }
@@ -495,6 +503,10 @@ class ChatSession(
     private fun displayCopiesOf(event: CliEvent): List<String>? =
         (event as? CliEvent.ToolResult)?.images?.mapIndexed { i, block -> if (i < MAX_TOOL_IMAGES) displayCopy(block) else "" }
 
+    /**
+     * Applies one event from the current process, under the lock. A failed context-usage or settings request is only
+     * logged: an older CLI may not know it.
+     */
     private fun handle(event: CliEvent, copies: List<String>? = null) {
         when (event) {
             is CliEvent.SystemInit -> {
@@ -504,7 +516,6 @@ class ChatSession(
                 notifyState()
             }
             is CliEvent.ControlResponse -> {
-                // Failures are only logged: an older CLI may not know the request.
                 if (event.requestId.startsWith(CONTEXT_PREFIX)) {
                     if (event.requestId != contextRequestId) return
                     contextRequestId = null
@@ -548,36 +559,13 @@ class ChatSession(
                 phase = Activity.Writing
                 reportActivity()
             }
-            is CliEvent.MessageStart ->
-                // The CLI starts a turn by itself, e.g. to read a finished background agent's report.
-                if (state == SessionState.IDLE) {
-                    beginRunning(Activity.Thinking)
-                    reportActivity()
-                }
+            is CliEvent.MessageStart -> onMessageStart()
             is CliEvent.BackgroundTasks -> { backgroundTasks = event.count; reportActivity() }
             is CliEvent.ThinkingStart -> { phase = Activity.Thinking; reportActivity() }
             is CliEvent.BlockStop -> streamed.remove("${event.messageId}:${event.index}")?.let { emit(it.copy(streaming = false)) }
-            is CliEvent.AssistantText -> when {
-                // A subagent's messages arrive whole; only the main conversation's are streamed.
-                event.parentId != null -> emit(ChatItem.AssistantText(nextId("text"), event.text, false, event.parentId))
-                event.messageId !in streamedMessages -> emit(ChatItem.AssistantText(nextId("text"), event.text, false))
-            }
+            is CliEvent.AssistantText -> onAssistantText(event)
             is CliEvent.AssistantMessage -> lastAnswer = event.uuid
-            is CliEvent.ToolUse -> {
-                if (event.parentId != null && event.name == HANDBACK) return
-                val base = toolCalls[event.toolUseId]
-                    ?: ChatItem.ToolCall(event.toolUseId, event.name, event.input, null, ToolStatus.RUNNING, null, null, false)
-                upsertTool(base.copy(
-                    name = event.name, input = event.input, filePath = filePathOf(event.input),
-                    parentId = event.parentId ?: base.parentId, agent = agents[event.toolUseId],
-                ))
-                // The strip follows the main conversation; a subagent's tools show in its card.
-                if (event.parentId == null) {
-                    runningTools[event.toolUseId] = event.name
-                    phase = Activity.Running(event.name)
-                    reportActivity()
-                }
-            }
+            is CliEvent.ToolUse -> onToolUse(event)
             is CliEvent.TaskStarted -> updateAgent(event.toolUseId) {
                 it.copy(subagentType = event.subagentType, background = event.background, prompt = capped(event.prompt))
             }
@@ -600,6 +588,38 @@ class ChatSession(
             is CliEvent.PromptSuggestion -> onSuggestion(event.text)
             is CliEvent.Ignored -> Unit
             is CliEvent.Malformed -> log("Malformed line from claude: ${event.line.take(200)}")
+        }
+    }
+
+    /** A message starting while idle is a turn the CLI began by itself, e.g. to read a finished background agent's report. */
+    private fun onMessageStart() {
+        if (state == SessionState.IDLE) {
+            beginRunning(Activity.Thinking)
+            reportActivity()
+        }
+    }
+
+    /** A subagent's messages arrive whole; the main conversation's are streamed, so one is shown here only when no deltas came for it. */
+    private fun onAssistantText(event: CliEvent.AssistantText) {
+        when {
+            event.parentId != null -> emit(ChatItem.AssistantText(nextId("text"), event.text, false, event.parentId))
+            event.messageId !in streamedMessages -> emit(ChatItem.AssistantText(nextId("text"), event.text, false))
+        }
+    }
+
+    /** Shows the tool call; the activity strip follows only the main conversation's tools, a subagent's show in its card. */
+    private fun onToolUse(event: CliEvent.ToolUse) {
+        if (event.parentId != null && event.name == HANDBACK) return
+        val base = toolCalls[event.toolUseId]
+            ?: ChatItem.ToolCall(event.toolUseId, event.name, event.input, null, ToolStatus.RUNNING, null, null, false)
+        upsertTool(base.copy(
+            name = event.name, input = event.input, filePath = filePathOf(event.input),
+            parentId = event.parentId ?: base.parentId, agent = agents[event.toolUseId],
+        ))
+        if (event.parentId == null) {
+            runningTools[event.toolUseId] = event.name
+            phase = Activity.Running(event.name)
+            reportActivity()
         }
     }
 
@@ -749,8 +769,11 @@ class ChatSession(
         return Images.preview(bytes)?.dataUrl().orEmpty()
     }
 
+    /**
+     * Ends the turn: a foreground agent ends within its turn, so one still running now was cut off (e.g. interrupted);
+     * then the result (or "Interrupted") is shown and the next queued message, if any, goes out.
+     */
     private fun onResult(event: CliEvent.Result) {
-        // A foreground agent ends within its turn; one still running now was cut off (e.g. interrupted).
         endAgents { !it.background }
         pendingPermissions.clear()
         runningTools.clear()

@@ -22,6 +22,9 @@ class EditorContextServiceTest : BasePlatformTestCase() {
     private lateinit var savedFinder: (PsiFile, Document, Int) -> Pair<Symbol?, Symbol?>
 
     /** The context as a chat would get it with a symbol: waits for the background lookup (absolute path). */
+    /** Moves the caret one step: a debounce round, which [setUp] made run inline. */
+    private fun nudgeTheCaret() = myFixture.editor.caretModel.moveToOffset(myFixture.editor.caretModel.offset + 1)
+
     private fun capture(): EditorContext? {
         var result: EditorContext? = null
         var done = false
@@ -30,7 +33,7 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         return result
     }
 
-    // Lines 1-11; JS lists functions, classes, methods, top-level variables and object properties in its Structure View.
+    /** Lines 1-11; JS lists functions, classes, methods, top-level variables and object properties in its Structure View. */
     private val js = listOf(
         "function outer(a) {",
         "  const x = 1;",
@@ -45,9 +48,10 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         "const conf = { a: 1 };",
     ).joinToString("\n", postfix = "\n")
 
+    /** The light project and its services are shared between tests, so every editor is closed first. */
     override fun setUp() {
         super.setUp()
-        manager.openFiles.forEach(manager::closeFile) // the light project and its services are shared between tests
+        manager.openFiles.forEach(manager::closeFile)
         savedDir = service.projectDir
         savedSchedule = service.schedule
         savedFinder = service.finder
@@ -182,7 +186,8 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         myFixture.openFileInEditor(myFixture.addFileToProject("src/a.js", "function f() {}\n").virtualFile)
         assertEquals("src/a.js", service.contextFor(root)!!.path)
         assertEquals("src/a.js", service.contextFor("$root/.claude/worktrees/wt1")!!.path)
-        assertEquals("src/a.js", service.contextFor("$root/.claude/worktrees/wt2")!!.path) // not created yet: the main-relative path
+        val worktreeNotCreatedYet = "$root/.claude/worktrees/wt2"
+        assertEquals("the main-relative path", "src/a.js", service.contextFor(worktreeNotCreatedYet)!!.path)
         assertNull(service.contextFor("/elsewhere"))
         assertEquals("a.js", service.contextFor("$root/src")!!.path)
     }
@@ -210,7 +215,7 @@ class EditorContextServiceTest : BasePlatformTestCase() {
             onEdt += ApplicationManager.getApplication().isDispatchThread
             SymbolFinder.find(file, document, offset)
         }
-        myFixture.editor.caretModel.moveToOffset(myFixture.editor.caretModel.offset + 1) // a debounce round, no listeners
+        nudgeTheCaret()
         PlatformTestUtil.waitWithEventsDispatching("The cache never warmed", { service.contextFor(root)?.symbol != null }, 10)
         assertEquals("inner", service.contextFor(root)!!.symbol!!.name)
         assertFalse(onEdt.any { it })
@@ -234,20 +239,21 @@ class EditorContextServiceTest : BasePlatformTestCase() {
         }
         val seen = mutableListOf<EditorContext?>()
         service.addListener(testRootDisposable) { seen += service.contextFor(root) }
-        myFixture.editor.caretModel.moveToOffset(myFixture.editor.caretModel.offset + 1) // a debounce round (run inline here)
-        assertTrue(onEdt.isEmpty() || onEdt.none { it }) // nothing ran on the EDT while the round returned
-        assertNull(seen.first()!!.symbol) // the listener got the location at once, without waiting for the lookup
+        nudgeTheCaret()
+        assertTrue("nothing ran on the EDT while the round returned", onEdt.isEmpty() || onEdt.none { it })
+        assertNull("the listener got the location at once, without waiting for the lookup", seen.first()!!.symbol)
         PlatformTestUtil.waitWithEventsDispatching("The symbol never arrived", { seen.last()?.symbol != null }, 10)
         assertEquals("inner", seen.last()!!.symbol!!.name)
         assertTrue(onEdt.isNotEmpty())
         assertFalse(onEdt.any { it })
         val calls = onEdt.size
-        service.contextFor(root) // a refresh on a warm cache runs nothing
-        assertEquals(calls, onEdt.size)
+        service.contextFor(root)
+        assertEquals("a refresh on a warm cache runs nothing", calls, onEdt.size)
     }
 
+    /** The finder fails before the file opens, since the caret events of opening it warm the cache. */
     fun testAFailingLookupCompletesWithTheLocationOnly() {
-        service.finder = { _, _, _ -> throw IllegalStateException("boom") } // before the file opens: caret events warm the cache
+        service.finder = { _, _, _ -> throw IllegalStateException("boom") }
         myFixture.configureByText("calc.js", js.replace("return x;", "return <caret>x;"))
         val context = capture()!!
         assertEquals(4, context.line)

@@ -109,7 +109,7 @@ class EditorSwapperTest : BasePlatformTestCase() {
         val queued = mutableListOf<Runnable>()
         EditorSwapper(project, mapper, { queued += Runnable { inBackground = true; try { it.run() } finally { inBackground = false } } }, { it.run() }, lookup)
             .swap(main, wt1)
-        assertEquals(0, lookups) // the snapshot phase on the EDT resolves nothing
+        assertEquals("the snapshot phase on the EDT resolves nothing", 0, lookups)
         queued.single().run()
         assertTrue(lookups > 0)
         assertEquals(0, lookupsOutsideBackground)

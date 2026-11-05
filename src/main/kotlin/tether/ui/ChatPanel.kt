@@ -41,9 +41,9 @@ class ChatPanel(private val project: Project, private val chat: Chat, parent: Di
             null
         }
         browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
+            /** Installs the bridge on the first main-frame load, which is our own page; anything else never gets it. */
             override fun onLoadEnd(cefBrowser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
                 if (!frame.isMain) return
-                // The first main-frame load is our own page; anything else never gets the bridge.
                 val url = cefBrowser.url
                 val page = pageUrl ?: url.also { pageUrl = it }
                 if (url != page) return

@@ -90,6 +90,7 @@ object Images {
      * An image ready to send to Claude: as it is when it is at most [maxBytes] and its long edge at most [maxEdge];
      * otherwise scaled to fit [maxEdge] (aspect kept) and re-encoded — JPEG stays JPEG (quality 0.85), PNG/GIF become
      * PNG and fall back to JPEG when still too large. WebP is scaled like GIF when [webpDecodable], else refused.
+     * Even an image that fits is decoded in full, as a truncated or corrupt one would break the session.
      */
     fun prepare(bytes: ByteArray, maxBytes: Int = MAX_BYTES, maxEdge: Int = MAX_EDGE): Prepared {
         val type = ImageType.sniff(bytes) ?: return Prepared.Rejected(NOT_AN_IMAGE)
@@ -99,7 +100,6 @@ object Images {
             return if (fits) Prepared.Ok(Image(type, bytes, w, h)) else Prepared.Rejected(WEBP_TOO_LARGE)
         }
         if (w.toLong() * h > MAX_PIXELS) return Prepared.Rejected(TOO_MANY_PIXELS)
-        // Even an image that fits is decoded in full: a truncated or corrupt one would break the session.
         val source = decode(bytes) ?: return Prepared.Rejected(UNREADABLE)
         if (fits) return Prepared.Ok(Image(type, bytes, w, h))
         return fit(source, type, maxEdge, maxBytes)?.let { Prepared.Ok(it) } ?: Prepared.Rejected(TOO_LARGE)
@@ -119,11 +119,14 @@ object Images {
         return fit(source, type, maxEdge, maxBytes)
     }
 
+    /**
+     * The decoded pixels, or null when the image cannot be read. A JPEG must reach its end-of-image marker
+     * ([isCompleteJpeg]): the JPEG reader accepts a cut-off file with only a warning. ImageIO closes the stream.
+     */
     private fun decode(bytes: ByteArray): BufferedImage? {
-        // The JPEG reader accepts a cut-off file with only a warning; it must reach its end-of-image marker.
         if (ImageType.sniff(bytes) == ImageType.JPEG && !isCompleteJpeg(bytes)) return null
         return try {
-            ImageIO.read(MemoryCacheImageInputStream(ByteArrayInputStream(bytes))) // ImageIO closes the stream
+            ImageIO.read(MemoryCacheImageInputStream(ByteArrayInputStream(bytes)))
         } catch (e: Exception) { null }
     }
 
@@ -136,9 +139,21 @@ object Images {
         fun u(i: Int) = b[i].toInt() and 0xFF
         if (b.size < 4 || u(0) != 0xFF || u(1) != 0xD8) return false
         var i = 2
+        fun skipFillBytes() {
+            while (i < b.size && u(i) == 0xFF) i++
+        }
+        /** Moves past the entropy-coded data to the next real marker; false when the bytes run out first. */
+        fun skipEntropyCodedData(): Boolean {
+            while (true) {
+                while (i < b.size && u(i) != 0xFF) i++
+                if (i + 1 >= b.size) return false
+                val next = u(i + 1)
+                if (next == 0x00 || next in 0xD0..0xD7) i += 2 else return true
+            }
+        }
         while (true) {
             if (i >= b.size || u(i) != 0xFF) return false
-            while (i < b.size && u(i) == 0xFF) i++ // fill bytes
+            skipFillBytes()
             if (i >= b.size) return false
             val m = u(i)
             if (m == 0xD9) return true
@@ -147,13 +162,7 @@ object Images {
             val length = (u(i + 1) shl 8) or u(i + 2)
             if (length < 2 || i + 1 + length > b.size) return false
             i += 1 + length
-            if (m != 0xDA) continue
-            while (true) { // entropy-coded data up to the next real marker
-                while (i < b.size && u(i) != 0xFF) i++
-                if (i + 1 >= b.size) return false
-                val next = u(i + 1)
-                if (next == 0x00 || next in 0xD0..0xD7) i += 2 else break
-            }
+            if (m == 0xDA && !skipEntropyCodedData()) return false
         }
     }
 
@@ -195,9 +204,9 @@ object Images {
         return out
     }
 
+    /** PNG bytes, written through a memory-cached stream (as is [jpeg]): ImageIO's own default would buffer through a temp file on disk. */
     private fun png(img: BufferedImage): ByteArray {
         val out = ByteArrayOutputStream()
-        // Memory-cached streams: ImageIO's own default would buffer through a temp file on disk.
         MemoryCacheImageOutputStream(out).use { stream -> check(ImageIO.write(img, "png", stream)) }
         return out.toByteArray()
     }

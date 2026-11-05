@@ -28,7 +28,18 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
         }
         toolWindow.setTitleActions(listOf(NewChatAction()))
         val tabs = ChatTabs(project, toolWindow)
-        // Registered before the first tab so selecting it is followed too.
+        followSelectedTab(project, toolWindow)
+        var restoring = true
+        restore(project, tabs, toolWindow) { restoring = false }
+        openMainChatWhenShownEmpty(project, toolWindow, tabs) { restoring }
+    }
+
+    /**
+     * Keeps the [CheckoutFollower] on the selected tab's chat. Registered before the first tab, so selecting that one
+     * is followed too. A closed tab's chat leaves [Chats] only when its content is disposed, so the refresh after a
+     * removal waits a turn of the EDT.
+     */
+    private fun followSelectedTab(project: Project, toolWindow: ToolWindow) {
         val follower = CheckoutFollower.getInstance(project)
         toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
             override fun selectionChanged(event: ContentManagerEvent) {
@@ -36,16 +47,16 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
             }
 
             override fun contentRemoved(event: ContentManagerEvent) {
-                // Later: the closed chat leaves Chats when its content is disposed.
                 ApplicationManager.getApplication().invokeLater({ follower.refresh() }, project.disposed)
             }
         })
-        var restoring = true
-        restore(project, tabs, toolWindow) { restoring = false }
-        // Showing the tool window after every tab was closed starts a fresh main chat.
+    }
+
+    /** Starts a fresh main chat when the tool window is shown after every tab was closed, unless [restoring] says the tabs are still being reopened. */
+    private fun openMainChatWhenShownEmpty(project: Project, toolWindow: ToolWindow, tabs: ChatTabs, restoring: () -> Boolean) {
         project.messageBus.connect(toolWindow.disposable).subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
             override fun toolWindowShown(shown: ToolWindow) {
-                if (shown.id == ID && !restoring && shown.contentManager.contentCount == 0) tabs.open(Chats.getInstance(project).mainSpec())
+                if (shown.id == ID && !restoring() && shown.contentManager.contentCount == 0) tabs.open(Chats.getInstance(project).mainSpec())
             }
         })
     }
@@ -53,7 +64,8 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
     /**
      * Reopens the chats that were open when the project closed (a fresh main chat when there are none). Their
      * transcripts are read in the background, so a long session doesn't hold up the IDE; then [done] runs and the tabs
-     * open. A session the user opened meanwhile is not opened twice.
+     * open. A session the user opened meanwhile is not opened twice. Only then does [OpenChats] start tracking: a save
+     * meanwhile would store an empty list.
      */
     private fun restore(project: Project, tabs: ChatTabs, toolWindow: ToolWindow, done: () -> Unit) {
         val chats = Chats.getInstance(project)
@@ -69,7 +81,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
                 }
             }
             if (toolWindow.contentManager.contentCount == 0) tabs.open(chats.mainSpec())
-            OpenChats.getInstance(project).startTracking() // not before: a save meanwhile would store an empty list
+            OpenChats.getInstance(project).startTracking()
         }
     }
 

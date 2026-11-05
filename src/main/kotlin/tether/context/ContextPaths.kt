@@ -11,6 +11,9 @@ object ContextPaths {
      * chat's checkout, if [exists] says it is there. Otherwise it is [file] relative to the chat's folder. Null when
      * neither applies, including a worktree file with no counterpart seen from main (main does not own
      * `.claude/worktrees`, as in v1's edit notes).
+     *
+     * A new worktree chat works in a predicted folder that git creates on the first message, from HEAD: until then a
+     * main file's path relative to main is the path it will have there.
      */
     fun forChat(file: String, cwd: String, projectDir: String, exists: (String) -> Boolean): String? {
         val mapper = CheckoutMapper(projectDir)
@@ -18,8 +21,6 @@ object ContextPaths {
         val chat = (mapper.place(cwd) as? Placement.Followable)?.checkout
         val home = chat?.let { mapper.checkoutOf(path) }
         if (chat != null && home != null && home != chat) {
-            // A new worktree chat works in a predicted folder that git creates on the first message, from HEAD: until
-            // then a main file's path relative to main is the path it will have there.
             if (home.isMain && !exists(chat.dir)) return relativeTo(path, home.dir)
             return mapper.counterpart(path, home, chat)?.takeIf(exists)?.let { relativeTo(it, chat.dir) }
         }

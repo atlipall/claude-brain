@@ -200,9 +200,11 @@ class Chat(
             if (text.isNotEmpty()) insert(text)
         }
 
+        /**
+         * Every UserText the session reports is a message going out now (history comes through the constructor), so the
+         * conversation can be rewound to before it; marking the files is IDE work, run off this thread.
+         */
         override fun onItem(item: ChatItem) {
-            // Every UserText the session reports is a message going out now (history comes through the constructor),
-            // so the conversation can be rewound to before it; the files' mark is IDE work, off this thread.
             val shown = if (item is ChatItem.UserText && checkpoints != null) item.copy(revertable = true) else item
             synchronized(lock) { items[shown.id] = shown }
             view?.item(shown)
@@ -262,13 +264,15 @@ class Chat(
         return true
     }
 
-    /** Saves an unsaved name once the session has an id (a new chat gets one with its first message). Any thread. */
+    /**
+     * Saves an unsaved name once the session has an id (a new chat gets one with its first message). Any thread. The
+     * write reads the name when it runs, under [titleWriteLock], so the last write is always the latest name.
+     */
     private fun saveTitleIfReady() {
         val save = saveTitle ?: return
         val id = session.sessionId ?: return
         if (!titleUnsaved.getAndSet(false)) return
         val folder = cwd
-        // Reads the name when it runs, under the lock, so the last write is always the latest name.
         background { synchronized(titleWriteLock) { save(folder, id, customTitle.orEmpty(), archived) } }
     }
 
@@ -335,7 +339,7 @@ class Chat(
     fun send(text: String, images: List<Attachment> = emptyList()) {
         if (session.state == SessionState.DEAD) return
         if (text.isBlank() && images.isEmpty()) return
-        val edits = editNote(this) // saves documents first
+        val edits = editNote(this)
         outbox += Outgoing(text, edits, images)
         pump()
     }
@@ -367,7 +371,7 @@ class Chat(
                 if (inline) {
                     note = formatted
                     ready = true
-                } else if (!disposed && outbox.firstOrNull() === next) { // a closed chat's outbox was cleared
+                } else if (stillWaiting(next)) {
                     resolving = false
                     outbox.removeFirst()
                     deliver(next, formatted)
@@ -389,6 +393,9 @@ class Chat(
             }
         }
     }
+
+    /** False once the outbox was cleared under [message]: the chat was closed or the turn interrupted meanwhile. */
+    private fun stillWaiting(message: Outgoing): Boolean = !disposed && outbox.firstOrNull() === message
 
     private fun format(context: EditorContext?): String? = try {
         context?.let(ContextNotes::note)
@@ -420,21 +427,23 @@ class Chat(
         if (choice.conversation) rewindTo(item, choice.files)
     }
 
-    /** Claude forgets [item] and what followed; the panel drops them and the message goes back into the input box. */
+    /**
+     * Claude forgets [item] and what followed; the panel drops them and the message goes back into the input box. What
+     * to drop is decided before the rewind, which may add a notice (claude failing to start) that must stay. The fork
+     * gets a new session id, so a name the user gave is marked unsaved and saved under it once claude reports it.
+     */
     private fun rewindTo(item: ChatItem.UserText, filesReverted: Boolean) {
         val dropped = synchronized(lock) {
             val ids = items.keys.toList()
             val at = ids.indexOf(item.id)
             if (at < 0) null else ids.subList(at, ids.size)
         } ?: return
-        // The fork gets a new session id; a name the user gave is saved under it once claude reports it.
         if (!session.rewind(item.id)) {
             session.notice(
                 if (filesReverted) "The conversation could not be taken back: Claude started working."
                 else "Couldn't take the conversation back: Claude started working.")
             return
         }
-        // rewind may have added a notice (claude failing to start); only what was there before goes.
         val kept = synchronized(lock) {
             dropped.forEach(items::remove)
             items.values.toList()

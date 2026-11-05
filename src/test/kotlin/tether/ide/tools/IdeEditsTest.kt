@@ -18,9 +18,9 @@ import java.util.concurrent.Callable
 class IdeEditsTest : BasePlatformTestCase() {
     override fun createTempDirTestFixture(): TempDirTestFixture = TempDirTestFixtureImpl()
 
+    /** The light project's content is in memory; these files are on disk, so their folder is made content too. */
     override fun setUp() {
         super.setUp()
-        // The light project's content is in memory; these files are on disk, so make their folder content too.
         PsiTestUtil.addContentRoot(module, myFixture.tempDirFixture.getFile("")!!)
     }
 

@@ -14,9 +14,9 @@ class ContextUsageTest {
         assertEquals(14851L, usage.used)
         assertEquals(1000000L, usage.max)
         assertEquals(1, usage.percent)
-        assertEquals(96, usage.autocompactAt) // (1M - 33k) / 1M
-        // Only "used" categories with tokens: deferred tools, the buffer, free space and empty ones are left out.
+        assertEquals("(1M - 33k) / 1M", 96, usage.autocompactAt)
         assertEquals(
+            "only \"used\" categories with tokens: deferred tools, the buffer, free space and empty ones are left out",
             listOf("System prompt" to 2495L, "System tools" to 646L, "Skills" to 9924L, "Messages" to 1290L),
             usage.categories.map { it.name to it.tokens },
         )

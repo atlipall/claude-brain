@@ -60,10 +60,15 @@ class ChatsTest : BasePlatformTestCase() {
     private fun awaitMessages(connection: FakeConnection, count: Int) =
         PlatformTestUtil.waitWithEventsDispatching("Expected $count messages, got ${connection.userMessages()}", { connection.userMessages().size >= count }, 10)
 
+    /**
+     * The light project and its services are shared between tests: closes the chats and every editor (a leftover
+     * one would add editor context to every message), and saves all documents, since the chats opened by a test
+     * only hear about later saves.
+     */
     override fun setUp() {
         super.setUp()
-        chats.closeAll() // the light project and its services are shared between tests
-        manager.openFiles.forEach(manager::closeFile) // a leftover editor would add editor context to every message
+        chats.closeAll()
+        manager.openFiles.forEach(manager::closeFile)
         savedAttach = settings.attachEditorContext
         settings.attachEditorContext = true
         savedProjectDir = contextService.projectDir
@@ -74,7 +79,7 @@ class ChatsTest : BasePlatformTestCase() {
         home = Files.createTempDirectory("claude-home").toFile()
         chats.connector = { launch -> launches += launch; FakeConnection().also { connections += it } }
         chats.store = SessionStore(home)
-        FileDocumentManager.getInstance().saveAllDocuments() // chats opened below only hear about later saves
+        FileDocumentManager.getInstance().saveAllDocuments()
     }
 
     override fun tearDown() {
@@ -102,10 +107,11 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(emptyList<Pair<ChatSpec, Transcript>>(), chats.restorable())
         assertEquals("restoring alone does not start following the chats", listOf<String?>(), openChats.state.chats.map { it.sessionId })
         openChats.startTracking()
-        chats.open(ChatSpec.inProject(root)) // no message yet, so no session: nothing to resume
+        chats.open(ChatSpec.inProject(root))
         val b = chats.open(ChatSpec("wt-1", "$root/wt"))
         connections[2].emit(Fx.init(sessionId = "s-b", cwd = "$root/wt"))
-        assertEquals(listOf("s-a" to root, "s-b" to "$root/wt"), openChats.state.chats.map { it.sessionId to it.cwd })
+        assertEquals("a chat without a message has no session, so nothing to resume",
+            listOf("s-a" to root, "s-b" to "$root/wt"), openChats.state.chats.map { it.sessionId to it.cwd })
         chats.close(a)
         assertEquals(listOf("s-b"), openChats.state.chats.map { it.sessionId })
         chats.close(b)
@@ -168,7 +174,7 @@ class ChatsTest : BasePlatformTestCase() {
         val spec = ChatSpec.resume(root, chats.store.list(root).single())
         assertNull(chats.read(ChatSpec.inProject(root)))
         val resumed = chats.read(spec)!!
-        File(chats.store.projectDir(root), "abc.jsonl").delete() // open must not read it again
+        File(chats.store.projectDir(root), "abc.jsonl").delete()
         val chat = chats.open(spec, resumed)
         assertEquals("abc", launches.single().resumeId)
         assertEquals(resumed.startedAt, chat.startedAt)
@@ -411,8 +417,9 @@ class ChatsTest : BasePlatformTestCase() {
         assertTrue(connections[1].userMessages().single().startsWith("[IDE] Since your last turn the user edited these files: b.txt."))
     }
 
+    /** Editor context is off: this is about the edit note only. */
     fun testChatOpenedLaterIsNotToldAboutEarlierSaves() {
-        settings.attachEditorContext = false // this is about the edit note only
+        settings.attachEditorContext = false
         myFixture.configureByText("early.txt", "x")
         myFixture.type("y")
         FileDocumentManager.getInstance().saveAllDocuments()
@@ -461,8 +468,8 @@ class ChatsTest : BasePlatformTestCase() {
         awaitMessages(connections[0], 1)
         awaitMessages(connections[1], 1)
         assertEquals(listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\na"), connections[0].userMessages())
-        // wt2's folder does not exist yet; git creates it from HEAD, so the main-relative path will hold there
-        assertEquals(listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\nb"), connections[1].userMessages())
+        assertEquals("wt2's folder does not exist yet; git creates it from HEAD, so the main-relative path will hold there",
+            listOf("[IDE] The user is looking at src/a.txt, caret at line 1:1.\n\nb"), connections[1].userMessages())
     }
 
     fun testFailingContextCaptureStillSendsTheMessage() {
@@ -525,7 +532,7 @@ class ChatsTest : BasePlatformTestCase() {
         val view = RecordingView().also(chat::attach)
         chat.send("wait for it")
         assertTrue(connections.single().userMessages().isEmpty())
-        assertTrue(view.items.none { it is ChatItem.UserText }) // the bubble appears with the send
+        assertTrue("the bubble appears with the send", view.items.none { it is ChatItem.UserText })
         release.countDown()
         awaitMessages(connections.single(), 1)
         assertEquals(listOf(inTotal + "wait for it"), connections.single().userMessages())
@@ -544,7 +551,7 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(listOf<Activity?>(Activity.Starting), view.activities)
         release.countDown()
         awaitMessages(connections.single(), 1)
-        assertEquals(listOf<Activity?>(Activity.Starting), view.activities) // handed to the CLI: still Starting, not repeated
+        assertEquals("handed to the CLI: still Starting, not repeated", listOf<Activity?>(Activity.Starting), view.activities)
         connections.single().emit(Fx.thinkingStart("m1", 0))
         assertEquals(listOf(Activity.Starting, Activity.Thinking), view.activities)
     }
@@ -670,14 +677,14 @@ class ChatsTest : BasePlatformTestCase() {
         val chat = chats.open(ChatSpec.inProject(root))
         val view = RecordingView().also(chat::attach)
         chat.send("first")
-        chat.send("second") // must queue behind the first
+        chat.send("second")
         chat.send("third")
         assertTrue(view.items.none { it is ChatItem.UserText })
         release.countDown()
         fun texts() = view.items.filterIsInstance<ChatItem.UserText>().map { it.text }
         fun queued() = view.queues.lastOrNull().orEmpty().map { it.text }
         PlatformTestUtil.waitWithEventsDispatching("Not all sent", { queued().size >= 2 }, 10)
-        assertEquals(listOf("first"), texts()) // one claude turn at a time: the rest queue in the session
+        assertEquals("one claude turn at a time: the rest queue in the session", listOf("first"), texts())
         assertEquals(listOf("second", "third"), queued())
         assertEquals(listOf(inTotal + "first"), connections.single().userMessages())
         connections.single().emit(Fx.result())
@@ -687,6 +694,7 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals(listOf("third"), queued())
     }
 
+    /** Keeps dispatching past the lookup and its 200 ms timeout; a stray exception fails the test. */
     fun testClosingTheChatWhileASendWaitsSendsNothingAndThrowsNothing() {
         myFixture.configureByText("calc.js", calc)
         val release = CountDownLatch(1)
@@ -699,7 +707,8 @@ class ChatsTest : BasePlatformTestCase() {
         chat.send("pending")
         chats.close(chat)
         release.countDown()
-        val until = System.currentTimeMillis() + 800 // past the lookup and the 200 ms timeout; a stray exception fails the test
+        val pastTheLookupAndItsTimeoutMs = 800
+        val until = System.currentTimeMillis() + pastTheLookupAndItsTimeoutMs
         while (System.currentTimeMillis() < until) {
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             Thread.sleep(20)

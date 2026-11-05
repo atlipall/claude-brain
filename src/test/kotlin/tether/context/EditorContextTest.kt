@@ -35,7 +35,7 @@ class EditorContextTest {
         assertTrue(Symbols.isFunctionLike("function", "JSFunctionImpl"))
         assertTrue(Symbols.isFunctionLike("method", "TypeScriptFunctionImpl"))
         assertTrue(Symbols.isFunctionLike("constructor", "X"))
-        assertTrue(Symbols.isFunctionLike("property", "JSFunctionImpl")) // a JS getter
+        assertTrue("a JS getter", Symbols.isFunctionLike("property", "JSFunctionImpl"))
         assertTrue(Symbols.isFunctionLike(null, "KtNamedFunction"))
         assertTrue(Symbols.isFunctionLike(null, "PsiMethodImpl"))
         assertFalse(Symbols.isFunctionLike("class", "ES6ClassImpl"))

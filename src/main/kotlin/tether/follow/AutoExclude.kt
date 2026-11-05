@@ -6,6 +6,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.registry.RegistryValue
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -46,13 +47,19 @@ object AutoExclude {
                     "empty and its files have no code insight. Include the worktrees? This needs a restart.",
                 NotificationType.INFORMATION,
             )
-            .addAction(NotificationAction.createSimpleExpiring("Include and restart") {
-                registry.setValue(withoutWorktrees(registry.asString()))
-                // The IDE asks about running processes before it restarts. Outside the action: shutting down from inside it blames this plugin for other plugins' dispose errors.
-                ApplicationManager.getApplication().invokeLater { ApplicationManager.getApplication().restart() }
-            })
+            .addAction(NotificationAction.createSimpleExpiring("Include and restart") { includeAndRestart(registry) })
             .addAction(NotificationAction.createSimpleExpiring("Not now") {})
             .notify(project)
+    }
+
+    /**
+     * Drops `.claude/worktrees` from [registry] and restarts the IDE (which asks about running processes first). The
+     * restart runs outside the notification action: shutting down from inside it blames this plugin for other plugins'
+     * dispose errors.
+     */
+    private fun includeAndRestart(registry: RegistryValue) {
+        registry.setValue(withoutWorktrees(registry.asString()))
+        ApplicationManager.getApplication().invokeLater { ApplicationManager.getApplication().restart() }
     }
 
     const val NOTIFICATION_GROUP = "Tether"

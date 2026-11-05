@@ -18,11 +18,12 @@ class SendConsoleToTether : AnAction(), DumbAware {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
-        val text = editor.selectionModel.selectedText?.takeIf { it.isNotBlank() } ?: editor.document.charsSequence.let {
-            // only the end is sent (see TetherMessages.console); a console can hold megabytes
-            it.subSequence((it.length - TetherMessages.MAX_CONSOLE - 1).coerceAtLeast(0), it.length).toString()
-        }
+        val text = editor.selectionModel.selectedText?.takeIf { it.isNotBlank() } ?: tailOf(editor.document.charsSequence)
         if (text.isBlank()) return
         TetherTarget.withChat(project) { chat -> chat.insert(TetherMessages.console(text)) }
     }
+
+    /** The end of [console], as much as [TetherMessages.console] sends; a console can hold megabytes. */
+    private fun tailOf(console: CharSequence): String =
+        console.subSequence((console.length - TetherMessages.MAX_CONSOLE - 1).coerceAtLeast(0), console.length).toString()
 }

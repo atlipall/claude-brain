@@ -118,12 +118,14 @@ Done: `prefers-contrast: more` makes muted text full colour and borders 2px; `.a
 
 ## Code hygiene
 
-### 13. Inline comments against CLAUDE.md
+### 13. Inline comments against CLAUDE.md — done
+Done: inline comments across `src/main` (Kotlin and `chat.js`) and `src/test` were moved into KDoc/JSDoc, assertion messages, better names or small extracted functions, or deleted when they restated the code. Behaviour is unchanged (full test suite passes; a separate review of the diff found no behaviour change). Kept on purpose: the `//` block above `ScopePatterns` in `follow/Checkouts.kt`, one top-of-rule comment in `chat.css` (CSS has no doc comments), and the `// --- section ---` dividers between tests in a few test classes.
 Many function bodies have `//` comments that belong in KDoc or in better names. Heaviest files: `session/ChatSession.kt`,
 `session/Chat.kt`, `follow/CheckoutFollower.kt`, `context/EditorContextService.kt`, `ide/TurnCheckpoints.kt`,
 `image/Images.kt`, `ui/ChatBridge.kt`, `webview/chat.js`. Keep the one above `ScopePatterns` in `follow/Checkouts.kt`
 (`//*` would end a KDoc block). Best done file by file as each one is next edited.
 
-### 14. Small dead code
+### 14. Small dead code — done
+Done: `CheckoutScopes.find` is `internal` with KDoc saying only tests use it; `SessionView.state` no longer takes a session id and the page's `state` message no longer carries one.
 - `follow/CheckoutScopes.kt` `find(checkout)` is used only by its test; drop it or make it `internal`.
 - `ChatBridge.state()` sends `sessionId`, which `chat.js` `setState` never reads.

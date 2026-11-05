@@ -15,9 +15,9 @@ import com.intellij.ui.dsl.builder.panel
 class TetherConfigurable : BoundConfigurable("Tether") {
     private val state get() = TetherSettings.getInstance().state
 
+    /** Saves the form and refreshes each open project's checkout follower; only projects whose chat tool window is open have one. */
     override fun apply() {
         super.apply()
-        // Only projects whose chat tool window is open have a follower and chats.
         ProjectManager.getInstance().openProjects.forEach { project ->
             project.serviceIfCreated<CheckoutFollower>()?.refresh()
         }

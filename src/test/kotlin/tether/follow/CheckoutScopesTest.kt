@@ -13,9 +13,10 @@ class CheckoutScopesTest : BasePlatformTestCase() {
     private val wt1 get() = Checkout("wt1", "$root/.claude/worktrees/wt1")
     private val wt2 get() = Checkout("wt2", "$root/.claude/worktrees/wt2")
 
+    /** The light project is shared between tests, so the scopes start empty. */
     override fun setUp() {
         super.setUp()
-        holder.scopes = emptyArray() // the light project is shared between tests
+        holder.scopes = emptyArray()
     }
 
     override fun tearDown() {
@@ -66,8 +67,10 @@ class CheckoutScopesTest : BasePlatformTestCase() {
             matches(ScopePatterns.MAIN, "a.txt", "dir/b.txt", ".claude/settings.txt"))
     }
 
-    // The platform excludes .claude/worktrees from the project by default (see AutoExclude), so pattern semantics
-    // for a worktree folder are checked on an ordinary folder.
+    /**
+     * The platform excludes .claude/worktrees from the project by default (see AutoExclude), so pattern semantics
+     * for a worktree folder are checked on an ordinary folder.
+     */
     fun testFolderPatternMatchesOnlyThatFolder() {
         listOf("wts/wt1/a.txt", "wts/wt1/d/e/f.txt", "wts/wt10/a.txt", "wts/wt-1.x/a.txt").forEach { myFixture.addFileToProject(it, "x") }
         assertEquals(listOf("wts/wt1/a.txt", "wts/wt1/d/e/f.txt"),

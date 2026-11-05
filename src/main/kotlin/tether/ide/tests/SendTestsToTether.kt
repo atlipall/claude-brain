@@ -13,8 +13,8 @@ import com.intellij.openapi.project.DumbAware
 class SendTestsToTether : AnAction(), DumbAware {
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
+    /** Shown when something selected failed; a suite is a defect when any test in it is, so the tree isn't walked. */
     override fun update(e: AnActionEvent) {
-        // A suite is a defect when any test in it is, so the selection tells without walking the tree.
         e.presentation.isEnabledAndVisible = e.project != null && selected(e).any { it.isDefect }
     }
 

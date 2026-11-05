@@ -77,12 +77,12 @@ class CliParserTest {
         assertEquals(
             listOf(CliEvent.AssistantMessage("a-1"), CliEvent.AssistantText("m1", "DONE")),
             CliParser.parse(Fx.assistantText("m1", "DONE", uuid = "a-1")))
-        // A line with only thinking shows nothing, but it is still a message a rewind can resume at.
-        assertEquals(listOf(CliEvent.AssistantMessage("a-2")), CliParser.parse(Fx.assistantThinking("m1", uuid = "a-2")))
+        assertEquals("a line with only thinking shows nothing, but it is still a message a rewind can resume at",
+            listOf(CliEvent.AssistantMessage("a-2")), CliParser.parse(Fx.assistantThinking("m1", uuid = "a-2")))
     }
 
+    /** Subagent messages live in their own transcript; the main conversation can't be resumed at them. */
     @Test fun aSubagentsAssistantLineReportsNoUuid() {
-        // Subagent messages live in their own transcript; the main conversation can't be resumed at them.
         assertTrue(CliParser.parse(Fx.subagentText("toolu_1", "m2", "hi")).none { it is CliEvent.AssistantMessage })
     }
 

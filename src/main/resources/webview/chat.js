@@ -1,8 +1,11 @@
 (function () {
   'use strict';
-  const items = new Map(); // id -> element
-  const log = document.getElementById('log');           // the scroller
-  const logContent = document.getElementById('log-content'); // what it scrolls: the items
+  /** The element of every item shown, by item id. */
+  const items = new Map();
+  /** The scroller. */
+  const log = document.getElementById('log');
+  /** What [log] scrolls: the items. */
+  const logContent = document.getElementById('log-content');
   const toBottom = document.getElementById('to-bottom');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
@@ -23,36 +26,49 @@
   const queueEl = document.getElementById('queue');
   const attachEl = document.getElementById('attachments');
   const attachBtn = document.getElementById('attach');
-  const pending = new Map(); // attachment id -> { el, ready }
+  /** The tiles in the attachment tray, by attachment id: { el, ready }. */
+  const pending = new Map();
   let attachSeq = 0;
   const pendingResolve = new Map();
   let reqSeq = 0;
-  let history = [];  // sent messages, oldest first (shared by every tab, kept by the IDE)
-  let recall = -1;   // index into history while recalling, -1 otherwise
-  let draft = '';    // what the box held before recall started
-  let suggestion = '';  // the predicted next prompt shown in the empty box; Tab takes it
-  let idle = false;     // the last state was IDLE: a suggestion that lands later than a new turn's state is stale
+  /** Sent messages, oldest first: shared by every tab and kept by the IDE. */
+  let history = [];
+  /** Index into [history] while recalling, -1 otherwise. */
+  let recall = -1;
+  /** What the box held before recall started. */
+  let draft = '';
+  /** The predicted next prompt shown in the empty box; Tab takes it. */
+  let suggestion = '';
+  /** The last state was IDLE: a suggestion that lands later than a new turn's state is stale. */
+  let idle = false;
 
-  const STATUS = { DEAD: 'Stopped' }; // the header says nothing else; the strip above the input shows the turn
+  /** The header says nothing else; the strip above the input shows the turn. */
+  const STATUS = { DEAD: 'Stopped' };
   const TOOL_STATUS = { running: 'running', awaiting_permission: 'needs permission', done: 'done', error: 'failed', denied: 'denied' };
   const PATH_RE = /^[\w@.\/~-]*[\w-]\.[A-Za-z0-9]{1,10}(?:(?::|#L)\d+(?:[:-]\d+)?)?$/;
   const MAX_PRE = 6000;
-  const MAX_ATTACH = 10;                 // images per message; the IDE enforces it too
-  const CHUNK = 262144;                  // base64 characters per bridge message (a multiple of 4)
-  const MAX_INPUT = 20 * 1024 * 1024;    // the IDE refuses larger files without reading them
+  /** Images per message; the IDE enforces it too. */
+  const MAX_ATTACH = 10;
+  /** Base64 characters per bridge message (a multiple of 4). */
+  const CHUNK = 262144;
+  /** The IDE refuses larger files without reading them. */
+  const MAX_INPUT = 20 * 1024 * 1024;
   const DATA_IMG = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+\/]+=*$/;
   const SANITIZE = {
     FORBID_TAGS: ['style', 'form', 'button', 'input', 'textarea', 'select', 'option', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'img', 'picture', 'source', 'video', 'audio', 'track', 'svg', 'math'],
     FORBID_ATTR: ['style', 'class', 'id'],
     ALLOW_DATA_ATTR: false,
   };
-  // Elements created by h() are the only ones the click handler acts on; model markup is never trusted.
+  /** Elements created by h(): the only ones the click handler acts on, as model markup is never trusted. */
   const trusted = new WeakSet();
-  // Markdown images never become <img> in model markup: the renderer leaves a marker (unguessable per page load) that
-  // survives sanitizing as text; the page swaps it for alt text, and for a trusted <img> once the IDE resolves the file.
+  /**
+   * Markdown images never become <img> in model markup: the renderer leaves a marker (unguessable per page load) that
+   * survives sanitizing as text; the page swaps it for alt text, and for a trusted <img> once the IDE resolves the file.
+   */
   const IMG_NONCE = Array.from(crypto.getRandomValues(new Uint32Array(2)), (n) => n.toString(36)).join('');
   const IMG_MARK = new RegExp('IMG' + IMG_NONCE + '_(\\d+)_', 'g');
-  let imgSlots = null; // the image tokens of the message being parsed
+  /** The image tokens of the message being parsed. */
+  let imgSlots = null;
   marked.use({ renderer: { image(token) {
     if (!imgSlots) return '';
     imgSlots.push({ href: String(token.href || ''), alt: String(token.text || '') });
@@ -73,7 +89,7 @@
   }
   const clip = (s) => (s && s.length > MAX_PRE ? s.slice(0, MAX_PRE) + '\n…' : s || '');
   const shortPath = (p) => p.split('/').slice(-2).join('/');
-  // Images are page-created elements whose src is a data: URL the IDE built from validated bytes; anything else is alt text.
+  /** A page-created image whose src is a data: URL the IDE built from validated bytes; anything else becomes alt text. */
   const imageOrAlt = (src, alt) => (typeof src === 'string' && DATA_IMG.test(src) ? h('img', { src, alt }) : h('span', { class: 'img-alt' }, alt));
 
   window.chat = {
@@ -104,12 +120,15 @@
     }
   };
 
-  // Following: the log stays pinned to its latest line. It is a state, not re-measured on each update, because content
-  // also grows outside updates (an image decoding, a markdown image resolving later) and that is not the user leaving.
-  // Only the user scrolling up turns it off; scrolling back down to the bottom, or the arrow, turns it on again.
+  /**
+   * Following: the log stays pinned to its latest line. It is a state, not re-measured on each update, because content
+   * also grows outside updates (an image decoding, a markdown image resolving later) and that is not the user leaving.
+   * Only the user scrolling up turns it off; scrolling back down to the bottom, or the arrow, turns it on again.
+   */
   let following = true;
   let lastTop = 0;
-  const NEAR_BOTTOM = 40; // px: this close to the bottom counts as at it
+  /** Pixels: this close to the bottom counts as at it. */
+  const NEAR_BOTTOM = 40;
   const gap = () => log.scrollHeight - log.scrollTop - log.clientHeight;
   function pin() {
     log.scrollTop = log.scrollHeight;
@@ -125,17 +144,23 @@
     showArrow();
   }
 
-  log.addEventListener('scroll', () => {
+  /**
+   * Moving up while not at the very bottom is the user leaving, so following stops; a shrink of the log that clamps
+   * scrollTop also moves it up but leaves the gap at 0, so it does not count. Reaching the bottom again resumes it.
+   */
+  function trackFollowing() {
     const top = log.scrollTop, g = gap();
-    // Moving up while not at the very bottom is the user leaving; a shrink that clamps scrollTop leaves the gap at 0.
     if (top < lastTop - 1 && g > 1) following = false;
     else if (top >= lastTop && g < NEAR_BOTTOM) following = true;
     lastTop = top;
     showArrow();
-  }, { passive: true });
+  }
+  log.addEventListener('scroll', trackFollowing, { passive: true });
 
-  // The log's box shrinks when the activity strip, the image tray or a taller message box appears, and its content grows
-  // with every update, image and expanded detail: while following, either keeps the latest line in view.
+  /**
+   * The log's box shrinks when the activity strip, the image tray or a taller message box appears, and its content grows
+   * with every update, image and expanded detail: while following, either keeps the latest line in view.
+   */
   const resized = new ResizeObserver(() => {
     if (following) pin();
     showArrow();
@@ -145,13 +170,17 @@
 
   toBottom.addEventListener('click', () => follow(true));
 
-  // Subagent cards: an Agent/Task call is a card whose container of items survives the card's re-renders. An item with
-  // a parentId goes in its card's container, or waits until the card is shown.
-  const childBoxes = new Map();   // card id -> container of its items
-  const waitingFor = new Map();   // card id -> elements waiting for it
-  const waitingOn = new Map();    // element -> the card id it waits for
-  const parentOf = new Map();     // item id -> its card id
-  const reports = new Map();      // card id -> { text, node }: a report is rendered once, not on every progress update
+  /** The container of each subagent card's items, by card id: it survives the card's re-renders. */
+  const childBoxes = new Map();
+  /** Elements waiting for their card to be shown, by card id. */
+  const waitingFor = new Map();
+  /** The card id each waiting element waits for. */
+  const waitingOn = new Map();
+  /** The card id of each item that has one. */
+  const parentOf = new Map();
+  /** Each card's { text, node }: a report is rendered once, not on every progress update. */
+  const reports = new Map();
+  /** An Agent/Task call is shown as a card whose container holds its subagent's items. */
   const isAgentCall = (item) => item.kind === 'tool' && (item.name === 'Agent' || item.name === 'Task');
 
   function childBox(id) {
@@ -160,6 +189,7 @@
     return box;
   }
 
+  /** Puts [el] in its card's container ([logContent] without a parent), or has it wait until the card is shown. */
   function place(el, parentId) {
     const waited = waitingOn.get(el);
     if (waited !== undefined && waited !== parentId) {
@@ -179,7 +209,7 @@
     if (el.parentNode !== box) box.appendChild(el);
   }
 
-  // The <details> of el itself: a card's own are only its Prompt; those in its container belong to the items there.
+  /** The <details> of [el] itself: a card's own are only its Prompt; those in its container belong to the items there. */
   const ownDetails = (el) => el.classList.contains('agent') ? el.querySelectorAll(':scope > .agent-body > details') : el.querySelectorAll('details');
 
   function upsert(item) {
@@ -199,12 +229,16 @@
       case 'notice': el.className = 'msg notice' + (item.isError ? ' error' : ''); el.textContent = item.text; break;
     }
     ownDetails(el).forEach((d, i) => { if (open[i] !== undefined) d.open = open[i]; });
-    // A subagent that starts waiting for an answer opens its card (and the cards around it), once.
-    if (item.kind === 'tool' && item.status === 'awaiting_permission' && !wasWaiting) {
-      for (let p = parentId; p; p = parentOf.get(p)) expandAgent(p);
-    }
+    const startedWaiting = item.kind === 'tool' && item.status === 'awaiting_permission' && !wasWaiting;
+    if (startedWaiting) expandAgentsFrom(parentId);
   }
 
+  /** Opens the card [id] and every card around it, so a subagent that starts waiting for an answer comes into view. */
+  function expandAgentsFrom(id) {
+    for (let p = id; p; p = parentOf.get(p)) expandAgent(p);
+  }
+
+  /** A user message: its text is plain, never markup. */
   function renderUser(el, item) {
     el.className = 'msg user';
     if (item.revertable) {
@@ -213,31 +247,33 @@
     }
     const images = Array.isArray(item.images) ? item.images : [];
     if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src) => imageOrAlt(src, '[image]'))));
-    if (item.text) el.append(document.createTextNode(item.text)); // plain text only
+    if (item.text) el.append(document.createTextNode(item.text));
   }
 
-  // Messages sent while Claude works wait here, under the log, until their turn starts; then they enter the log.
+  /**
+   * Messages sent while Claude works wait here, under the log, until their turn starts; then they enter the log.
+   * Only a text message can be edited: its images could not go back to the tray.
+   */
   function setQueue(list) {
     const queued = Array.isArray(list) ? list : [];
     queueEl.textContent = '';
     for (const m of queued) {
       if (!m || typeof m.id !== 'string') continue;
-      const images = Array.isArray(m.images) ? m.images : [];
+      const editable = !(Array.isArray(m.images) && m.images.length);
       const el = h('div');
       renderUser(el, m);
       el.classList.add('queued');
       el.prepend(h('div', { class: 'queued-bar' },
           h('span', { class: 'queued-label' }, 'Queued'),
           h('button', { class: 'link', 'data-action': 'queueSendNow', 'data-id': m.id, title: 'Stop Claude and send this now' }, 'Send now'),
-          // the images could not go back to the tray, so only a text message can be edited
-          images.length ? null : h('button', { class: 'link', 'data-action': 'queueEdit', 'data-id': m.id, title: 'Move back into the message box' }, 'Edit'),
+          editable ? h('button', { class: 'link', 'data-action': 'queueEdit', 'data-id': m.id, title: 'Move back into the message box' }, 'Edit') : null,
           h('button', { class: 'link', 'data-action': 'queueRemove', 'data-id': m.id, title: 'Don’t send this' }, 'Remove')));
       queueEl.append(el);
     }
     queueEl.hidden = !queueEl.childElementCount;
   }
 
-  // Model markdown into el: parsed, sanitized, with images as markers until the IDE resolves them.
+  /** Model markdown into [el]: parsed, sanitized, with images as markers until the IDE resolves them. */
   function renderMarkdown(el, text, streaming) {
     imgSlots = [];
     let html, slots;
@@ -253,7 +289,7 @@
     el.toggleAttribute('aria-busy', !!item.streaming);
   }
 
-  // Replaces each image marker with its alt text in a trusted span; returns { span, href, alt } for each.
+  /** Replaces each image marker with its alt text in a trusted span; returns { span, href, alt } for each. */
   function placeImages(root, slots) {
     const out = [];
     if (!slots.length) return out;
@@ -283,13 +319,11 @@
     return out;
   }
 
-  // Only local paths are asked for; URLs (http:, https:, data:, file:, //host) stay alt text and are never fetched.
-  const imageKey = (href) => {
-    let s = href.trim().replace(/^<(.*)>$/, '$1');
-    try { s = decodeURI(s); } catch (e) { /* keep it as written */ }
-    return s.replace(/^\.\//, '');
-  };
+  const decodedOrAsWritten = (s) => { try { return decodeURI(s); } catch (e) { return s; } };
+  /** The path the IDE is asked for, from a markdown image's href. */
+  const imageKey = (href) => decodedOrAsWritten(href.trim().replace(/^<(.*)>$/, '$1')).replace(/^\.\//, '');
 
+  /** Only local paths are asked for; URLs (http:, https:, data:, file:, //host) stay alt text and are never fetched. */
   function resolveImages(images) {
     const wanted = images.filter((x) => x.href && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(x.href.trim()));
     if (!wanted.length) return;
@@ -307,9 +341,12 @@
     send({ type: 'resolveImages', reqId, paths: [...new Set(wanted.map((x) => imageKey(x.href)))] });
   }
 
+  /**
+   * Turns inline code that looks like a path, and markdown links whose target is not a web URL (those may point at
+   * project files), into file links for the paths the IDE resolves.
+   */
   function linkify(root) {
     const codes = [...root.querySelectorAll('code')].filter((c) => !c.closest('pre') && PATH_RE.test(c.textContent.trim()));
-    // Markdown links whose target is not a web URL may point at project files.
     const anchors = [...root.querySelectorAll('a[href]')]
       .filter((a) => !trusted.has(a) && !/^(?:https?:|mailto:)/i.test((a.getAttribute('href') || '').trim()))
       .map((a) => ({ a, key: (a.getAttribute('href') || '').trim().replace(/^\.\//, '') }))
@@ -339,7 +376,7 @@
   const FILE_TOOLS = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
   const firstLine = (s) => String(s || '').split('\n').find((l) => l.trim() !== '') || '';
 
-  // One-line description of a tool call as plain text (file tools are shown as a file link instead; see renderToolRow).
+  /** One-line description of a tool call as plain text (file tools are shown as a file link instead; see renderToolRow). */
   function toolDescription(t) {
     const i = t.input || {};
     const str = (v) => (typeof v === 'string' ? v : '');
@@ -359,7 +396,7 @@
     }
   }
 
-  // [label, nodes] for the input of a tool call, or null when there is none.
+  /** [label, nodes] for the input of a tool call, or null when there is none. */
   function inputBody(t) {
     const i = t.input || {};
     if (t.name === 'Edit') return ['Input', [h('pre', { class: 'del' }, clip(i.old_string)), h('pre', { class: 'add' }, clip(i.new_string))]];
@@ -376,7 +413,7 @@
     return h('details', { open: t.status === 'awaiting_permission' }, h('summary', {}, 'Input'), ...body[1]);
   }
 
-  // Tool rows and turn file lists the user has expanded, by item id, so a re-render of the same item keeps them open.
+  /** Tool rows and turn file lists the user has expanded, by item id, so a re-render of the same item keeps them open. */
   const expandedTools = new Set();
   const STATUS_ICON = { done: '\u2713', error: '\u2717', denied: '\u2298' };
   /** The icon cell of a tool or agent row (a spinner while running), named for screen readers by [TOOL_STATUS]. */
@@ -443,8 +480,13 @@
       h('button', { 'data-action': 'deny', 'data-req': id }, 'Deny'));
   }
 
-  // Claude's question (AskUserQuestion). Every string here is model text and goes in through h() children, which are
-  // text nodes; the controls are page-created, so only they can send an answer.
+  /** A map keyed by model text: a question like "__proto__" stays an ordinary key. */
+  const plainMap = () => Object.create(null);
+
+  /**
+   * Claude's question (AskUserQuestion). Every string here is model text and goes in through h() children, which are
+   * text nodes; the controls are page-created, so only they can send an answer.
+   */
   function questionCard(t) {
     const id = t.permissionRequestId;
     const qs = t.question.questions;
@@ -488,7 +530,7 @@
     });
     submitBtn.addEventListener('click', () => {
       if (submitBtn.hasAttribute('disabled') || !picks.every((_, i) => answered(i))) return;
-      const answers = Object.create(null); // keeps a question text like __proto__ as an ordinary key
+      const answers = plainMap();
       qs.forEach((q, i) => {
         const other = picks[i].other.trim();
         answers[q.question] = { labels: q.options.map((o) => o.label).filter((l) => picks[i].labels.has(l)), other: other || null };
@@ -530,7 +572,7 @@
     if (t.resultPreview) el.append(h('details', {}, h('summary', {}, 'Result'), h('pre', {}, clip(t.resultPreview))));
   }
 
-  // running | done | failed: from the task events, else (an older CLI) from the call's own status.
+  /** running | done | failed: from the task events, else (an older CLI) from the call's own status. */
   function agentState(t) {
     const s = t.agent && t.agent.state;
     if (s === 'running' || s === 'done' || s === 'failed') return s;
@@ -556,6 +598,10 @@
     return node;
   }
 
+  /**
+   * A subagent card: a head row like a tool row, and a body with the prompt, the container of the subagent's items and
+   * its report. An older CLI sends no report; then the call's result is the best there is.
+   */
   function renderAgent(el, t) {
     const a = t.agent && typeof t.agent === 'object' ? t.agent : null;
     const state = agentState(t);
@@ -575,7 +621,6 @@
     if (a && typeof a.report === 'string' && a.report) {
       body.append(h('div', { class: 'agent-report' }, h('div', { class: 'tool-label' }, 'Report'), reportNode(t.id, a.report)));
     } else if (!a && t.resultPreview) {
-      // An older CLI sends no report; the call's result is the best there is.
       body.append(h('details', {}, h('summary', {}, 'Result'), h('pre', {}, clip(t.resultPreview))));
     }
     el.append(head, body);
@@ -595,7 +640,7 @@
     if (head) setRowExpanded(head, true);
   }
 
-  // A longer list shows its first files until "Show all" is clicked.
+  /** A longer list shows this many of its files until "Show all" is clicked. */
   const TURN_FILES_SHOWN = 5;
   const turnFilesLabel = (all, count) => all ? 'Show fewer' : 'Show all ' + count + ' files';
 
@@ -660,7 +705,7 @@
 
   const option = (value, text, title) => h('option', { value, title: title || null }, text);
 
-  // The model and effort pickers show what the CLI says runs; hidden until it says (and effort for models without it).
+  /** The model and effort pickers show what the CLI says runs; hidden until it says (and effort for models without it). */
   function setModel(msg) {
     const options = Array.isArray(msg.options) ? msg.options : [];
     modelSel.replaceChildren(...options.map((o) => option(String(o.value), String(o.name), o.description ? String(o.description) : '')));
@@ -678,10 +723,12 @@
     effortSel.hidden = !efforts.length;
   }
 
-  // Grows the box to fit its text (capped by max-height in the CSS) so the log above gives way.
-  // Its height with no inline height is the resting height the buttons keep.
-  // All reads come before any write, so each call lays the page out once.
+  /** The box's resting height (its height with no inline height) as last given to the CSS, which the buttons keep. */
   let inputRest = '';
+  /**
+   * Grows the box to fit its text (capped by max-height in the CSS) so the log above gives way.
+   * All reads come before any write, so each call lays the page out once.
+   */
   function fitInput() {
     input.style.height = 'auto';
     const rest = input.offsetHeight, borders = rest - input.clientHeight, fit = input.scrollHeight + borders;
@@ -691,7 +738,7 @@
   let resizeFrame = 0;
   window.addEventListener('resize', () => { cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(fitInput); });
 
-  // Every programmatic change of the box's text goes through here, so its height follows.
+  /** Every programmatic change of the box's text goes through here, so its height follows. */
   function setInput(text, caret = text.length) {
     input.value = text;
     input.setSelectionRange(caret, caret);
@@ -699,7 +746,7 @@
   }
 
   const PLACEHOLDER = input.placeholder;
-  // Only offered into an empty box while idle; typing, sending or a new turn takes it away.
+  /** Only offered into an empty box while idle; typing, sending or a new turn takes it away. */
   function setSuggestion(text) {
     suggestion = idle && !input.value ? text : '';
     input.placeholder = suggestion ? suggestion + '   (Tab to use)' : PLACEHOLDER;
@@ -712,7 +759,7 @@
     recall = -1;
   }
 
-  // The strip above the input: phase and tool name come from the IDE, shown as text only; the seconds are counted here.
+  /** The strip above the input: phase and tool name come from the IDE, shown as text only; the seconds are counted here. */
   const PHASE_LABEL = {
     starting: () => 'Starting…',
     thinking: () => 'Thinking…',
@@ -737,6 +784,11 @@
     if (activityTimer !== null) { clearInterval(activityTimer); activityTimer = null; }
   }
 
+  /**
+   * Shows the phase from the IDE, or hides the strip without one. A changed label restarts the clock, except when one
+   * of several background agents finishes: only the count changes and the clock keeps going. Stop is hidden while only
+   * background agents work, as there is no turn to interrupt.
+   */
   function setActivity(msg) {
     const phase = typeof msg.phase === 'string' && Object.prototype.hasOwnProperty.call(PHASE_LABEL, msg.phase) ? msg.phase : null;
     if (!phase) {
@@ -747,12 +799,11 @@
     }
     const label = PHASE_LABEL[phase](msg);
     if (phase === activityPhase && label === activityLabelText) return;
-    // When one of several background agents finishes, only the count changes: the clock keeps going.
     const keepTimer = phase === 'agents' && activityPhase === 'agents';
     activityPhase = phase;
     activityLabelText = label;
     activityLabel.textContent = label;
-    activityStop.hidden = phase === 'agents'; // no turn to interrupt
+    activityStop.hidden = phase === 'agents';
     const waiting = phase === 'waiting';
     activityDots.hidden = waiting;
     activitySecs.hidden = waiting;
@@ -766,13 +817,14 @@
     }
   }
 
-  // Plain text only: the IDE's checkout name and folder never become markup.
+  /** Plain text only: the IDE's checkout name and folder never become markup. */
   function setCheckout(text) {
     checkoutEl.textContent = typeof text === 'string' ? text : '';
     checkoutEl.hidden = !checkoutEl.textContent;
   }
 
-  const USAGE_WARN_POINTS = 10; // amber this many points before autocompact
+  /** The meter turns amber this many points before autocompact. */
+  const USAGE_WARN_POINTS = 10;
   function fmtTokens(n) {
     if (n >= 1e6) return +(n / 1e6).toFixed(1) + 'M';
     if (n >= 1000) return +(n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k';
@@ -820,31 +872,38 @@
     attachEl.hidden = pending.size === 0;
   }
 
-  // The IDE validated the image: show its thumbnail (or [image]); or it refused it (a notice in the log says why).
+  /**
+   * The IDE validated the image: show its thumbnail (or [image]); or it refused it (a notice in the log says why); or
+   * it is still being prepared: a loading tile that blocks Send.
+   */
   function setAttachment(msg) {
     if (typeof msg.id !== 'string') return;
     if (msg.failed === true) { removeTile(msg.id); return; }
     if (!pending.has(msg.id)) addTile(msg.id, typeof msg.name === 'string' ? msg.name : '');
-    if (msg.loading === true) return; // still being prepared: a loading tile that blocks Send
+    if (msg.loading === true) return;
     const p = pending.get(msg.id);
     p.ready = true;
     p.el.classList.remove('loading');
     p.el.firstChild.replaceWith(imageOrAlt(msg.thumb, '[image]'));
   }
 
-  // Bytes go to the IDE as base64 in chunks; the IDE checks them (magic bytes, size) before anything else sees them.
+  /**
+   * Bytes go to the IDE as base64 in chunks; the IDE checks them (magic bytes, size) before anything else sees them.
+   * A file over [MAX_INPUT], one past [MAX_ATTACH] (this tile included) or one whose reported type is not an image
+   * sends no bytes: the IDE refuses it and says why (an empty file is "not an image"). A tile removed before its bytes
+   * are read sends nothing more.
+   */
   function upload(file) {
     const id = 'p' + (++attachSeq);
     const name = String(file.name || 'image').slice(0, 100);
     addTile(id, name);
     send({ type: 'attachStart', id, name, size: file.size });
-    if (file.size > MAX_INPUT) return; // the IDE refuses it and says why
-    if (pending.size > MAX_ATTACH) return; // already full (this tile included): the IDE refuses it and says why
-    // Not an image by its reported type: send no bytes; the IDE sees an empty file and says it is not an image.
+    if (file.size > MAX_INPUT) return;
+    if (pending.size > MAX_ATTACH) return;
     if (file.type && !/^image\//.test(file.type)) { send({ type: 'attachEnd', id }); return; }
     const reader = new FileReader();
     reader.onload = () => {
-      if (!pending.has(id)) return; // removed meanwhile
+      if (!pending.has(id)) return;
       const url = String(reader.result);
       const data = url.slice(url.indexOf(',') + 1);
       for (let i = 0; i < data.length; i += CHUNK) send({ type: 'attachChunk', id, data: data.slice(i, i + CHUNK) });
@@ -853,8 +912,6 @@
     reader.onerror = () => { send({ type: 'detach', id }); removeTile(id); };
     reader.readAsDataURL(file);
   }
-
-  const hasFiles = (dt) => !!dt && [...(dt.types || [])].includes('Files');
 
   function insertText(text) {
     recall = -1;
@@ -868,6 +925,10 @@
   /** "High effort" for "high": the effort menu's label for a level. */
   const effortLabel = (level) => level.charAt(0).toUpperCase() + level.slice(1) + ' effort';
 
+  /**
+   * The IDE's colours and font as CSS variables. The colour scheme is set too: native parts (a scrolling text box,
+   * scrollbars) follow it, not the variables.
+   */
   function applyTheme(t) {
     const s = document.documentElement.style;
     s.setProperty('--bg', t.bg); s.setProperty('--fg', t.fg); s.setProperty('--muted', t.muted);
@@ -876,16 +937,16 @@
     s.setProperty('--add', t.dark ? '#2f5a3a' : '#d7f5dd'); s.setProperty('--del', t.dark ? '#5a2f2f' : '#f9d7d7');
     s.setProperty('--ok', t.dark ? '#5fb865' : '#2e7d32');
     s.setProperty('--warn', t.dark ? '#d29922' : '#9a6700'); s.setProperty('--danger', t.danger);
-    // Native parts (a scrolling text box, scrollbars) follow the scheme, not the colours above.
     s.setProperty('color-scheme', t.dark ? 'dark' : 'light');
     fitInput();
   }
 
+  /** Sends the box's text with the attachments in the tray, once every image is ready. */
   function submit() {
     const text = input.value.trim();
     if (input.disabled) return;
     const tiles = [...pending.entries()];
-    if (tiles.some(([, p]) => !p.ready)) return; // wait until every image is ready
+    if (tiles.some(([, p]) => !p.ready)) return;
     const attachments = tiles.map(([id]) => id);
     if (!text && !attachments.length) return;
     send({ type: 'send', text, attachments });
@@ -899,8 +960,10 @@
   const caretOnFirstLine = () => !input.value.slice(0, input.selectionStart).includes('\n');
   const caretOnLastLine = () => !input.value.slice(input.selectionEnd).includes('\n');
 
-  // Pure recall state machine. s = { recall, draft }; dir = 'up' | 'down'.
-  // Returns { recall, draft, text } where text is the new box content, or null when the key is not handled.
+  /**
+   * Pure recall state machine. s = { recall, draft }; dir = 'up' | 'down'.
+   * Returns { recall, draft, text } where text is the new box content, or null when the key is not handled.
+   */
   function recallStep(s, dir, entries, value) {
     if (dir === 'up') {
       let r = s.recall, d = s.draft;
@@ -919,12 +982,12 @@
     return { recall: r, draft: s.draft, text: entries[r] };
   }
 
+  /** Steps recall in [dir] and puts the entry in the box as its value, never parsed as HTML; false when not handled. */
   function recallKey(dir) {
     const step = recallStep({ recall, draft }, dir, history, input.value);
     if (!step) return false;
     recall = step.recall;
     draft = step.draft;
-    // Text goes into the textarea value only, never parsed as HTML.
     setInput(step.text);
     return true;
   }
@@ -937,8 +1000,13 @@
     if (e.key === 'ArrowUp' && caretOnFirstLine() && recallKey('up')) e.preventDefault();
     else if (e.key === 'ArrowDown' && caretOnLastLine() && recallKey('down')) e.preventDefault();
   });
-  // Typing ends recall (the edited text becomes the new draft) and dismisses the suggestion.
-  input.addEventListener('input', () => { recall = -1; if (suggestion) setSuggestion(''); fitInput(); });
+  /** Typing ends recall (the edited text becomes the new draft) and dismisses the suggestion. */
+  function onTyped() {
+    recall = -1;
+    if (suggestion) setSuggestion('');
+    fitInput();
+  }
+  input.addEventListener('input', onTyped);
   fitInput();
   sendBtn.addEventListener('click', submit);
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
@@ -949,22 +1017,34 @@
   effortSel.addEventListener('change', () => { if (effortSel.value) send({ type: 'setEffort', effort: effortSel.value }); });
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
-  // Pasted image data (Cmd+V of a screenshot) anywhere on the page becomes an attachment; text pastes are untouched.
-  // A clipboard with text too (spreadsheets and Office put a picture next to the text) pastes into the message box as text.
+  /**
+   * The image files on a clipboard (Cmd+V of a screenshot): pasted anywhere on the page, they become attachments,
+   * while text pastes are untouched. A clipboard with text too is left to the message box, which pastes it as text:
+   * spreadsheets and Office put a picture next to the text.
+   */
+  const pastedImages = (clipboard) => [...((clipboard && clipboard.items) || [])]
+    .filter((i) => i.kind === 'file' && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
   document.addEventListener('paste', (e) => {
     if (e.target === input && e.clipboardData && e.clipboardData.getData('text/plain')) return;
-    const files = [...((e.clipboardData && e.clipboardData.items) || [])]
-      .filter((i) => i.kind === 'file' && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
+    const files = pastedImages(e.clipboardData);
     if (!files.length) return;
     e.preventDefault();
     if (!input.disabled) files.forEach(upload);
   });
 
-  // Capture phase: no anchor click or form submit reaches the browser's default navigation.
-  document.addEventListener('auxclick', (e) => { if (e.target.closest('a')) e.preventDefault(); }, true);
-  document.addEventListener('submit', (e) => e.preventDefault(), true);
-  // Capture phase: a dropped file never reaches the browser's default (opening it would navigate the page). Dropped
-  // files become attachments; other drops are allowed only into the message box (text).
+  /** In the capture phase, so no anchor click or form submit reaches the browser's default navigation. */
+  function blockDefaultNavigation() {
+    document.addEventListener('auxclick', (e) => { if (e.target.closest('a')) e.preventDefault(); }, true);
+    document.addEventListener('submit', (e) => e.preventDefault(), true);
+  }
+  blockDefaultNavigation();
+
+  /**
+   * Whether a drag or drop carries files. Dropped files become attachments and, as the dragover and drop listeners
+   * run in the capture phase, never reach the browser's default (opening one would navigate the page); other drops are
+   * allowed only into the message box, as text.
+   */
+  const hasFiles = (dt) => !!dt && [...(dt.types || [])].includes('Files');
   document.addEventListener('dragover', (e) => {
     if (hasFiles(e.dataTransfer) || e.target !== input) {
       e.preventDefault();

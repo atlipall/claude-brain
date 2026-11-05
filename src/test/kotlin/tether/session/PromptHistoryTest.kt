@@ -5,9 +5,10 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 class PromptHistoryTest : BasePlatformTestCase() {
     private val history get() = PromptHistory.getInstance(project)
 
+    /** Project services persist between tests, so the history starts empty. */
     override fun setUp() {
         super.setUp()
-        history.clear() // project services persist between tests
+        history.clear()
     }
 
     fun testAppendKeepsOrderAndSkipsImmediateRepeat() = assertEquals(

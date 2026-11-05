@@ -7,8 +7,8 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 
+/** The plugin's settings. The state name and file are from before the rename to Tether; changing them would drop saved settings. */
 @Service(Service.Level.APP)
-// Named from before the rename to Tether; changing it would drop saved settings.
 @State(name = "ClaudeChatSettings", storages = [Storage("claudeChat.xml")])
 class TetherSettings : SimplePersistentStateComponent<TetherSettings.State>(State()) {
     class State : BaseState() {

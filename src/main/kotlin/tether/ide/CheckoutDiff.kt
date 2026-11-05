@@ -26,9 +26,9 @@ import java.io.File
  * since the session started (see [DiffBases.resolve]). Git runs in the background; the browser opens on the EDT.
  */
 object CheckoutDiff {
-    /** EDT. */
+    /** EDT. Saves every document first, since git reads the disk. */
     fun show(project: Project, chat: Chat) {
-        FileDocumentManager.getInstance().saveAllDocuments() // git reads the disk
+        FileDocumentManager.getInstance().saveAllDocuments()
         val cwd = chat.cwd
         object : Task.Backgroundable(project, "Collecting changes", true) {
             private var base: DiffBase? = null

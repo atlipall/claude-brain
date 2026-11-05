@@ -21,11 +21,11 @@ object EditorSwapPlan {
     /**
      * Which open tabs to swap when the IDE moves from checkout [from] to [to]: every file in [from] whose counterpart
      * [exists] and is not already open. Files outside [from], without a counterpart, or whose counterpart already has a
-     * tab stay as they are. Each file appears once, in [open] order.
+     * tab stay as they are. Each file appears once, in [open] order. Paths are compared by their canonical spelling, so
+     * a symlinked project root does not make an open counterpart look closed.
      */
     fun plan(open: List<OpenFile>, from: Checkout, to: Checkout, mapper: CheckoutMapper, exists: (String) -> Boolean): List<Replacement> {
         if (from == to) return emptyList()
-        // Canonical spellings: a symlinked project root must not make an open counterpart look closed.
         val openPaths = open.map { canonicalPath(it.path) }.toSet()
         return open.distinctBy { canonicalPath(it.path) }.mapNotNull { file ->
             val target = mapper.counterpart(file.path, from, to) ?: return@mapNotNull null

@@ -9,7 +9,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UploadsTest {
-    private val b64 = TestImages.BLUE_PNG_BASE64 // 100 characters
+    /** 100 characters. */
+    private val b64 = TestImages.BLUE_PNG_BASE64
 
     @Test fun chunksAreJoined() {
         val uploads = Uploads()
@@ -46,8 +47,8 @@ class UploadsTest {
     @Test fun passingTheCapDropsTheUpload() {
         val uploads = Uploads(maxBytes = 60)
         uploads.start("p1", "a.png")
-        assertTrue(uploads.chunk("p1", b64.substring(0, 64))) // 48 bytes
-        assertFalse(uploads.chunk("p1", b64.substring(64)))   // 73 bytes in all
+        assertTrue("48 bytes", uploads.chunk("p1", b64.substring(0, 64)))
+        assertFalse("73 bytes in all", uploads.chunk("p1", b64.substring(64)))
         assertFalse(uploads.has("p1"))
     }
 }

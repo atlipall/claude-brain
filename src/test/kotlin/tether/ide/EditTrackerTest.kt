@@ -19,9 +19,9 @@ class EditTrackerTest : BasePlatformTestCase() {
         myFixture.type("y")
     }
 
+    /** The light project is shared between tests: saves leftovers first, then starts every key clean. */
     override fun setUp() {
         super.setUp()
-        // The light project is shared between tests: save leftovers first, then start every key clean.
         FileDocumentManager.getInstance().saveAllDocuments()
         tracker.register("main")
         tracker.register("wt")

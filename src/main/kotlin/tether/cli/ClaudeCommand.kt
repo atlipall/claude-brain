@@ -29,6 +29,10 @@ data class SessionLaunch(
 )
 
 object ClaudeCommand {
+    /**
+     * The full command line for [launch]. [extraArgs] come before the chat's own `--model` and `--effort`: the last
+     * occurrence of each wins, and the chat's choice is the newer one.
+     */
     fun build(binary: String, launch: SessionLaunch, extraArgs: List<String>): List<String> = buildList {
         add(binary)
         addAll(listOf(
@@ -42,7 +46,6 @@ object ClaudeCommand {
         launch.resumeAt?.let { add("--resume-session-at"); add(it) }
         if (launch.fork) add("--fork-session")
         addAll(extraArgs)
-        // After the extra arguments: the last --model or --effort wins, and the chat's choice is the newer one.
         launch.model?.let { add("--model"); add(it) }
         launch.effort?.let { add("--effort"); add(it) }
     }

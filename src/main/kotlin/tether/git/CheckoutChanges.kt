@@ -27,7 +27,10 @@ class CheckoutChanges(
     fun baseContent(base: DiffBase, path: String): ByteArray? = show(File(base.root), "${base.commit}:$path")
 
     companion object {
-        /** Parses `git diff --name-status -z -M` and `git ls-files --others -z` output. */
+        /**
+         * Parses `git diff --name-status -z -M` and `git ls-files --others -z` output. A copy (C) counts as added;
+         * M, T (type change) and U (unmerged) as modified.
+         */
         fun parse(nameStatus: String, untracked: String): List<FileChange> {
             val out = LinkedHashMap<String, FileChange>()
             val fields = nameStatus.split('\u0000').iterator()
@@ -40,7 +43,7 @@ class CheckoutChanges(
                     'D' -> FileChange(path, FileChange.Kind.DELETED)
                     'R' -> if (fields.hasNext()) FileChange(fields.next(), FileChange.Kind.RENAMED, oldPath = path) else continue
                     'C' -> if (fields.hasNext()) FileChange(fields.next(), FileChange.Kind.ADDED) else continue
-                    else -> FileChange(path, FileChange.Kind.MODIFIED) // M, T (type change), U (unmerged)
+                    else -> FileChange(path, FileChange.Kind.MODIFIED)
                 }
                 out[change.path] = change
             }

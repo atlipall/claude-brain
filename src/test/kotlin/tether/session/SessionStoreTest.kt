@@ -15,6 +15,7 @@ class SessionStoreTest {
     private fun write(store: SessionStore, id: String, modified: Long, vararg lines: String): File =
         writeIn(store, cwd, id, modified, *lines)
 
+    /** Writes a transcript of [lines] without a trailing newline. */
     private fun writeIn(store: SessionStore, folder: String, id: String, modified: Long, vararg lines: String): File {
         val dir = store.projectDir(folder).apply { mkdirs() }
         return File(dir, "$id.jsonl").apply { writeText(lines.joinToString("\n")); setLastModified(modified) }
@@ -65,7 +66,7 @@ class SessionStoreTest {
 
     @Test fun saveTitleAppendsALineTheListReads() {
         val store = SessionStore(tmp.root)
-        val file = write(store, "s", 1, user("first")) // no trailing newline
+        val file = write(store, "s", 1, user("first"))
         store.saveTitle(cwd, "s", "Login \"fix\"")
         store.saveTitle(cwd, "s", "Login fix 2")
         val lines = file.readLines()

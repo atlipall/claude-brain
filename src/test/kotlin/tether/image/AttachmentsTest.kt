@@ -23,7 +23,7 @@ class AttachmentsTest {
         assertTrue(pending.add(att("a")))
         assertTrue(pending.add(att("b")))
         assertFalse(pending.add(att("c")))
-        assertTrue(pending.add(att("a"))) // replacing one is not adding one
+        assertTrue("replacing one is not adding one", pending.add(att("a")))
         pending.remove("a")
         assertTrue(pending.add(att("c")))
         pending.clear()

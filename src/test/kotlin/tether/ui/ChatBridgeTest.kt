@@ -43,11 +43,12 @@ class ChatBridgeTest : BasePlatformTestCase() {
     private var savedAttach = true
     private lateinit var savedSchedule: (Runnable) -> Unit
 
+    /** Starts with no editor open, unless a test opens one. */
     override fun setUp() {
         super.setUp()
         PromptHistory.getInstance(project).clear()
         chats.closeAll()
-        manager.openFiles.forEach(manager::closeFile) // no editor, unless a test opens one
+        manager.openFiles.forEach(manager::closeFile)
         savedAttach = settings.attachEditorContext
         settings.attachEditorContext = true
         savedSchedule = contextService.schedule
@@ -113,7 +114,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
             Fx.toolResult(id, "ok", toolUseResultJson = Fx.editResult(file.path, "1\n")),
         )
         connections[0].emit(Fx.result())
-        // The files are added off the session lock, in a second update of the result item.
+        /** The files are added off the session lock, in a second update of the result item. */
         fun withFiles() = posted.lastOrNull { it.str("type") == "item" && it.obj("item")!!.arr("files") != null }?.obj("item")
         val deadline = System.currentTimeMillis() + 5000
         while (withFiles() == null && System.currentTimeMillis() < deadline) PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
@@ -147,8 +148,8 @@ class ChatBridgeTest : BasePlatformTestCase() {
         connections[0].emit(Fx.result())
         assertTrue(posted.last { it.str("type") == "activity" }["phase"] is kotlinx.serialization.json.JsonNull)
         posted.clear()
-        connections[0].emit(Fx.thinkingStart("m2", 0)) // no turn running here, but the session reports it only while busy
-        assertTrue(posted.none { it.str("type") == "activity" })
+        connections[0].emit(Fx.thinkingStart("m2", 0))
+        assertTrue("no turn is running, and the session reports activity only while busy", posted.none { it.str("type") == "activity" })
     }
 
     fun testToolNameInTheStripIsCleanedAndShortened() {
@@ -179,7 +180,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals("38", msg["percent"].toString())
         assertEquals("83", msg["autocompactAt"].toString())
         val cats = msg.arr("categories")!!.map { it.jsonObject }
-        assertEquals(2, cats.size) // the blank name is dropped
+        assertEquals("the blank name is dropped", 2, cats.size)
         assertEquals("Messages", cats[0].str("name"))
         val cleaned = cats[1].str("name")!!
         assertTrue(cleaned.length <= 40 && '`' !in cleaned && '\n' !in cleaned)
@@ -475,10 +476,10 @@ class ChatBridgeTest : BasePlatformTestCase() {
     // --- large histories ---
 
     fun testBatchesKeepOrderAndStayUnderTheLimit() {
-        val items = (1..5).map { buildJsonObject { put("id", "i$it"); put("pad", "xxxxxxxxxx") } } // 30 characters each
-        assertEquals(listOf(listOf("i1", "i2"), listOf("i3", "i4"), listOf("i5")), ChatBridge.batches(items, 70).map { b -> b.map { it.str("id") } })
-        assertEquals(5, ChatBridge.batches(items, 20).size) // an item over the limit goes alone
-        assertEquals(1, ChatBridge.batches(items, 1_000).size)
+        val thirtyCharacterItems = (1..5).map { buildJsonObject { put("id", "i$it"); put("pad", "xxxxxxxxxx") } }
+        assertEquals(listOf(listOf("i1", "i2"), listOf("i3", "i4"), listOf("i5")), ChatBridge.batches(thirtyCharacterItems, 70).map { b -> b.map { it.str("id") } })
+        assertEquals("an item over the limit goes alone", 5, ChatBridge.batches(thirtyCharacterItems, 20).size)
+        assertEquals(1, ChatBridge.batches(thirtyCharacterItems, 1_000).size)
         assertTrue(ChatBridge.batches(emptyList(), 70).isEmpty())
     }
 

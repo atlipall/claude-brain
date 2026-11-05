@@ -42,7 +42,7 @@ class CheckoutChangesTest {
     @Test fun anUntrackedFileAlsoListedByDiffIsListedOnce() =
         assertEquals(listOf(FileChange("a", ADDED)), CheckoutChanges.parse("A\u0000a\u0000", "a\u0000"))
 
-    // Real git: the base is resolved and every kind of change is listed.
+    /** Real git: the base is resolved and every kind of change is listed. */
     @Test fun realRepositoryBranchAgainstMain() {
         assumeTrue(gitAvailable())
         val repo = tmp.newFolder("repo")

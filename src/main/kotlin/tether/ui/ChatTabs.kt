@@ -13,31 +13,32 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.AnimatedIcon
+import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentFactory
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** One closeable tool-window tab per chat. Closing a tab closes its chat (stops its process). EDT only. */
 class ChatTabs(private val project: Project, private val toolWindow: ToolWindow) {
     private val chats get() = Chats.getInstance(project)
 
+    /**
+     * Opens [spec]'s chat in a new, selected tab. The [Chats] service is captured up front, since it may be unreachable
+     * while the project is closing, when the tab is disposed. The tab's name follows the chat's title ([Chat.rename]
+     * runs on the EDT).
+     */
     fun open(spec: ChatSpec, resumed: Transcript? = chats.read(spec)): Chat {
-        val registry = chats // captured: the service may be unreachable while the project is closing
+        val registry = chats
         val chat = registry.open(spec, resumed)
         val content = ContentFactory.getInstance().createContent(null, chat.title, false)
         content.isCloseable = true
         content.putUserData(CHAT, chat)
-        val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val closed = AtomicBoolean(false)
         Disposer.register(content) { closed.set(true); chat.onBusyChanged = null; registry.close(chat) }
-        content.putUserData(ToolWindow.SHOW_CONTENT_ICON, true) // the busy icon is drawn only for contents that ask for icons
         val panel = ChatPanel(project, chat, parent = content)
         content.component = panel.browser.component
         content.preferredFocusableComponent = panel.browser.component
-        // The busy icon follows chat.busy, read again on the EDT so a late callback never shows a stale state.
-        chat.onBusyChanged = {
-            ApplicationManager.getApplication().invokeLater({
-                if (!closed.get()) content.icon = if (chat.busy) AnimatedIcon.Default.INSTANCE else null
-            }, project.disposed)
-        }
-        chat.onTitleChanged = { content.displayName = chat.title } // Chat.rename runs on the EDT
+        showBusyIcon(content, chat, closed)
+        chat.onTitleChanged = { content.displayName = chat.title }
         val follower = CheckoutFollower.getInstance(project)
         chat.onCwdChanged = {
             ApplicationManager.getApplication().invokeLater({ follower.refresh() }, project.disposed)
@@ -45,6 +46,19 @@ class ChatTabs(private val project: Project, private val toolWindow: ToolWindow)
         toolWindow.contentManager.addContent(content)
         toolWindow.contentManager.setSelectedContent(content, true)
         return chat
+    }
+
+    /**
+     * Makes [content]'s icon follow [chat]'s busy state. The tool window draws icons only for contents that ask for
+     * them; the state is read again on the EDT so a late callback never shows a stale one.
+     */
+    private fun showBusyIcon(content: Content, chat: Chat, closed: AtomicBoolean) {
+        content.putUserData(ToolWindow.SHOW_CONTENT_ICON, true)
+        chat.onBusyChanged = {
+            ApplicationManager.getApplication().invokeLater({
+                if (!closed.get()) content.icon = if (chat.busy) AnimatedIcon.Default.INSTANCE else null
+            }, project.disposed)
+        }
     }
 
     /** Selects [chat]'s tab; false when it has none. */

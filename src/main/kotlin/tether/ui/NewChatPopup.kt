@@ -43,7 +43,8 @@ object NewChatPopup {
     /**
      * The past sessions, or with [archived] the archived ones (resuming one unarchives it). A session already live in a
      * tab is selected instead of resumed again, also when it was opened while its transcript was being read in the
-     * background: two claude processes would write one transcript.
+     * background: two claude processes would write one transcript. The list is built on the EDT, so the open chats
+     * are current when it is shown.
      */
     private fun showResume(project: Project, tabs: ChatTabs, worktrees: List<Worktree>?, place: (JBPopup) -> Unit, archived: Boolean) {
         val chats = Chats.getInstance(project)
@@ -52,7 +53,6 @@ object NewChatPopup {
                 val what = if (archived) "archived sessions" else "past sessions"
                 place(JBPopupFactory.getInstance().createMessage("No $what in this project or its worktrees."))
             } else {
-                // The list is built on the EDT, so the open chats are current when it is shown.
                 val openChat = { s: SessionSummary -> NewChatChoices.openChatFor(s.id, openSessions(chats)) }
                 val selectOpen = { s: SessionSummary -> openChat(s)?.let(tabs::select) == true }
                 val text = { s: SessionSummary ->

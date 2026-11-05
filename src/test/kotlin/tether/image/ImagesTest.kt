@@ -99,13 +99,13 @@ class ImagesTest {
         assertFalse(Images.isCompleteJpeg(baseline.copyOf(baseline.size / 2)))
         assertFalse(Images.isCompleteJpeg(baseline.copyOf(baseline.size - 2)))
         assertFalse(Images.isCompleteJpeg(progressiveJpeg().let { it.copyOf(it.size / 2) }))
-        // an EXIF APP1 segment holding a complete thumbnail must not make a cut-off main image look complete
-        val thumb = TestImages.solid(8, 8, "jpeg")
-        val payload = "Exif\u0000\u0000".toByteArray() + thumb
+        val completeThumbnail = TestImages.solid(8, 8, "jpeg")
+        val payload = "Exif\u0000\u0000".toByteArray() + completeThumbnail
         val app1 = byteArrayOf(0xFF.toByte(), 0xE1.toByte(), ((payload.size + 2) shr 8).toByte(), (payload.size + 2).toByte()) + payload
         val withExif = baseline.copyOf(2) + app1 + baseline.copyOfRange(2, baseline.size)
         assertTrue(Images.isCompleteJpeg(withExif))
-        assertFalse(Images.isCompleteJpeg(withExif.copyOf(withExif.size - 30)))
+        assertFalse("an EXIF APP1 segment holding a complete thumbnail must not make a cut-off main image look complete",
+            Images.isCompleteJpeg(withExif.copyOf(withExif.size - 30)))
     }
 
     @Test fun aLongEdgeOver2000IsScaledDownKeepingTheFormat() {
@@ -150,7 +150,7 @@ class ImagesTest {
         assertEquals(ImageType.JPEG, thumb.type)
         assertEquals(160 to 160, thumb.width to thumb.height)
         val webp = TestImages.webpHeader("VP8X", 4000, 3000)
-        assertArrayEquals(webp, Images.preview(webp)!!.bytes) // the page scales it
+        assertArrayEquals("the page scales it", webp, Images.preview(webp)!!.bytes)
         assertNull(Images.preview(webp, maxBytes = 10))
         assertNull(Images.preview("nope".toByteArray()))
         assertNull(Images.preview(TestImages.noise(300, 300), maxBytes = 100))
@@ -159,7 +159,9 @@ class ImagesTest {
     /** A real 1x1 PNG whose header claims 10000x10000: must be refused before decoding. */
     private fun claimSize(png: ByteArray): ByteArray = png.copyOf().also { b ->
         fun be32(at: Int, v: Int) = repeat(4) { i -> b[at + i] = (v shr (8 * (3 - i))).toByte() }
-        be32(16, 10_000) // IHDR width
-        be32(20, 10_000) // IHDR height
+        val ihdrWidthAt = 16
+        val ihdrHeightAt = 20
+        be32(ihdrWidthAt, 10_000)
+        be32(ihdrHeightAt, 10_000)
     }
 }

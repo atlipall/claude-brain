@@ -9,10 +9,11 @@ import tether.settings.TetherSettings
 class SearchDefaultsTest : BasePlatformTestCase() {
     private var savedScopeName: String? = null
 
+    /** Remembers the application-wide default scope name, which [tearDown] puts back. */
     override fun setUp() {
         super.setUp()
         SearchDefaults.forgetSaved()
-        savedScopeName = FindSettings.getInstance().defaultScopeName // application-wide
+        savedScopeName = FindSettings.getInstance().defaultScopeName
     }
 
     override fun tearDown() {
@@ -34,9 +35,9 @@ class SearchDefaultsTest : BasePlatformTestCase() {
     fun testRestoreBringsBackTheUsersDefaultOnce() {
         FindSettings.getInstance().defaultScopeName = "Mine"
         SearchDefaults.use(project, "Claude: wt1")
-        SearchDefaults.use(project, "Claude: wt2") // the second switch must not overwrite the remembered value
+        SearchDefaults.use(project, "Claude: wt2")
         SearchDefaults.restore(project)
-        assertEquals("Mine", FindSettings.getInstance().defaultScopeName)
+        assertEquals("the second switch must not overwrite the remembered value", "Mine", FindSettings.getInstance().defaultScopeName)
         FindSettings.getInstance().defaultScopeName = "Other"
         SearchDefaults.restore(project)
         assertEquals("Other", FindSettings.getInstance().defaultScopeName)

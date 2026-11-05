@@ -13,9 +13,12 @@ import java.util.concurrent.CompletableFuture
 
 /** [Diagnostics] and [Usages] against the IDE's real analysis (WebStorm's JavaScript and TypeScript support). */
 class IdeToolsTest : BasePlatformTestCase() {
-    /** Runs [block] on a pooled thread, as the session does, while the EDT keeps dispatching (the tools call into it). */
+    /**
+     * Runs [block] on a pooled thread, as the session does, while the EDT keeps dispatching (the tools call into it).
+     * The pooled thread's exceptions would be logged (failing the test), so they travel back as a [Result] and are
+     * rethrown here.
+     */
     private fun <T> offEdt(block: () -> T): T {
-        // The pooled thread's exceptions would be logged (failing the test), so they travel back as a Result.
         val future = ApplicationManager.getApplication().executeOnPooledThread(Callable { runCatching(block) })
         PlatformTestUtil.waitWithEventsDispatching("The IDE tool did not finish", { future.isDone }, 60)
         return future.get().getOrThrow()
@@ -27,7 +30,7 @@ class IdeToolsTest : BasePlatformTestCase() {
         assertTrue("expected a syntax error, got $problems", problems.any { it.severity == Severity.ERROR })
     }
 
-    // The TypeScript service doesn't run in tests (TypeScriptService.getForFile is null here), so its source is faked.
+    /** The TypeScript service doesn't run in tests (TypeScriptService.getForFile is null here), so its source is faked. */
     fun testProblemSourcesAreMergedFilteredAndDeduplicated() {
         val file = myFixture.addFileToProject("typed.ts", "const ok: number = 1;\nconst n: number = \"text\";\n").virtualFile
         val typeError = Problem(2, 7, Severity.ERROR, "Type 'string' is not assignable to type 'number'.")

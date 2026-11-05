@@ -5,13 +5,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WebAssetsTest {
+    /** Only the three closing script tags we wrote may appear. */
     @Test fun pageInlinesEverything() {
         val page = WebAssets.page()
         assertFalse(page.contains("/*INLINE:"))
         assertTrue(page.contains("window.chat ="))
         assertTrue(page.contains("DOMPurify"))
         assertTrue(page.contains("marked"))
-        // only the three closing script tags we wrote may appear
         assertTrue(Regex("</script").findAll(page).count() == 3)
     }
 
@@ -61,12 +61,16 @@ class WebAssetsTest {
         assertFalse(page.contains("case 'context'"))
     }
 
+    /**
+     * Images that decode or resolve late grow the content, so it is observed too. Following is a state, not
+     * re-measured on each update.
+     */
     @Test fun logFollowsWhenItShrinksOrItsContentGrows() {
         val page = WebAssets.page()
         assertTrue(page.contains("<main id=\"log\"><div id=\"log-content\"></div></main>"))
         assertTrue(page.contains("resized.observe(log);"))
-        assertTrue(page.contains("resized.observe(logContent);")) // images that decode or resolve late grow the content
-        assertFalse(page.contains("nearBottom")) // following is a state, not re-measured on each update
+        assertTrue(page.contains("resized.observe(logContent);"))
+        assertFalse(page.contains("nearBottom"))
     }
 
     @Test fun logHasAJumpToBottomArrow() {
@@ -83,7 +87,7 @@ class WebAssetsTest {
         val header = page.substring(page.indexOf("<header id=\"bar\">"), page.indexOf("</header>"))
         assertTrue(header.contains("id=\"usage\" hidden"))
         assertTrue(page.contains("case 'usage': setUsage(msg)"))
-        assertFalse(page.contains("usageEl.innerHTML")) // CLI category names stay plain text (title attribute)
+        assertFalse("CLI category names stay plain text (title attribute)", page.contains("usageEl.innerHTML"))
     }
 
     @Test fun pageShowsWhatClaudeIsDoingAboveTheInput() {
@@ -129,7 +133,7 @@ class WebAssetsTest {
         val page = WebAssets.page()
         assertTrue(page.contains("""const DATA_IMG = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+\/]+=*$/;"""))
         assertTrue(page.contains("DATA_IMG.test(src) ? h('img', { src, alt })"))
-        assertTrue(page.contains("'base', 'img', 'picture'")) // model markup still may not contain images
+        assertTrue("model markup still may not contain images", page.contains("'base', 'img', 'picture'"))
         assertTrue(page.contains("img-src data:;"))
         assertTrue(page.contains("if (item.text) el.append(document.createTextNode(item.text));"))
     }
@@ -149,8 +153,7 @@ class WebAssetsTest {
         assertTrue(page.contains("const images = placeImages(el, slots);"))
         assertTrue(page.contains("send({ type: 'resolveImages', reqId, paths: [...new Set(wanted.map((x) => imageKey(x.href)))] });"))
         assertTrue(page.contains("case 'images':"))
-        // remote and other URL schemes are never requested
-        assertTrue(page.contains("""!/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(x.href.trim())"""))
+        assertTrue("remote and other URL schemes are never requested", page.contains("""!/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(x.href.trim())"""))
     }
 
     @Test fun questionCardShowsModelTextAsTextOnly() {

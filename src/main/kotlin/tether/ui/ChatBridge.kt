@@ -91,7 +91,7 @@ class ChatBridge(
     }
 
     private val uploads = Uploads()
-    /** Ids whose bytes are being prepared off the EDT; a `detach` removes one so its result is dropped. EDT only. */
+    /** Ids whose bytes are being prepared off the EDT; a `detach` (or a page reload) removes one so its result is dropped. EDT only. */
     private val preparing = HashSet<String>()
     private var pickSeq = 0
 
@@ -103,18 +103,14 @@ class ChatBridge(
                 post(Theme.message())
                 post(historyMessage(history.entries()))
                 if (unsubscribe == null) unsubscribe = history.subscribe { post(historyMessage(it)) }
-                // A (re)loaded page shows no attachments: forget the ones the old page had.
-                uploads.clear()
-                preparing.clear()
-                chat.attachments.clear()
+                forgetAttachments()
                 chat.attach(this)
             }
             "send" -> {
                 val text = msg.str("text").orEmpty()
                 val images = chat.attachments.take(strings(msg["attachments"]))
                 if (text.isBlank() && images.isEmpty()) return
-                // Chat.send ignores a dead chat; history keeps text only
-                if (session.state != SessionState.DEAD && text.isNotBlank()) history.add(text)
+                remember(text)
                 chat.send(text, images)
             }
             "attachStart" -> {
@@ -181,25 +177,41 @@ class ChatBridge(
             "openTurnChanges" -> turnDiffs(msg)?.let(showTurnChanges)
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> resolvePaths(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.distinct().take(MAX_PATH_CANDIDATES))
-            "resolveImages" -> {
-                val reqId = msg.long("reqId") ?: 0
-                val paths = strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS)
-                val cwd = chat.cwd
-                offEdt {
-                    val found = ArrayList<Pair<String, String>>()
+            "resolveImages" -> resolveImages(msg.long("reqId") ?: 0, strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS))
+        }
+    }
+
+    /** Forgets every attachment, started upload and preparation: a (re)loaded page shows none. */
+    private fun forgetAttachments() {
+        uploads.clear()
+        preparing.clear()
+        chat.attachments.clear()
+    }
+
+    /** Adds [text] to the input history, unless it is blank (history keeps text only) or the chat is dead ([Chat.send] ignores it). */
+    private fun remember(text: String) {
+        if (session.state != SessionState.DEAD && text.isNotBlank()) history.add(text)
+    }
+
+    /**
+     * Answers request [reqId] with the local images at [paths], read off the EDT. A path that can't be read is left
+     * out, so the page shows its alt text while the others are still answered; the answer goes out even when a
+     * cancellation is being rethrown.
+     */
+    private fun resolveImages(reqId: Long, paths: List<String>) {
+        val cwd = chat.cwd
+        offEdt {
+            val found = ArrayList<Pair<String, String>>()
+            try {
+                for (path in paths) {
                     try {
-                        for (path in paths) {
-                            try {
-                                localImage(path, cwd)?.let { found += path to it }
-                            } catch (e: Throwable) {
-                                if (e is ControlFlowException) throw e
-                                // this path shows its alt text; the others still get answered
-                            }
-                        }
-                    } finally {
-                        onEdt { post(imagesMessage(reqId, found)) } // also when a cancellation is being rethrown
+                        localImage(path, cwd)?.let { found += path to it }
+                    } catch (e: Throwable) {
+                        if (e is ControlFlowException) throw e
                     }
                 }
+            } finally {
+                onEdt { post(imagesMessage(reqId, found)) }
             }
         }
     }
@@ -249,7 +261,7 @@ class ChatBridge(
                 Prepared.Rejected(if (e is OutOfMemoryError) "the image is too large to process" else Images.UNREADABLE)
             }
             onEdt {
-                if (!preparing.remove(id)) return@onEdt // removed (×) or the page reloaded meanwhile
+                if (!preparing.remove(id)) return@onEdt
                 when (outcome) {
                     is Prepared.Rejected -> refuse(id, "Couldn't attach $name: ${outcome.reason}.")
                     is Prepared.Ok ->
@@ -278,11 +290,11 @@ class ChatBridge(
         put("thumb", thumb)
     }.toString()
 
-    /** Stops history updates. Called when the page goes away. */
+    /** Stops history updates and drops abandoned uploads and in-flight preparations, which go with the page. Called when the page goes away. */
     fun dispose() {
         unsubscribe?.invoke()
         unsubscribe = null
-        uploads.clear() // abandoned uploads and in-flight preparations go with the page
+        uploads.clear()
         preparing.clear()
     }
 

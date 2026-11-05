@@ -94,7 +94,7 @@ class ChatSessionTest {
         s.send("one")
         s.send("two")
         conn.emit(Fx.result())
-        assertEquals(listOf<Activity?>(Activity.Starting), listener.activities) // unchanged: the next turn also starts there
+        assertEquals("unchanged: the next turn also starts there", listOf<Activity?>(Activity.Starting), listener.activities)
         conn.emit(Fx.result())
         assertNull(listener.activities.last())
     }
@@ -110,11 +110,12 @@ class ChatSessionTest {
         assertNull(listener.activities.last())
     }
 
+    /** For example, a background agent finished and Claude reads its report. */
     @Test fun aTurnTheCliStartsByItselfShowsAsRunning() {
         val s = session()
         s.send("go")
         conn.emit(Fx.result())
-        conn.emit(Fx.messageStart("m2")) // e.g. a background agent finished and Claude reads its report
+        conn.emit(Fx.messageStart("m2"))
         assertEquals(SessionState.RUNNING, s.state)
         assertEquals(Activity.Thinking, listener.activities.last())
         s.send("queued meanwhile")
@@ -800,8 +801,7 @@ class ChatSessionTest {
         turn(s, "one", "a-1")
         turn(s, "two", "a-2")
         s.rewind(userIds()[1])
-        // The id is unknown until system/init: nothing may be saved under the old one meanwhile.
-        assertNull(s.sessionId)
+        assertNull("the id is unknown until system/init: nothing may be saved under the old one meanwhile", s.sessionId)
         conn.exit(1, "")
         s.restart()
         assertEquals(SessionLaunch("sess-1", PermissionMode.DEFAULT, "/proj", resumeAt = "a-1", fork = true), launches.last())
@@ -844,9 +844,8 @@ class ChatSessionTest {
         assertTrue(s.canRewindTo(userIds()[0]))
         assertFalse(s.canRewindTo("h-0"))
         assertFalse(s.rewind("h-0"))
-        // The rewound message and those after it are gone, so they can't be rewound to again.
         s.rewind(userIds()[0])
-        assertFalse(s.canRewindTo(userIds()[0]))
+        assertFalse("the rewound message and those after it are gone, so they can't be rewound to again", s.canRewindTo(userIds()[0]))
     }
 
     @Test fun rewindingForgetsTheBackgroundAgentsOfTheOldProcess() {
@@ -1265,7 +1264,7 @@ class ChatSessionTest {
         conn.emit(Fx.result())
         conn.emit(Fx.modeResponse(conn.lastRequestId("get_context_usage"), "plan"))
         assertTrue(listener.contexts.isEmpty())
-        assertEquals(null, s.mode) // the reply is not mistaken for a mode change
+        assertEquals("the reply is not mistaken for a mode change", null, s.mode)
     }
 
     @Test fun aStaleContextReplyIsDropped() {

@@ -144,14 +144,15 @@ class SessionStore(private val claudeHome: File) {
 
     /**
      * The first message and the last custom title; null when the session has neither. A title alone is kept: an archived
-     * chat's claude can be stopped before it writes the first message.
+     * chat's claude can be stopped before it writes the first message. Once the first message is found only title lines
+     * are parsed.
      */
     private fun summary(file: File, cwd: String, modified: Long): SessionSummary? {
         val title = TitleScan()
         file.useLines { lines ->
             for (line in lines) {
                 val titled = line.contains(TITLE_TYPE)
-                if (title.first != null && !titled) continue // only titles matter now; skip parsing the rest
+                if (title.first != null && !titled) continue
                 val obj = parseJsonObject(line) ?: continue
                 when (obj.str("type")) {
                     "user" -> if (title.first == null) title.first = userText(obj)
@@ -222,7 +223,7 @@ class SessionStore(private val claudeHome: File) {
         private const val CUSTOM_TITLE = "custom-title"
         /** How a title line spells its type: cheaper to find than parsing every line, and rarer than the bare word. */
         private const val TITLE_TYPE = "\"$CUSTOM_TITLE\""
-        // Claude writes compact JSON: a line's own structure spells these without spaces.
+        /** How a user line spells its type. Claude writes compact JSON, so this and the types below match without spaces. */
         private const val USER_TYPE = "\"type\":\"user\""
         private const val ASSISTANT_TYPE = "\"type\":\"assistant\""
         private const val TOOL_RESULT_TYPE = "\"type\":\"tool_result\""

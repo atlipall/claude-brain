@@ -83,11 +83,14 @@ class CheckoutFollower(private val project: Project) : Disposable {
      */
     fun refresh() = update(selecting = false)
 
+    /**
+     * Syncs the scopes (the checkout the IDE shows keeps its scope even when no open chat is in it any more), shows the
+     * selected chat's checkout when [selecting] or when it is not the one shown, and tells every chat what the IDE shows.
+     */
     private fun update(selecting: Boolean) {
         val mapper = CheckoutMapper(projectDir)
         val on = enabled
         if (on) {
-            // The checkout the IDE shows keeps its scope even when no open chat is in it any more.
             val wanted = chats.all().mapNotNull { followable(mapper, it) } + listOfNotNull(current)
             CheckoutScopes(project).sync(listOf(mapper.main) + wanted.filterNot { it.isMain })
             val target = selected?.let { followable(mapper, it) }
@@ -101,14 +104,20 @@ class CheckoutFollower(private val project: Project) : Disposable {
         chats.all().forEach { it.showCheckout(Indicator.text(on, ide, mapper.place(it.cwd), noScopes)) }
     }
 
+    /**
+     * Makes the IDE show [target]: swaps the editors from the checkout they still show (which may be older than
+     * [current] while a retry waits or a swap is in flight), then switches the Project view and Find default.
+     *
+     * `claude --worktree` selects its tab before the folder exists, so a swap to a missing folder waits until
+     * [refresh] sees it. A project that never shows a worktree keeps its own Project view and Find scope, and going
+     * back to main restores them. While worktrees are excluded from indexing their files match no scope, so the views
+     * are left alone (they would show nothing) and the user is offered to include the worktrees instead.
+     */
     private fun show(mapper: CheckoutMapper, target: Checkout) {
         val shown = current ?: mapper.main
-        // A project that never shows a worktree keeps its own Project view and Find scope; going back to main restores them.
         val leaveViews = target.isMain && (current == null || current!!.isMain || !viewsApplied)
         if (target != shown) {
-            // The editors may still show an older checkout than `current` (a retry is waiting, or a swap is in flight).
             val editorsFrom = pendingSwapFrom ?: inFlightFrom ?: shown
-            // `claude --worktree` selects its tab before the folder exists: swap once refresh() sees the folder.
             pendingSwapFrom = null
             if (!target.isMain && !dirExists(target.dir)) pendingSwapFrom = editorsFrom else swap(mapper, editorsFrom, target)
         } else {
@@ -120,16 +129,19 @@ class CheckoutFollower(private val project: Project) : Disposable {
         }
         current = target
         val noScopes = !target.isMain && excluded()
-        if (!noScopes && !leaveViews) applyViews(target) // excluded files match no scope: the Project view and Find would show nothing
+        if (!noScopes && !leaveViews) applyViews(target)
         if (noScopes) offer(project)
     }
 
-    /** Swaps editors without blocking the EDT; the result is applied only if no newer swap was requested and following is still on. */
+    /**
+     * Swaps editors without blocking the EDT; the result is applied only if no newer swap was requested and following
+     * is still on. A request still in flight has not touched the editors: they show its `from`, so the new swap chains
+     * from there (A -> B -> C is A -> C), and a swap back to where the editors already are is dropped.
+     */
     private fun swap(mapper: CheckoutMapper, from: Checkout, to: Checkout) {
         val request = ++swapRequest
-        // A request still in flight has not touched the editors: they show its `from`, so chain from there (A -> B -> C is A -> C).
         val shown = inFlightFrom ?: from
-        if (shown == to) { // back where the editors already are
+        if (shown == to) {
             inFlightFrom = null
             return
         }
@@ -138,10 +150,13 @@ class CheckoutFollower(private val project: Project) : Disposable {
             .swap(shown, to, { request == swapRequest && enabled }, { if (request == swapRequest) inFlightFrom = null })
     }
 
+    /**
+     * Switches the Find default and the Project view to [target]'s scope. The Scope pane may learn about a new scope
+     * asynchronously: if it does not list the scope yet, one more attempt follows later.
+     */
     private fun applyViews(target: Checkout) {
         viewsApplied = true
         SearchDefaults.use(project, target.scopeName)
-        // The Scope pane may learn about a new scope asynchronously: if it does not list it yet, try once more later.
         if (!ProjectViewSwitcher(project).show(target.scopeName)) {
             ApplicationManager.getApplication().invokeLater({
                 if (enabled && current == target) ProjectViewSwitcher(project).show(target.scopeName)

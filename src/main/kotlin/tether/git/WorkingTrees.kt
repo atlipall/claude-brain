@@ -43,14 +43,17 @@ class WorkingTrees(
             failed += repo.root
             return null
         }
-        val env = mapOf("GIT_INDEX_FILE" to index.absolutePath)
-        val top = File(repo.root)
-        // One snapshot at a time per index: git locks it while adding.
-        val tree = synchronized(index) {
-            call(top, deadline, listOf("add", "--all", "--", "."), env)?.let { call(top, deadline, listOf("write-tree"), env) }
-        }?.toString(Charsets.UTF_8)?.trim()?.takeIf { it.isNotEmpty() }
+        val tree = writeTree(File(repo.root), deadline, index)
         if (tree == null) failed += repo.root
         return tree?.let { TreeSnapshot(repo.root, it) }
+    }
+
+    /** Adds every file under [top] to the private [index] and writes its tree id; one at a time per index, as git locks it while adding. */
+    private fun writeTree(top: File, deadline: Deadline, index: File): String? {
+        val env = mapOf("GIT_INDEX_FILE" to index.absolutePath)
+        return synchronized(index) {
+            call(top, deadline, listOf("add", "--all", "--", "."), env)?.let { call(top, deadline, listOf("write-tree"), env) }
+        }?.toString(Charsets.UTF_8)?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     /**
@@ -85,11 +88,14 @@ class WorkingTrees(
         indexes.clear()
     }
 
+    /**
+     * The repository [dir] lies in, asked of git once per folder; null outside a repository. `--git-path` prints the
+     * index path relative to the folder git ran in unless it is absolute.
+     */
     private fun repo(dir: String, deadline: Deadline): Repo? = repos[dir] ?: run {
         val lines = call(File(dir), deadline, listOf("rev-parse", "--show-toplevel", "--git-path", "index"))
             ?.toString(Charsets.UTF_8)?.lines()?.filter { it.isNotBlank() }
         if (lines == null || lines.size != 2) return null
-        // --git-path prints a path relative to the folder git ran in unless it is absolute.
         val index = File(lines[1]).takeIf(File::isAbsolute) ?: File(dir, lines[1])
         Repo(lines[0], index).also { repos[dir] = it }
     }
@@ -162,7 +168,10 @@ class WorkingTrees(
             return out
         }
 
-        /** Parses `git cat-file --batch` output (`<id> <type> <size>\n<bytes>\n` each) into each object's bytes by id. */
+        /**
+         * Parses `git cat-file --batch` output (`<id> <type> <size>\n<bytes>\n` each) into each object's bytes by id.
+         * A `<id> missing` line, which has no size, is skipped.
+         */
         internal fun parseBatch(out: ByteArray): Map<String, ByteArray> {
             val result = LinkedHashMap<String, ByteArray>()
             var i = 0
@@ -170,7 +179,7 @@ class WorkingTrees(
                 val eol = (i until out.size).firstOrNull { out[it] == '\n'.code.toByte() } ?: break
                 val header = String(out, i, eol - i, Charsets.UTF_8).split(' ')
                 val size = header.getOrNull(2)?.toIntOrNull()
-                if (size == null) { i = eol + 1; continue } // "<id> missing"
+                if (size == null) { i = eol + 1; continue }
                 val start = eol + 1
                 if (start + size > out.size) break
                 result[header[0]] = out.copyOfRange(start, start + size)

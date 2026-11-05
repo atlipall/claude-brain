@@ -19,6 +19,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorKind
@@ -29,6 +30,7 @@ import com.intellij.openapi.editor.event.SelectionListener
 import com.intellij.openapi.editor.ex.EditorEventMulticasterEx
 import com.intellij.openapi.editor.ex.FocusChangeListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
@@ -95,12 +97,17 @@ class EditorContextService(private val project: Project) : Disposable {
             override fun focusGained(editor: Editor) = editorFocused(editor)
         }, this)
         project.messageBus.connect(this).subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
-            override fun selectionChanged(event: FileEditorManagerEvent) {
-                // A tab switch without focus (or v3 swapping editors to another checkout); a non-text tab means no context.
-                lastFocused = (event.newEditor as? TextEditor)?.editor?.takeIf(::accepts)
-                changed(null)
-            }
+            override fun selectionChanged(event: FileEditorManagerEvent) = tabSelected(event.newEditor)
         })
+    }
+
+    /**
+     * A tab was selected without focus moving (a tab switch, or v3 swapping editors to another checkout): its text
+     * editor becomes the context editor; a non-text tab means no context.
+     */
+    private fun tabSelected(selected: FileEditor?) {
+        lastFocused = (selected as? TextEditor)?.editor?.takeIf(::accepts)
+        changed(null)
     }
 
     /** [editor] got focus: it becomes the context editor if it is a text editor of a local file in this project. */
@@ -119,10 +126,10 @@ class EditorContextService(private val project: Project) : Disposable {
     /**
      * The cheap part of the context plus the symbol only if the cache holds it for the current caret, selection and text;
      * never walks PSI, so it is safe on the EDT (listeners and sends read this). Null without a context editor or a name for the
-     * file in [cwd] ([ContextPaths.forChat]).
+     * file in [cwd] ([ContextPaths.forChat]). Does not commit the document: only a lookup start needs that.
      */
     fun contextFor(cwd: String): EditorContext? {
-        val cheap = cheap(commit = false) ?: return null // no commit needed here (the lookup start commits)
+        val cheap = cheap(commit = false) ?: return null
         val path = pathFor(cheap, cwd) ?: return null
         return build(cheap, path, cached?.takeIf { it.key == cheap.key }?.found)
     }
@@ -170,24 +177,27 @@ class EditorContextService(private val project: Project) : Disposable {
         return ContextKey(file.path, editor.document.modificationStamp, caret.offset, caret.selectionStart, caret.selectionEnd)
     }
 
-    /** What the EDT can read without touching the PSI structure: editor, file, caret, selection and the text's stamp. EDT only. */
+    /**
+     * What the EDT can read without touching the PSI structure: editor, file, caret, selection and the text's stamp.
+     * With [commit] the document is committed first, since the background lookup reads committed PSI. EDT only.
+     */
     private fun cheap(commit: Boolean = true): Cheap? {
         val editor = contextEditor() ?: return null
         val file = localFile(editor) ?: return null
         val document = editor.document
-        if (commit) PsiDocumentManager.getInstance(project).commitDocument(document) // the background lookup reads committed PSI
+        if (commit) PsiDocumentManager.getInstance(project).commitDocument(document)
         val caret = editor.caretModel.primaryCaret
         val offset = caret.offset
         val line = document.getLineNumber(offset)
-        val selection = if (caret.hasSelection()) {
-            val start = caret.selectionStart
-            // A selection that ends at the start of a line stops on the line before it.
-            val last = if (caret.selectionEnd > start) caret.selectionEnd - 1 else start
-            Lines(document.getLineNumber(start) + 1, document.getLineNumber(last) + 1)
-        } else {
-            null
-        }
+        val selection = if (caret.hasSelection()) selectedLines(caret, document) else null
         return Cheap(file, keyOf(editor, file), offset, line + 1, offset - document.getLineStartOffset(line) + 1, selection)
+    }
+
+    /** The lines [caret]'s selection covers; a selection that ends at the start of a line stops on the line before it. */
+    private fun selectedLines(caret: Caret, document: Document): Lines {
+        val start = caret.selectionStart
+        val last = if (caret.selectionEnd > start) caret.selectionEnd - 1 else start
+        return Lines(document.getLineNumber(start) + 1, document.getLineNumber(last) + 1)
     }
 
     /** The key of the context editor's state right now, without committing; null without a context editor. EDT only. */
@@ -196,7 +206,11 @@ class EditorContextService(private val project: Project) : Disposable {
         return keyOf(editor, localFile(editor) ?: return null)
     }
 
-    /** Starts the background read action for [cheap] unless one for the same state runs; [waiter] hears the result on the EDT (null on failure). */
+    /**
+     * Starts the background read action for [cheap] unless one for the same state runs; [waiter] hears the result on the
+     * EDT (null on failure). A result for the state the editor is still in is cached, and the listeners hear a second
+     * round so they learn the symbol.
+     */
     private fun lookup(cheap: Cheap, waiter: (Found?) -> Unit) {
         inflight[cheap.key]?.let { it += waiter; return }
         inflight[cheap.key] = mutableListOf(waiter)
@@ -205,7 +219,7 @@ class EditorContextService(private val project: Project) : Disposable {
             val store = found != null && !DumbService.isDumb(project) && currentKey() == cheap.key
             if (store) cached = Cached(cheap.key, found!!)
             waiters.forEach { w -> try { w(found) } catch (e: Exception) { if (e is ControlFlowException) throw e; logger<EditorContextService>().warn("A context lookup waiter failed", e) } }
-            if (store) listeners.forEach(::notify) // listeners learn the symbol
+            if (store) listeners.forEach(::notify)
         }
         val file = cheap.file
         val offset = cheap.offset
@@ -239,12 +253,17 @@ class EditorContextService(private val project: Project) : Disposable {
     private fun localFile(editor: Editor): VirtualFile? =
         FileDocumentManager.getInstance().getFile(editor.document)?.takeIf { it.isValid && it.isInLocalFileSystem }
 
+    /**
+     * [editor] (or, when null, the selected tab) changed: after the debounce the listeners hear the cheap part at once,
+     * and a second round follows when the symbol is found. Editors [accepts] rejects (consoles, diffs, previews) never
+     * change the context.
+     */
     private fun changed(editor: Editor?) {
-        if (editor != null && !accepts(editor)) return // consoles, diffs and previews never change the context
+        if (editor != null && !accepts(editor)) return
         schedule(Runnable {
             if (project.isDisposed) return@Runnable
             warm()
-            listeners.forEach(::notify) // the cheap part now; a second round follows when the symbol is found
+            listeners.forEach(::notify)
         })
     }
 

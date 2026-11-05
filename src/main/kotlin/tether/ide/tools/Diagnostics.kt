@@ -18,16 +18,18 @@ import java.util.concurrent.CompletableFuture
 object Diagnostics {
     /**
      * What a check of [files] finds at [minSeverity] or worse, by file: the main passes plus every [ProblemSource].
-     * Picks up changes made on disk first. Call on a pooled thread, never the EDT or inside a read action.
+     * Picks up changes made on disk first, since Claude writes files behind the IDE's back: the new text is loaded,
+     * then PSI sees it. Sources such as the TypeScript service work in their own process, so they are started first
+     * and collected last (and cancelled if still running on the way out); a problem a source repeats from a pass
+     * (WebStorm checks some TypeScript itself) is listed once. Call on a pooled thread, never the EDT or inside a
+     * read action.
      *
      * @throws ToolUnavailable while the IDE is indexing, or when the main passes did not finish by [deadline].
      */
     fun collect(project: Project, files: List<VirtualFile>, minSeverity: HighlightSeverity, deadline: Deadline): Map<VirtualFile, Checked> {
         if (files.isEmpty()) return emptyMap()
         requireIndexes(project)
-        // Claude writes files behind the IDE's back: load the new text, then let PSI see it.
         VfsUtil.markDirtyAndRefresh(false, false, false, *files.toTypedArray())
-        // Sources such as the TypeScript service work in their own process: start them first, collect them last.
         val pending = files.associateWith { file ->
             ProblemSource.EP.extensionList.mapNotNull { source -> source.start(project, file)?.let { source.name to it } }
         }
@@ -42,12 +44,11 @@ object Diagnostics {
             val worst = Severity.of(minSeverity) ?: Severity.WEAK_WARNING
             return files.associateWith { file ->
                 val (extra, note) = await(pending[file].orEmpty(), deadline)
-                // A source may repeat what a pass found (WebStorm checks some TypeScript itself).
                 val all = (main[file].orEmpty() + extra.filter { it.severity <= worst }).distinctBy { Triple(it.line, it.severity, it.message) }
                 Checked(all, note)
             }
         } finally {
-            pending.values.flatten().forEach { it.second.cancel(true) } // no-op for the finished ones
+            pending.values.flatten().forEach { it.second.cancel(true) }
         }
     }
 

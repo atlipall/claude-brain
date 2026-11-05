@@ -21,11 +21,14 @@ class TypeScriptServiceProblems : ProblemSource {
     override fun start(project: Project, file: VirtualFile): CompletableFuture<List<Problem>>? =
         highlight(project, file)?.thenApply { errors -> errors.mapNotNull { problemOf(it) } }
 
+    /**
+     * The service's fixes for its errors on 1-based [line]. Asked for in a non-blocking read, since the service may be
+     * called here and that must not hold up the user's typing meanwhile.
+     */
     override fun fixes(project: Project, file: VirtualFile, line: Int, deadline: Deadline): List<FixCandidate> {
         val pending = highlight(project, file) ?: return emptyList()
         val errors = deadline.await(pending, name).filter { it.line == line - 1 }
         if (errors.isEmpty()) return emptyList()
-        // The service may be asked for its fixes here: a non-blocking read doesn't hold up the user's typing meanwhile.
         return deadline.read("Asking $name for fixes") {
             val service = TypeScriptService.getForFile(project, file) ?: return@read emptyList()
             val psi = PsiManager.getInstance(project).findFile(file) ?: return@read emptyList()
@@ -48,10 +51,10 @@ class TypeScriptServiceProblems : ProblemSource {
             if (service.canHighlight(psi)) service.highlight(psi) else null
         }?.thenApply { errors -> errors.orEmpty().filter { it.absoluteFilePath.let { p -> p == null || p == file.path } } }
 
+    /** [error] as a 1-based [Problem] (the service counts lines and columns from 0); null when it has no message or severity. */
     private fun problemOf(error: JSAnnotationError): Problem? {
         val message = error.description?.takeIf { it.isNotBlank() } ?: return null
         val severity = Severity.of(error.severity) ?: return null
-        // The service counts lines and columns from 0.
         return Problem(error.line + 1, error.column + 1, severity, message)
     }
 }

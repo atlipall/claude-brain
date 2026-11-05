@@ -23,9 +23,10 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
     private var offers = 0
     private lateinit var follower: CheckoutFollower
 
+    /** The light project and its services are shared between tests; ends with a fresh follower, the IDE showing main. */
     override fun setUp() {
         super.setUp()
-        chats.closeAll() // the light project and its services are shared between tests
+        chats.closeAll()
         connections.clear()
         chats.connector = { FakeConnection().also { connections += it } }
         holder.scopes = emptyArray()
@@ -33,7 +34,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         savedScopeName = FindSettings.getInstance().defaultScopeName
         savedFollow = settings.followCheckout
         settings.followCheckout = true
-        follower = CheckoutFollower(project).also { it.projectDir = root; it.excluded = { false }; it.dirExists = ::dirExists; it.offer = { offers++ }; it.swapBackground = { r -> r.run() }; it.swapOnEdt = { r -> r.run() } } // a fresh follower: IDE shows main
+        follower = CheckoutFollower(project).also { it.projectDir = root; it.excluded = { false }; it.dirExists = ::dirExists; it.offer = { offers++ }; it.swapBackground = { r -> r.run() }; it.swapOnEdt = { r -> r.run() } }
     }
 
     override fun tearDown() {
@@ -120,7 +121,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         assertEquals("IDE: wt2", wt.checkoutText)
         connections.single().emit(Fx.init(cwd = "/elsewhere/wt2"))
         follower.refresh()
-        assertEquals(listOf("Claude: main", "Claude: wt2"), scopeNames()) // still the checkout the IDE shows
+        assertEquals("still the checkout the IDE shows", listOf("Claude: main", "Claude: wt2"), scopeNames())
         assertTrue(wt.checkoutText, wt.checkoutText.startsWith("IDE: wt2 · /elsewhere/wt2 is outside this window"))
     }
 
@@ -180,7 +181,7 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         assertEquals("wt2", follower.current?.name)
         assertEquals(setOf("a.txt"), openPaths())
         follower.refresh()
-        assertEquals(setOf("a.txt"), openPaths()) // still no folder
+        assertEquals("still no folder", setOf("a.txt"), openPaths())
         myFixture.addFileToProject(".claude/worktrees/wt2/a.txt", "x")
         follower.refresh()
         assertEquals(setOf(".claude/worktrees/wt2/a.txt"), openPaths())
@@ -238,10 +239,10 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         val wt = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
         follower.follow(wt)
         follower.follow(main)
-        assertEquals(1, queued.size) // main -> wt1; wt1 -> main has no tab to look up
+        assertEquals("main -> wt1; wt1 -> main has no tab to look up", 1, queued.size)
         queued.forEach { it.run() }
         assertEquals("main", follower.current?.name)
-        assertEquals(setOf("a.txt"), openPaths()) // the main -> wt1 result would have swapped the tab
+        assertEquals("the main -> wt1 result would have swapped the tab", setOf("a.txt"), openPaths())
     }
 
     fun testSwapIsNotAppliedBeforeTheBackgroundLookupFinishes() {
@@ -260,14 +261,15 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         myFixture.addFileToProject(".claude/worktrees/wt2/a.txt", "x")
     }
 
+    /** main -> wt1 is still looking up when wt1 -> wt2 is asked for, and the tabs are still main's. */
     fun testQuickSwitchChainsTheSwapFromWhatTheEditorsShow() {
         twoWorktrees()
         val queued = mutableListOf<Runnable>()
         follower.swapBackground = { queued += it }
         val wt1 = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
         val wt2 = chats.open(ChatSpec("wt2", "$root/.claude/worktrees/wt2"))
-        follower.follow(wt1) // main -> wt1 still looking up
-        follower.follow(wt2) // wt1 -> wt2: the tabs are still main's
+        follower.follow(wt1)
+        follower.follow(wt2)
         queued.forEach { it.run() }
         assertEquals("wt2", follower.current?.name)
         assertEquals(setOf(".claude/worktrees/wt2/a.txt"), openPaths())
@@ -284,17 +286,18 @@ class CheckoutFollowerTest : BasePlatformTestCase() {
         queued.forEach { it.run() }
         assertEquals("main", follower.current?.name)
         assertEquals(setOf("a.txt"), openPaths())
-        follower.follow(wt1) // nothing stuck in flight: a later switch still swaps
+        follower.follow(wt1)
         queued.toList().forEach { it.run() }
-        assertEquals(setOf(".claude/worktrees/wt1/a.txt"), openPaths())
+        assertEquals("nothing stuck in flight: a later switch still swaps", setOf(".claude/worktrees/wt1/a.txt"), openPaths())
     }
 
+    /** wt3 has no folder yet, so the editors still show main when wt2 is followed. */
     fun testQuickSwitchPastANewWorktreeWithoutFolderKeepsTheOriginalFrom() {
         twoWorktrees()
-        val newWt = chats.open(ChatSpec.newWorktree(root, "wt3")) // no folder yet
+        val newWt = chats.open(ChatSpec.newWorktree(root, "wt3"))
         val wt2 = chats.open(ChatSpec("wt2", "$root/.claude/worktrees/wt2"))
         follower.follow(newWt)
-        follower.follow(wt2) // the editors still show main
+        follower.follow(wt2)
         assertEquals(setOf(".claude/worktrees/wt2/a.txt"), openPaths())
     }
 }

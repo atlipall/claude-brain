@@ -55,7 +55,11 @@ class ClaudeProcess(private val workDir: File, private val prepare: () -> Launch
         return builder.start()
     }
 
-    /** Pumps [p]'s pipes until it exits; the stdin writer drains [queue], lines sent before the spawn included. */
+    /**
+     * Pumps [p]'s pipes until it exits; the stdin writer drains [queue], lines sent before the spawn included. The stdout
+     * reader ends when [stop] closes the stream, or when the process goes away; either way it then refuses further sends
+     * and wakes the writer so it ends, before [onExit] gets the exit code and stderr's tail.
+     */
     private fun run(p: Process, queue: LinkedBlockingQueue<Any>, onLine: (String) -> Unit, onExit: (exitCode: Int, stderrTail: String) -> Unit) {
         val stdin = p.outputStream.bufferedWriter(Charsets.UTF_8)
         stdinThread = thread(isDaemon = true, name = "claude-stdin") { writeLoop(stdin, queue) }
@@ -79,18 +83,19 @@ class ClaudeProcess(private val workDir: File, private val prepare: () -> Launch
                     }
                 }
             } catch (_: IOException) {
-                // stream closed by stop()
             }
             val code = p.waitFor()
             stderrThread.join(1000)
-            // The process is gone: refuse further sends and wake the writer so it ends.
             stopped.set(true)
             outbox?.offer(CLOSE)
             onExit(code, synchronized(tail) { tail.joinToString("\n") })
         }
     }
 
-    /** Sole writer to stdin. Lines are written in queue order; CLOSE ends the loop. */
+    /**
+     * Sole writer to stdin. Lines are written in queue order; CLOSE ends the loop. A write failing means the process is
+     * gone, which the exit callback reports, so it only ends the loop.
+     */
     private fun writeLoop(w: BufferedWriter, queue: LinkedBlockingQueue<Any>) {
         try {
             while (true) {
@@ -101,7 +106,6 @@ class ClaudeProcess(private val workDir: File, private val prepare: () -> Launch
                 w.flush()
             }
         } catch (_: IOException) {
-            // process is gone; the exit callback reports it
         } finally {
             outbox = null
             runCatching { w.close() }

@@ -65,10 +65,11 @@ class EditorSwapPlanTest {
         assertEquals(Caret(0, 0), Caret(-1, -1).clamp(2) { lengths[it] })
     }
 
+    /** On "\t\tfoo" (5 characters) a caret after the tabs is at character 2, whatever the tab width. */
     @Test fun caretColumnIsACharacterOffsetOnATabIndentedLine() {
-        // "\t\tfoo" has 5 characters; a caret after the tabs is at character 2, whatever the tab width
-        assertEquals(Caret(0, 2), Caret(0, 2).clamp(1) { 5 })
-        assertEquals(Caret(0, 5), Caret(0, 12).clamp(1) { 5 })
+        val tabIndentedLineLength = 5
+        assertEquals(Caret(0, 2), Caret(0, 2).clamp(1) { tabIndentedLineLength })
+        assertEquals(Caret(0, 5), Caret(0, 12).clamp(1) { tabIndentedLineLength })
     }
 
     @Test fun symlinkedSpellingOfAnOpenCounterpartIsStillOpen() {
@@ -78,11 +79,9 @@ class EditorSwapPlanTest {
         val realMain = Checkout("main", real.path)
         val realWt = Checkout("wt1", "${real.path}/.claude/worktrees/wt1")
         val realMapper = CheckoutMapper(real.path)
-        // main file opened through the link, counterpart opened by its real path: nothing to swap
-        val open = listOf(OpenFile("$link/a.ts", null), OpenFile("${real.path}/.claude/worktrees/wt1/a.ts", null))
-        assertEquals(emptyList<Replacement>(), EditorSwapPlan.plan(open, realMain, realWt, realMapper, all))
-        // and the other way round: the counterpart is opened through the link
-        val open2 = listOf(OpenFile("${real.path}/a.ts", null), OpenFile("$link/.claude/worktrees/wt1/a.ts", null))
-        assertEquals(emptyList<Replacement>(), EditorSwapPlan.plan(open2, realMain, realWt, realMapper, all))
+        val mainThroughTheLink = listOf(OpenFile("$link/a.ts", null), OpenFile("${real.path}/.claude/worktrees/wt1/a.ts", null))
+        assertEquals(emptyList<Replacement>(), EditorSwapPlan.plan(mainThroughTheLink, realMain, realWt, realMapper, all))
+        val counterpartThroughTheLink = listOf(OpenFile("${real.path}/a.ts", null), OpenFile("$link/.claude/worktrees/wt1/a.ts", null))
+        assertEquals(emptyList<Replacement>(), EditorSwapPlan.plan(counterpartThroughTheLink, realMain, realWt, realMapper, all))
     }
 }

@@ -10,9 +10,11 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** Messages the user sent in this project, oldest first, shared by every chat tab and kept across restarts. */
+/**
+ * Messages the user sent in this project, oldest first, shared by every chat tab and kept across restarts. The state
+ * name is from before the rename to Tether; changing it would drop saved prompt history.
+ */
 @Service(Service.Level.PROJECT)
-// Named from before the rename to Tether; changing it would drop saved prompt history.
 @State(name = "ClaudeChatPromptHistory", storages = [Storage(StoragePathMacros.WORKSPACE_FILE)])
 class PromptHistory : SimplePersistentStateComponent<PromptHistory.State>(State()) {
     class State : BaseState() {

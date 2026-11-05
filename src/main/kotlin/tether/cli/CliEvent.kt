@@ -135,9 +135,9 @@ object CliParser {
         return listOf(CliEvent.AssistantMessage(uuid)) + blocks
     }
 
+    /** A subagent's user text is dropped: it is the subagent's prompt, which its task_started event already carries. */
     private fun user(obj: JsonObject): List<CliEvent> {
         val content = obj.obj("message")?.get("content") ?: return emptyList()
-        // A subagent's user text is its prompt, which its task_started event already carries.
         val parent = obj.str("parent_tool_use_id")
         if (content is JsonPrimitive) return if (parent == null) listOf(CliEvent.UserText(content.content)) else emptyList()
         val blocks = (content as? JsonArray).orEmpty().filterIsInstance<JsonObject>()

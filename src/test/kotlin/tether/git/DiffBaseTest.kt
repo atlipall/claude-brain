@@ -28,8 +28,8 @@ class DiffBaseTest {
     @Test fun branchDiffsAgainstMergeBaseWithMain() {
         val git = FakeGit(top, onBranch("feature"), hasMain, head, "merge-base refs/heads/main HEAD" to "mb1\n")
         assertEquals(DiffBase("/repo", "mb1", "main"), resolve(git, startCommit = "s1"))
-        assertEquals(File("/repo/sub"), git.dirs.first()) // finds the top level from the chat's folder
-        assertEquals(setOf(File("/repo")), git.dirs.drop(1).toSet()) // then works at the top level
+        assertEquals("finds the top level from the chat's folder", File("/repo/sub"), git.dirs.first())
+        assertEquals("then works at the top level", setOf(File("/repo")), git.dirs.drop(1).toSet())
     }
 
     @Test fun branchUsesMasterWhenThereIsNoMain() {

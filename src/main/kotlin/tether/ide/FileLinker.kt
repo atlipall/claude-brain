@@ -73,10 +73,13 @@ class FileLinker(private val project: Project) {
         return (roots + listOfNotNull(cwd)).any { isUnder(file.path, it) }
     }
 
+    /**
+     * The file [raw] names, from the VFS as it is; failing that, refreshed from disk (outside any read action), since
+     * Claude may have just created it and the VFS may not know yet.
+     */
     private fun findFile(raw: String, cwd: String?): VirtualFile? {
         val cached = ReadAction.compute<VirtualFile?, RuntimeException> { lookup(raw, cwd) }
         if (cached != null) return cached
-        // Claude may have just created the file; the VFS may not know yet. Refresh outside the read action.
         val relative = raw.removePrefix("./")
         val local = LocalFileSystem.getInstance()
         val roots = ReadAction.compute<List<VirtualFile>, RuntimeException> {
@@ -143,16 +146,19 @@ class FileLinker(private val project: Project) {
         DiffManager.getInstance().showDiff(project, chain, DiffDialogHints.DEFAULT)
     }
 
-    /** A turn's files in the IDE's changes browser (a file list beside the diff), like the header's Diff. */
+    /**
+     * A turn's files in the IDE's changes browser (a file list beside the diff), like the header's Diff. The files are
+     * refreshed first, since Claude writes outside the IDE, so the current side is what is on disk now. A file created
+     * and then deleted in the turn is left out.
+     */
     fun showTurnChanges(diffs: List<FileDiff>) {
-        // Claude writes outside the IDE: refresh so the current side is what is on disk now.
         val files = LocalFileSystem.getInstance()
         files.refreshIoFiles(diffs.map { File(it.filePath) }, false, false, null)
         val changes = diffs.mapNotNull { diff ->
             val path = VcsUtil.getFilePath(diff.filePath, false)
             val before = if (diff.isNew) null else TurnStartRevision(path, diff.originalContent)
             val after = files.findFileByPath(diff.filePath)?.let { CurrentContentRevision.create(path) }
-            if (before == null && after == null) null else Change(before, after) // created, then deleted
+            if (before == null && after == null) null else Change(before, after)
         }
         AbstractVcsHelper.getInstance(project).showWhatDiffersBrowser(changes, "Changes in this turn")
     }
