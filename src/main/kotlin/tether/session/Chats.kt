@@ -76,13 +76,13 @@ class Chats(private val project: Project) : Disposable {
     fun restorable(): List<Pair<ChatSpec, Transcript>> = OpenChats.getInstance(project).saved().mapNotNull { saved ->
         val (id, cwd, setup) = saved
         if (!File(cwd).isDirectory) return@mapNotNull null
-        if (saved.agentId != Agent.CLAUDE.id) {
+        if (!Agent.isNative(saved.agentId)) {
             if (configuredAgents().none { it.id == saved.agentId }) {
                 LOG.warn("Couldn't reopen session $id: agent ${saved.agentId} is not configured")
                 return@mapNotNull null
             }
             val spec = ChatSpec(ChatNames.folderLabel(cwd, projectDir), cwd, resumeId = id,
-                title = saved.title, agentId = saved.agentId)
+                title = saved.title, agentId = saved.agentId, agentMode = saved.agentMode)
             return@mapNotNull spec to Transcript(emptyList(), null, null, null)
         }
         try {
@@ -100,7 +100,7 @@ class Chats(private val project: Project) : Disposable {
      * Reads the whole native transcript: off the EDT if it can.
      */
     fun read(spec: ChatSpec): Transcript? =
-        if (spec.agentId != null && spec.agentId != Agent.CLAUDE.id) null
+        if (!Agent.isNative(spec.agentId)) null
         else spec.resumeId?.let { store.read(spec.cwd, it) }
 
     private fun configuredAgents(): List<Agent> {
@@ -145,7 +145,7 @@ class Chats(private val project: Project) : Disposable {
             agent = agent,
             acpSession = { command, listener ->
                 AcpSession({ JsonAcpClient(acpConnector(command, spec.cwd)) }, listener, spec.cwd,
-                    Agent.acp(command).name, { LOG.info(it) }, resumeId = spec.resumeId)
+                    Agent.acp(command).name, { LOG.info(it) }, resumeId = spec.resumeId, mode = spec.agentMode)
             },
             onAgentSelected = { settings.lastAgent = it.id },
         )

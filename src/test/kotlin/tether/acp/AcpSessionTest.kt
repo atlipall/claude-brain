@@ -1,5 +1,6 @@
 package tether.acp
 
+import tether.cli.CliConnection
 import tether.image.Image
 import tether.image.ImageType
 import tether.session.Activity
@@ -62,7 +63,12 @@ class AcpSessionTest {
     private val allow = PermissionOption("allow_once", "Allow once", "allow_once")
     private val deny = PermissionOption("deny", "Deny", "reject_once")
 
-    private fun session(info: AgentInfo = AgentInfo(loadSession = true, images = true), failCreate: Boolean = false, resumeId: String? = null) = AcpSession(
+    private fun session(
+        info: AgentInfo = AgentInfo(loadSession = true, images = true),
+        failCreate: Boolean = false,
+        resumeId: String? = null,
+        mode: String? = null,
+    ) = AcpSession(
         newClient = {
             if (failCreate) throw IllegalStateException("hermes not found")
             FakeAcpClient(info).also { clients += it }
@@ -71,6 +77,7 @@ class AcpSessionTest {
         cwd = "/proj",
         name = "hermes",
         resumeId = resumeId,
+        mode = mode,
     ).also { active = it; it.start() }
 
     private fun ready(info: AgentInfo = AgentInfo(loadSession = true, images = true)) = session(info).also { client.ready() }
@@ -259,6 +266,74 @@ class AcpSessionTest {
         assertFalse(listener.current().any { it is ChatItem.TurnResult })
     }
 
+    @Test fun launchFailureShowsTheLaunchErrorInsteadOfTheLostConnection() {
+        val s = session()
+
+        client.connected.completeExceptionally(ConnectionLost("The agent's connection ended."))
+        client.listener.onClosed(CliConnection.LAUNCH_FAILED, "`hermes` was not found on PATH.")
+
+        assertEquals(SessionState.DEAD, s.state)
+        assertEquals(listOf("Couldn't start hermes: `hermes` was not found on PATH."), listener.current().filterIsInstance<ChatItem.Notice>().map { it.text })
+    }
+
+    @Test fun exitWhileStartingShowsTheAgentsOutput() {
+        val s = session()
+
+        client.connected.completeExceptionally(ConnectionLost("The agent's connection ended."))
+        client.listener.onClosed(1, "Error: not logged in")
+
+        assertEquals(SessionState.DEAD, s.state)
+        assertEquals(listOf("hermes exited (code 1).\nError: not logged in"), listener.current().filterIsInstance<ChatItem.Notice>().map { it.text })
+    }
+
+    @Test fun processExitSettlesWaitingPermissionsAndRunningTools() {
+        ready().send("go")
+        client.update(AcpUpdate.Tool("t1", "Read file", "in_progress", null, null, null))
+        client.permission("t2", allow, deny)
+
+        client.prompts.single().result.completeExceptionally(ConnectionLost("ended"))
+        client.listener.onClosed(1, "")
+
+        val tools = listener.current().filterIsInstance<ChatItem.ToolCall>().associateBy { it.id }
+        assertEquals(ToolStatus.ERROR, tools.getValue("t1").status)
+        assertEquals(ToolStatus.DENIED, tools.getValue("t2").status)
+        assertNull(tools.getValue("t2").permissionRequestId)
+    }
+
+    @Test fun restoredModeIsAskedForBeforeQueuedMessagesGoOut() {
+        val s = session(resumeId = "saved", mode = "dont_ask")
+        s.send("go")
+
+        client.ready(sessionId = "saved", current = "default")
+
+        assertEquals(listOf<Any>("saved", "dont_ask"), client.modes.single().args)
+        assertTrue(client.prompts.isEmpty())
+        client.modes.single().result.complete(Unit)
+        assertEquals("dont_ask", s.modeId)
+        assertEquals("go", client.prompts.single().args[1])
+    }
+
+    @Test fun refusedModeRestoreKeepsTheAgentsModeAndStillSends() {
+        val s = session(resumeId = "saved", mode = "dont_ask")
+        s.send("go")
+
+        client.ready(sessionId = "saved", current = "default")
+        client.modes.single().result.completeExceptionally(AgentError(-32000, "Not allowed"))
+
+        assertEquals("default", s.modeId)
+        assertEquals("Couldn't restore the mode: Not allowed", listener.latest<ChatItem.Notice>().text)
+        assertEquals("go", client.prompts.single().args[1])
+    }
+
+    @Test fun restoredModeTheAgentNoLongerOffersIsNotAskedFor() {
+        val s = session(resumeId = "saved", mode = "yolo")
+
+        client.ready(sessionId = "saved", current = "default")
+
+        assertTrue(client.modes.isEmpty())
+        assertEquals("default", s.modeId)
+    }
+
     @Test fun clientThatCannotStartLeavesTheSessionDead() {
         val s = session(failCreate = true)
 
@@ -318,6 +393,11 @@ class AcpSessionTest {
         assertEquals("default", s.modeId)
         assertEquals("default", listener.modeIds.last())
         assertEquals(SessionState.IDLE, s.state)
+
+        assertEquals(listOf<Any>("saved", "dont_ask"), client.modes.single().args)
+        client.modes.single().result.complete(Unit)
+        assertEquals("dont_ask", s.modeId)
+        assertEquals("dont_ask", listener.modeIds.last())
     }
 
     @Test fun restartLoadsTheSameSessionAndDropsTheReplay() {

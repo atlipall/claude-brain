@@ -33,13 +33,17 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
         var title by string()
     }
 
-    /** A saved chat's provider and setup; an ACP name is local because its transcript belongs to the agent. */
+    /**
+     * A saved chat's provider and setup. An ACP chat's name is kept here because its transcript belongs to the agent,
+     * and so is its [agentMode], an id only that agent knows; a Claude chat's mode is in [setup].
+     */
     data class Saved(
         val sessionId: String,
         val cwd: String,
         val setup: SessionSetup = SessionSetup(),
         val agentId: String = Agent.CLAUDE.id,
         val title: String? = null,
+        val agentMode: String? = null,
     )
 
     class State : BaseState() {
@@ -60,11 +64,13 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
         })
     }
 
-    /** The saved sessions in tab order; a mode this version doesn't know is dropped. */
+    /** The saved sessions in tab order; a Claude permission mode this version doesn't know is dropped. */
     fun saved(): List<Saved> = state.chats.mapNotNull { e ->
         val id = e.sessionId ?: return@mapNotNull null
         val cwd = e.cwd ?: return@mapNotNull null
-        Saved(id, cwd, SessionSetup(PermissionMode.fromCli(e.mode), e.model, e.effort), e.agentId ?: Agent.CLAUDE.id, e.title)
+        val agentId = e.agentId ?: Agent.CLAUDE.id
+        if (Agent.isNative(agentId)) Saved(id, cwd, SessionSetup(PermissionMode.fromCli(e.mode), e.model, e.effort), agentId, e.title)
+        else Saved(id, cwd, agentId = agentId, title = e.title, agentMode = e.mode)
     }
 
     /** From now on the list follows the open chats. Call once the restored tabs are open. */
@@ -97,7 +103,7 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
                     model = setup.model
                     effort = setup.effort
                     agentId = chat.agent.id
-                    title = chat.customTitle.takeIf { chat.agent.acp != null }
+                    title = chat.customTitle.takeUnless { chat.agent.native }
                 }
             }
             .distinctBy { it.agentId to it.sessionId }

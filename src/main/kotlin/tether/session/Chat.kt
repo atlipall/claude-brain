@@ -298,7 +298,7 @@ class Chat(
         private set
 
     private fun newSession(agent: Agent): AgentSession {
-        modes = if (agent.acp == null) CLAUDE_MODES else emptyList()
+        modes = if (agent.native) CLAUDE_MODES else emptyList()
         return agent.acp?.let { acpSession(it, listener) }
             ?: ChatSession(connector, listener, spec.cwd, spec.resumeId, claudeSetup, spec.worktree, log, ide, background, resumeAnchor, WorkingTrees())
     }
@@ -328,7 +328,7 @@ class Chat(
      * the chat. False before a session exists or when its agent does not use Claude's archive. EDT.
      */
     fun archive(): Boolean {
-        if (agent.acp != null || session.sessionId == null) return false
+        if (!agent.native || session.sessionId == null) return false
         archived = true
         titleUnsaved.set(true)
         saveTitleIfReady()
@@ -340,7 +340,7 @@ class Chat(
      * write reads the name when it runs, under [titleWriteLock], so the last write is always the latest name.
      */
     private fun saveTitleIfReady() {
-        if (agent.acp != null) return
+        if (!agent.native) return
         val save = saveTitle ?: return
         val id = session.sessionId ?: return
         if (!titleUnsaved.getAndSet(false)) return
@@ -362,7 +362,7 @@ class Chat(
         val chosen = agents.firstOrNull { it.id == id }
         if (chosen == null || started) return false
         if (chosen != agent) {
-            if (agent.acp == null) claudeSetup = session.setup
+            if (agent.native) claudeSetup = session.setup
             agent = chosen
             session = newSession(chosen)
         }

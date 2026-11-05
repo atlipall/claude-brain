@@ -2,7 +2,6 @@ package tether.ui
 
 import tether.git.Worktree
 import tether.git.WorktreeNames
-import tether.session.Agent
 import tether.session.Chat
 import tether.session.ChatSpec
 import tether.session.Chats
@@ -73,7 +72,7 @@ object NewChatPopup {
 
     /** Only native chats own the transcript IDs offered by the resume and archive browsers. */
     private fun openSessions(chats: Chats): List<Pair<String?, Chat>> =
-        chats.all().filter { it.agent.id == Agent.CLAUDE.id }.map { it.session.sessionId to it }
+        chats.all().filter { it.agent.native }.map { it.session.sessionId to it }
 
     private fun askWorktreeName(project: Project, existing: Set<String>): String? = Messages.showInputDialog(
         project,

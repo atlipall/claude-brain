@@ -913,13 +913,7 @@ class ChatSession(
     private fun handleExit(code: Int, stderrTail: String) {
         forgetProcess()
         dropQueue()
-        val detail = stderrTail.trim().takeLast(2000)
-        val text = when {
-            code == CliConnection.LAUNCH_FAILED -> detail.ifEmpty { "Claude could not be started." }
-            detail.isEmpty() -> "Claude exited (code $code)."
-            else -> "Claude exited (code $code).\n$detail"
-        }
-        emit(ChatItem.Notice(nextId("notice"), text, isError = true))
+        emit(ChatItem.Notice(nextId("notice"), CliConnection.exitNotice("Claude", code, stderrTail), isError = true))
         setState(SessionState.DEAD)
         reportActivity()
     }

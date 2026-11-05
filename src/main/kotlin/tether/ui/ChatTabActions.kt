@@ -44,7 +44,7 @@ class RenameChatAction : ChatTabAction() {
 class ArchiveChatAction : ChatTabAction() {
     override fun update(e: AnActionEvent, toolWindow: ToolWindow, content: Content?) {
         super.update(e, toolWindow, content)
-        if (content?.getUserData(ChatTabs.CHAT)?.agent?.acp != null) e.presentation.isEnabledAndVisible = false
+        if (content?.getUserData(ChatTabs.CHAT)?.agent?.native == false) e.presentation.isEnabledAndVisible = false
     }
 
     override fun perform(toolWindow: ToolWindow, content: Content, chat: Chat) {

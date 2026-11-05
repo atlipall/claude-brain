@@ -6,6 +6,7 @@ import tether.image.Image
 interface AgentSession {
     val state: SessionState
     val sessionId: String?
+    /** The agent's current mode. Before an ACP session opens it is the mode the session will ask for once it does. */
     val modeId: String?
     /** The folder the agent works in, as far as known now. */
     val cwd: String

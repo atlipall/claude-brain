@@ -219,6 +219,7 @@ class ChatsTest : BasePlatformTestCase() {
                 cwd = folder
                 agentId = "acp"
                 title = "Hermes task"
+                mode = "yolo"
             })
         })
         settings.lastAgent = "claude"
@@ -227,6 +228,8 @@ class ChatsTest : BasePlatformTestCase() {
         assertEquals("saved-acp", spec.resumeId)
         assertEquals(folder, spec.cwd)
         assertEquals("Hermes task", spec.title)
+        assertEquals("yolo", spec.agentMode)
+        assertEquals(SessionSetup(), openChats.saved().single().setup)
         assertTrue(transcript.items.isEmpty())
         assertNull(chats.read(spec))
 

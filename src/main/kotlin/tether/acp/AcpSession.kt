@@ -1,5 +1,6 @@
 package tether.acp
 
+import tether.cli.CliConnection
 import tether.cli.ContextUsage
 import tether.image.Image
 import tether.session.Activity
@@ -21,7 +22,8 @@ import java.util.concurrent.TimeUnit
 /**
  * One chat with an ACP agent in [cwd]. Each start makes a new client (one agent process); a restart loads the same
  * session where the agent can. A supplied [resumeId] loads its history into a fresh chat; later reconnects omit the
- * already-shown replay. [name] names the agent in notices. Thread-safe.
+ * already-shown replay. [name] names the agent in notices. [mode] is the mode the session was left in, asked for again
+ * whenever the session opens. Thread-safe.
  */
 class AcpSession(
     private val newClient: () -> AcpClient,
@@ -30,6 +32,7 @@ class AcpSession(
     private val name: String,
     private val log: (String) -> Unit = {},
     resumeId: String? = null,
+    mode: String? = null,
 ) : AgentSession {
     private val lock = Any()
 
@@ -38,7 +41,7 @@ class AcpSession(
 
     @Volatile override var sessionId: String? = resumeId
         private set
-    @Volatile override var modeId: String? = null
+    @Volatile override var modeId: String? = mode
         private set
     @Volatile override var state: SessionState = SessionState.IDLE
         private set
@@ -54,6 +57,8 @@ class AcpSession(
     private var loading = false
     /** True after the first successful open, whose history is already shown when reconnecting. */
     private var openedOnce = false
+    /** The mode to ask for once the session opens: the one it was in when [start] began, before any history replay. */
+    private var wantedMode: String? = null
     /** The running prompt; null between turns. */
     private var turn: CompletableFuture<String>? = null
     private var turnStarted = 0L
@@ -80,6 +85,7 @@ class AcpSession(
     override fun start() {
         synchronized(lock) {
             val gen = ++generation
+            wantedMode = modeId
             val c = try {
                 newClient()
             } catch (e: Exception) {
@@ -108,7 +114,12 @@ class AcpSession(
         return c.loadSession(previous, cwd)
     }
 
+    /**
+     * Finishes [start] once the session is open, or reports why it could not open. When the agent's process ended,
+     * [closed] reports it instead, with the exit code and the agent's output.
+     */
     private fun opened(c: AcpClient, opened: SessionOpened?, error: Throwable?) {
+        if (opened == null && error?.let(::unwrap) is ConnectionLost) return
         val reloaded = loading && openedOnce
         closeText()
         loading = false
@@ -125,10 +136,36 @@ class AcpSession(
         sessionId = opened.sessionId
         modes = opened.modes
         modeId = opened.currentMode
-        ready = true
         openedOnce = true
         listener.onModes(modes)
+        notifyState()
         if (reloaded) emit(ChatItem.Notice(nextId("notice"), "Reconnected to the session.", isError = false))
+        restoreMode(c, wantedMode, ::becomeReady)
+    }
+
+    /**
+     * Asks the agent to go back to [wanted], the mode before this open, then calls [then]; messages sent meanwhile wait
+     * in the queue so they run in that mode. Skipped when the agent is already in it or no longer offers it. When the
+     * agent refuses, the session keeps the agent's mode and says so.
+     */
+    private fun restoreMode(c: AcpClient, wanted: String?, then: () -> Unit) {
+        val id = sessionId
+        if (wanted == null || wanted == modeId || id == null || modes.none { it.id == wanted }) return then()
+        val gen = generation
+        c.setMode(id, wanted).whenComplete { _, error ->
+            synchronized(lock) {
+                if (gen != generation) return@synchronized
+                if (error == null) modeId = wanted
+                else emit(ChatItem.Notice(nextId("notice"), "Couldn't restore the mode: ${messageOf(error)}", isError = true))
+                notifyState()
+                then()
+            }
+        }
+    }
+
+    /** The session is open and in its mode: messages go out, starting with any queued while it opened. */
+    private fun becomeReady() {
+        ready = true
         sendNext()
     }
 
@@ -188,10 +225,7 @@ class AcpSession(
         closeText()
         cancelPermissions()
         val completed = stopReason == END_TURN
-        for (id in runningTools.keys) {
-            toolCalls[id]?.let { upsertTool(it.copy(status = if (completed) ToolStatus.DONE else ToolStatus.ERROR)) }
-        }
-        runningTools.clear()
+        finishRunningTools(if (completed) ToolStatus.DONE else ToolStatus.ERROR)
         phase = null
         val duration = System.currentTimeMillis() - turnStarted
         emit(when {
@@ -203,6 +237,12 @@ class AcpSession(
         interruptRequested = false
         sendNext()
         reportActivity()
+    }
+
+    /** Marks every tool call still running as [status] and forgets them. */
+    private fun finishRunningTools(status: ToolStatus) {
+        for (id in runningTools.keys) toolCalls[id]?.let { upsertTool(it.copy(status = status)) }
+        runningTools.clear()
     }
 
     private fun sendNext() {
@@ -409,21 +449,23 @@ class AcpSession(
 
     override fun diffFor(toolUseId: String): FileDiff? = null
 
+    /**
+     * The agent's process ended: the chat goes dead and says why. Permission cards still waiting are marked denied and
+     * tool calls still running failed, so none of them looks live in a dead chat.
+     */
     private fun closed(exitCode: Int?, detail: String) {
         client = null
         ready = false
         loading = false
         turn = null
         interruptRequested = false
-        pending.clear()
-        runningTools.clear()
+        cancelPermissions()
+        finishRunningTools(ToolStatus.ERROR)
         replayedUser = null
         closeText()
         dropQueue()
         phase = null
-        val head = "$name exited (code ${exitCode ?: "unknown"})."
-        val tail = detail.trim().takeLast(2000)
-        emit(ChatItem.Notice(nextId("notice"), if (tail.isEmpty()) head else "$head\n$tail", isError = true))
+        emit(ChatItem.Notice(nextId("notice"), CliConnection.exitNotice(name, exitCode, detail), isError = true))
         setState(SessionState.DEAD)
         reportActivity()
     }
