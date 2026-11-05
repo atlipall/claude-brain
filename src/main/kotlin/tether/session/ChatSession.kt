@@ -7,7 +7,11 @@ import tether.cli.CliParser
 import tether.cli.ContextUsage
 import tether.cli.HookRegistration
 import tether.cli.McpServer
+import tether.cli.ModelChoice
+import tether.cli.ModelOption
+import tether.cli.Models
 import tether.cli.PermissionMode
+import tether.cli.RunningModel
 import tether.cli.SessionLaunch
 import tether.cli.obj
 import tether.cli.str
@@ -44,6 +48,9 @@ interface ChatListener {
 
     /** How full the context window is (the latest report). */
     fun onContext(usage: ContextUsage) {}
+
+    /** The model and effort in use and what can be picked, after each change; never told by a CLI that can't say. */
+    fun onModel(choice: ModelChoice) {}
 
     /** A predicted next prompt, told only while the session is idle. */
     fun onSuggestion(text: String) {}
@@ -96,6 +103,9 @@ private val BASH_HOOKS = listOf(
 /** Prefix of get_context_usage request ids, so their replies are recognised even after a newer request replaced them. */
 private const val CONTEXT_PREFIX = "context"
 
+/** Prefix of get_settings request ids, whose replies say which model and effort are in use. */
+private const val SETTINGS_PREFIX = "settings"
+
 /** Most images of one tool result converted to display copies; further ones show as "[image]". */
 private const val MAX_TOOL_IMAGES = 6
 
@@ -116,7 +126,8 @@ class ChatSession(
     private val listener: ChatListener,
     cwd: String,
     resumeId: String? = null,
-    initialMode: PermissionMode? = null,
+    /** The permission mode, model and effort to start with; null parts are left to the CLI's settings. */
+    setup: SessionSetup = SessionSetup(),
     private val worktree: String? = null,
     private val log: (String) -> Unit = {},
     /** Tools and edit checks the IDE lends Claude; null lends none. */
@@ -132,10 +143,19 @@ class ChatSession(
 
     @Volatile var sessionId: String? = resumeId // also read by the IDE's save thread (see OpenChats)
         private set
-    var mode: PermissionMode? = initialMode
+    @Volatile var mode: PermissionMode? = setup.mode // also read by the IDE's save thread (see OpenChats)
         private set
     var state: SessionState = SessionState.IDLE
         private set
+    /** The model the user picked for this chat, passed to every new process; null for the CLI's own choice. */
+    @Volatile var model: String? = setup.model // likewise
+        private set
+    /** The effort level the user picked, likewise. */
+    @Volatile var effort: String? = setup.effort
+        private set
+
+    /** What this chat runs with now, to reopen it the same way. */
+    val setup: SessionSetup get() = SessionSetup(mode, model, effort)
 
     /** The folder claude runs in: the launch directory until system/init reports the real one (a new worktree's path). */
     @Volatile var cwd: String = cwd
@@ -159,6 +179,12 @@ class ChatSession(
     private var initRequestId: String? = null
     /** The latest get_context_usage request; replies to older ones are stale and dropped. */
     private var contextRequestId: String? = null
+    /** The latest get_settings request; replies to older ones are stale and dropped. */
+    private var settingsRequestId: String? = null
+    /** The models the current process offers; empty until its initialize reply (and for a CLI that lists none). */
+    private var modelOptions: List<ModelOption> = emptyList()
+    /** Model and effort changes waiting for their reply, by request id, each with what puts the old choice back. */
+    private val pendingChoices = HashMap<String, () -> Unit>()
     private val pendingPermissions = LinkedHashMap<String, CliEvent.PermissionRequest>()
     private val deniedToolUses = HashSet<String>()
     private val sessionAllowedTools = HashSet<String>()
@@ -198,7 +224,7 @@ class ChatSession(
             var created: CliConnection? = null
             try {
                 val f = fork
-                val conn = connect(SessionLaunch(f?.from ?: sessionId, mode, cwd, if (cwdReported) null else worktree, f?.at, f != null))
+                val conn = connect(SessionLaunch(f?.from ?: sessionId, mode, cwd, if (cwdReported) null else worktree, f?.at, f != null, model, effort))
                 created = conn
                 connection = conn
                 conn.start(
@@ -355,6 +381,28 @@ class ChatSession(
         }
     }
 
+    /** Switches to [value] (an [ModelOption.value]) now, and in every process this chat starts from now on. */
+    fun setModel(value: String) = choose({ model }, { model = it }, value) { id -> CliMessages.setModel(id, value) }
+
+    /** Sets the effort level now, and in every process this chat starts from now on. */
+    fun setEffort(level: String) = choose({ effort }, { effort = it }, level) { id -> CliMessages.setEffort(id, level) }
+
+    /**
+     * Records [value] and sends the request [message] builds. Once it is answered the settings are asked for again, so
+     * the pickers show what runs; a refused value is forgotten (the old one is kept for the next process).
+     */
+    private fun choose(current: () -> String?, set: (String?) -> Unit, value: String, message: (String) -> String) {
+        synchronized(lock) {
+            val before = current()
+            if (value == before) return
+            set(value)
+            val conn = connection ?: return
+            val id = nextId("choice")
+            pendingChoices[id] = { if (current() == value) set(before) } // a newer pick stays
+            conn.send(message(id))
+        }
+    }
+
     /** Stops the running turn; queued messages are dropped (see [ChatListener.onDropped]). */
     fun interrupt() {
         synchronized(lock) {
@@ -461,9 +509,24 @@ class ChatSession(
                     else log("Context usage request failed: ${event.error}")
                     return
                 }
+                if (event.requestId.startsWith(SETTINGS_PREFIX)) {
+                    if (event.requestId != settingsRequestId) return
+                    settingsRequestId = null
+                    if (event.isSuccess) event.response?.let(Models::running)?.let(::reportModel)
+                    else log("Settings request failed: ${event.error}")
+                    return
+                }
                 if (event.requestId == initRequestId) {
                     initRequestId = null
-                    if (event.isSuccess) requestContextUsage()
+                    if (event.isSuccess) {
+                        modelOptions = event.response?.let(Models::options).orEmpty()
+                        requestContextUsage()
+                        requestSettings()
+                    }
+                }
+                pendingChoices.remove(event.requestId)?.let { undo ->
+                    if (!event.isSuccess) undo()
+                    requestSettings()
                 }
                 if (!event.isSuccess) {
                     emit(ChatItem.Notice(nextId("notice"), "Claude rejected a request: ${event.error ?: "unknown error"}", isError = true))
@@ -742,6 +805,9 @@ class ChatSession(
         readOnlyTools = emptySet()
         initRequestId = null
         contextRequestId = null
+        settingsRequestId = null
+        modelOptions = emptyList()
+        pendingChoices.clear()
         pendingPermissions.clear()
         runningTools.clear()
         turnEdits.clear()
@@ -784,6 +850,19 @@ class ChatSession(
         val id = nextId(CONTEXT_PREFIX)
         contextRequestId = id
         conn.send(CliMessages.getContextUsage(id))
+    }
+
+    /** Asks what runs; not while the process offers no models, since there is then nothing to show. */
+    private fun requestSettings() {
+        if (modelOptions.isEmpty()) return
+        val conn = connection ?: return
+        val id = nextId(SETTINGS_PREFIX)
+        settingsRequestId = id
+        conn.send(CliMessages.getSettings(id))
+    }
+
+    private fun reportModel(running: RunningModel) {
+        listener.onModel(ModelChoice.of(modelOptions, model, running))
     }
 
     private fun filePathOf(input: JsonObject): String? = input.str("file_path") ?: input.str("notebook_path")

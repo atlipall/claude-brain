@@ -1,6 +1,7 @@
 package tether.ui
 
 import tether.cli.ContextUsage
+import tether.cli.ModelChoice
 import tether.cli.PermissionMode
 import tether.cli.arr
 import tether.cli.bool
@@ -40,6 +41,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -49,7 +51,6 @@ import kotlinx.serialization.json.putJsonObject
 class ChatBridge(
     private val project: Project,
     private val chat: Chat,
-    private val onNewChat: () -> Unit,
     private val post: (String) -> Unit,
 ) : SessionView {
     private val linker get() = FileLinker.getInstance(project)
@@ -159,11 +160,12 @@ class ChatBridge(
                 if (session.pendingQuestions(requestId) != null) session.respond(requestId, PermissionDecision.Deny("The user skipped the question."))
             }
             "setMode" -> PermissionMode.fromCli(msg.str("mode"))?.let(session::setPermissionMode)
+            "setModel" -> msg.str("model")?.takeIf { it.isNotBlank() }?.let(session::setModel)
+            "setEffort" -> msg.str("effort")?.takeIf { it.isNotBlank() }?.let(session::setEffort)
             "interrupt" -> chat.interrupt()
             "queueSendNow" -> msg.str("id")?.let(session::sendNow)
             "queueEdit" -> msg.str("id")?.let(chat::editQueued)
             "queueRemove" -> msg.str("id")?.let(session::unqueue)
-            "newChat" -> onNewChat()
             "restart" -> session.restart()
             "openFile" -> msg.str("target")?.let { linker.open(it, msg.long("line")?.toInt()) }
             "showChanges" -> showChanges(chat)
@@ -310,6 +312,8 @@ class ChatBridge(
 
     override fun context(usage: ContextUsage) = post(usageMessage(usage))
 
+    override fun model(choice: ModelChoice) = post(modelMessage(choice))
+
     override fun suggestion(text: String) = post(buildJsonObject {
         put("type", "suggestion")
         put("text", text)
@@ -401,6 +405,23 @@ class ChatBridge(
 
         /** Longest category name shown in the context tooltip. */
         const val MAX_CATEGORY_NAME = 40
+        /** Longest model name or description shown in the picker. */
+        const val MAX_MODEL_TEXT = 60
+
+        /** The header's model and effort pickers; option names and descriptions are cleaned like context category names. */
+        fun modelMessage(choice: ModelChoice): String = buildJsonObject {
+            put("type", "model")
+            put("model", choice.model)
+            choice.effort?.let { put("effort", it) }
+            putJsonArray("efforts") { choice.efforts.forEach { add(it) } }
+            putJsonArray("options") {
+                for (o in choice.options) addJsonObject {
+                    put("value", o.value)
+                    put("name", ContextNotes.clean(o.name, MAX_MODEL_TEXT).ifEmpty { o.value })
+                    o.description?.let { ContextNotes.clean(it, MAX_MODEL_TEXT) }?.takeIf { it.isNotEmpty() }?.let { put("description", it) }
+                }
+            }
+        }.toString()
 
         /** `{type:"usage", used, max, percent, autocompactAt?, categories:[{name, tokens}]}`; names are cleaned like tool names. */
         fun usageMessage(usage: ContextUsage): String = buildJsonObject {

@@ -59,6 +59,8 @@ class RecordingListener : ChatListener {
     override fun onActivity(activity: tether.session.Activity?) { activities += activity }
     val contexts = mutableListOf<tether.cli.ContextUsage>()
     override fun onContext(usage: tether.cli.ContextUsage) { contexts += usage }
+    val models = mutableListOf<tether.cli.ModelChoice>()
+    override fun onModel(choice: tether.cli.ModelChoice) { models += choice }
     val suggestions = mutableListOf<String>()
     override fun onSuggestion(text: String) { suggestions += text }
     val queues = mutableListOf<List<tether.session.QueuedMessage>>()

@@ -12,12 +12,30 @@ object Fx {
     fun initResponse(requestId: String, mode: String = "default") =
         """{"type":"control_response","response":{"subtype":"success","request_id":"$requestId","response":{"commands":[],"current_permission_mode":"$mode","session_state":"idle","claude_code_version":"2.1.317"}}}"""
 
+    /** The models part of claude 2.1.317's initialize reply, trimmed to a few entries. */
+    const val MODELS =
+        """[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","description":"Opus 5.5 · Best for everyday, complex tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},""" +
+        """{"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5","description":"For complex work and everyday tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},""" +
+        """{"value":"sonnet","resolvedModel":"claude-sonnet-5-5","displayName":"Sonnet 5.5","description":"Most efficient for simpler tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},""" +
+        """{"value":"claude-sonnet-4-6","resolvedModel":"claude-sonnet-4-6","displayName":"Sonnet 4.6","description":"Efficient for routine tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","max"]},""" +
+        """{"value":"claude-haiku-4-5-20251001","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5","description":"Fastest for quick answers","supportsThinkingOff":true}]"""
+
+    fun initResponseWithModels(requestId: String, models: String = MODELS) =
+        """{"type":"control_response","response":{"subtype":"success","request_id":"$requestId","response":{"commands":[],"models":$models,"current_permission_mode":"default","session_state":"idle","claude_code_version":"2.1.317"}}}"""
+
+    /** A get_settings reply, trimmed from claude 2.1.317 to what Tether reads (and a little around it). */
+    fun settingsResponse(requestId: String, model: String = "claude-opus-5-5", effort: String? = "high") =
+        """{"type":"control_response","response":{"subtype":"success","request_id":"$requestId","response":{"effective":{"effortLevel":"xhigh"},"sources":[],"applied":{"model":${q(model)},"effort":${effort?.let(::q) ?: "null"},"advisor":null,"ultracode":false}}}}"""
+
     /** A get_context_usage reply, trimmed from claude 2.1.317 (gridRows and other display fields left out). */
     fun contextResponse(requestId: String, used: Long = 14851, max: Long = 1000000, percent: Int = 1) =
         """{"type":"control_response","response":{"subtype":"success","request_id":"$requestId","response":{"categories":[{"id":"system_prompt","name":"System prompt","tokens":2495,"color":"promptBorder","kind":"used"},{"id":"system_tools","name":"System tools","tokens":646,"color":"inactive","kind":"used"},{"id":"system_tools_deferred","name":"System tools (deferred)","tokens":16286,"color":"inactive","isDeferred":true,"kind":"deferred"},{"id":"skills","name":"Skills","tokens":9924,"color":"warning","kind":"used"},{"id":"messages","name":"Messages","tokens":1290,"color":"purple_FOR_SUBAGENTS_ONLY","kind":"used"},{"id":"empty","name":"Empty","tokens":0,"kind":"used"},{"id":"autocompact_buffer","name":"Autocompact buffer","tokens":33000,"color":"inactive","kind":"buffer"},{"id":"free_space","name":"Free space","tokens":952149,"color":"promptBorder","kind":"free"}],"totalTokens":$used,"maxTokens":$max,"rawMaxTokens":$max,"autocompactSource":"model-default","percentage":$percent}}}"""
 
     fun modeResponse(requestId: String, mode: String) =
         """{"type":"control_response","response":{"subtype":"success","request_id":"$requestId","response":{"mode":"$mode"}}}"""
+
+    fun modelResponse(requestId: String, model: String) =
+        """{"type":"control_response","response":{"subtype":"success","request_id":"$requestId","response":{"model":"$model"}}}"""
 
     fun errorResponse(requestId: String, error: String) =
         """{"type":"control_response","response":{"subtype":"error","request_id":"$requestId","error":${q(error)}}}"""

@@ -124,12 +124,42 @@ class ChatsTest : BasePlatformTestCase() {
             openChats.loadState(OpenChats.State().apply {
                 chats = listOf("kept" to main, "named" to wt.path, "archived" to main, "no-transcript" to main, "gone" to "/no/such/folder")
                     .map { (id, cwd) -> OpenChats.Entry().apply { sessionId = id; this.cwd = cwd } }.toMutableList()
+                chats[0].apply { mode = "plan"; model = "sonnet"; effort = "low" }
+                chats[1].apply { mode = "not-a-mode" }
             })
             val specs = chats.restorable().map { it.first }
             assertEquals(listOf("kept", "named"), specs.map { it.resumeId })
             assertEquals(listOf(main, wt.path), specs.map { it.cwd })
             assertEquals("Login fix", specs[1].title)
+            assertEquals(SessionSetup(PermissionMode.PLAN, "sonnet", "low"), specs[0].setup)
+            assertEquals("an unknown mode is dropped, and nothing saved is nothing chosen", SessionSetup(), specs[1].setup)
         } finally { dir.deleteRecursively() }
+    }
+
+    fun testEachChatsModeModelAndEffortAreRemembered() {
+        openChats.loadState(OpenChats.State())
+        openChats.startTracking()
+        val a = chats.open(ChatSpec.inProject(root))
+        connections[0].emit(Fx.init(sessionId = "s-a", cwd = root))
+        a.session.setPermissionMode(PermissionMode.PLAN)
+        a.session.setModel("sonnet")
+        a.session.setEffort("low")
+        val saved = openChats.state.chats.single()
+        assertEquals(listOf("s-a", "plan", "sonnet", "low"), listOf(saved.sessionId, saved.mode, saved.model, saved.effort))
+        chats.close(a)
+    }
+
+    fun testAChatOpensWithItsSetupAndOtherwiseTheDefaultMode() {
+        val savedMode = settings.defaultMode
+        try {
+            settings.defaultMode = "acceptEdits"
+            chats.open(ChatSpec.inProject(root).copy(setup = SessionSetup(PermissionMode.PLAN, "sonnet", "low")))
+            assertEquals(Triple(PermissionMode.PLAN, "sonnet", "low"), launches.last().let { Triple(it.permissionMode, it.model, it.effort) })
+            chats.open(ChatSpec.inProject(root).copy(setup = SessionSetup(model = "opus")))
+            assertEquals(Triple(PermissionMode.ACCEPT_EDITS, "opus", null), launches.last().let { Triple(it.permissionMode, it.model, it.effort) })
+        } finally {
+            settings.defaultMode = savedMode
+        }
     }
 
     fun testAResumedChatCanBeReadAheadAndOpenedLater() {
@@ -441,7 +471,6 @@ class ChatsTest : BasePlatformTestCase() {
         val connection = FakeConnection()
         val chat = Chat(
             id = 99, spec = ChatSpec.inProject(root), history = emptyList(), connector = { connection },
-            initialMode = null,
             editNote = { "[IDE] edit note" },
             editorContext = { throw IllegalStateException("boom") },
         )

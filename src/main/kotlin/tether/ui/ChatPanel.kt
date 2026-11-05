@@ -15,10 +15,10 @@ import org.cef.handler.CefRequestHandlerAdapter
 import org.cef.network.CefRequest
 
 /** JCEF browser hosting one chat's page, wired to a [ChatBridge] bound to that chat. */
-class ChatPanel(project: Project, private val chat: Chat, onNewChat: () -> Unit, parent: Disposable) : Disposable {
+class ChatPanel(project: Project, private val chat: Chat, parent: Disposable) : Disposable {
     val browser = JBCefBrowser()
     private val query = JBCefJSQuery.create(browser as JBCefBrowserBase)
-    private val bridge = ChatBridge(project, chat, onNewChat, ::post)
+    private val bridge = ChatBridge(project, chat, ::post)
     @Volatile private var pageUrl: String? = null
     @Volatile private var disposed = false
 

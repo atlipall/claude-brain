@@ -12,6 +12,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectCloseListener
+import tether.cli.PermissionMode
 
 /**
  * The sessions whose chats were open when the project closed, so the next start can resume them. The list follows the
@@ -25,7 +26,13 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
     class Entry : BaseState() {
         var sessionId by string()
         var cwd by string()
+        var mode by string()
+        var model by string()
+        var effort by string()
     }
+
+    /** A saved chat: its session, folder, and how it was set up. */
+    data class Saved(val sessionId: String, val cwd: String, val setup: SessionSetup = SessionSetup())
 
     class State : BaseState() {
         var chats by list<Entry>()
@@ -45,9 +52,12 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
         })
     }
 
-    /** The saved sessions as (session id, folder), in tab order. */
-    fun saved(): List<Pair<String, String>> =
-        state.chats.mapNotNull { e -> e.sessionId?.let { id -> e.cwd?.let { id to it } } }
+    /** The saved sessions in tab order; a mode this version doesn't know is dropped. */
+    fun saved(): List<Saved> = state.chats.mapNotNull { e ->
+        val id = e.sessionId ?: return@mapNotNull null
+        val cwd = e.cwd ?: return@mapNotNull null
+        Saved(id, cwd, SessionSetup(PermissionMode.fromCli(e.mode), e.model, e.effort))
+    }
 
     /** From now on the list follows the open chats. Call once the restored tabs are open. */
     fun startTracking() {
@@ -69,10 +79,19 @@ class OpenChats(private val project: Project) : PersistentStateComponent<OpenCha
     @Synchronized private fun remember() {
         if (!tracking || closing) return
         val open = project.serviceIfCreated<Chats>()?.all().orEmpty()
-            .mapNotNull { c -> c.session.sessionId?.let { it to c.cwd } }
+            .mapNotNull { c -> c.session.sessionId?.let { id -> Triple(id, c.cwd, c.session.setup) } }
             .distinctBy { it.first }
-        if (open == state.chats.map { it.sessionId to it.cwd }) return
-        state.chats = open.map { (id, cwd) -> Entry().apply { sessionId = id; this.cwd = cwd } }.toMutableList()
+            .map { (id, folder, setup) ->
+                Entry().apply {
+                    sessionId = id
+                    cwd = folder
+                    mode = setup.mode?.cli
+                    model = setup.model
+                    effort = setup.effort
+                }
+            }
+        if (open == state.chats) return
+        state.chats = open.toMutableList()
     }
 
     override fun dispose() {}

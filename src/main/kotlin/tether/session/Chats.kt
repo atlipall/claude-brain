@@ -57,11 +57,11 @@ class Chats(private val project: Project) : Disposable {
      * The sessions that were open when the project last closed (see [OpenChats]), each read and ready to [open]; skips
      * any whose folder or transcript is gone, that was archived since, or that can't be read (logged). Call off the EDT.
      */
-    fun restorable(): List<Pair<ChatSpec, Transcript>> = OpenChats.getInstance(project).saved().mapNotNull { (id, cwd) ->
+    fun restorable(): List<Pair<ChatSpec, Transcript>> = OpenChats.getInstance(project).saved().mapNotNull { (id, cwd, setup) ->
         if (!File(cwd).isDirectory) return@mapNotNull null
         try {
             val transcript = store.read(cwd, id)
-            transcript.summary?.takeUnless { it.archived }?.let { ChatSpec.resume(projectDir, it) to transcript }
+            transcript.summary?.takeUnless { it.archived }?.let { ChatSpec.resume(projectDir, it).copy(setup = setup) to transcript }
         } catch (e: Exception) {
             if (e is ControlFlowException) throw e
             LOG.warn("Couldn't read session $id to reopen it", e)
@@ -75,15 +75,15 @@ class Chats(private val project: Project) : Disposable {
     /** Creates and starts a chat (a resumed one shows its transcript, [resumed] when already [read]). EDT. */
     fun open(spec: ChatSpec, resumed: Transcript? = read(spec)): Chat {
         val history = resumed?.items.orEmpty()
+        val started = spec.copy(setup = spec.setup.copy(mode = spec.setup.mode ?: defaultMode()))
         lateinit var chat: Chat
         val ide = ChatIdeHost(project, projectDir) { chat.cwd } // asked only once the chat runs
         chat = Chat(
             id = ids.incrementAndGet(),
-            spec = spec,
+            spec = started,
             history = history,
             resumeAnchor = resumed?.lastAssistantUuid,
             connector = connector,
-            initialMode = defaultMode(),
             editNote = { c -> listOfNotNull(checkpoints.consumeNote(c.id), tracker.consumeNote(c.id, c.cwd)).joinToString("\n\n").ifEmpty { null } },
             editorContext = { c -> if (TetherSettings.getInstance().state.attachEditorContext) context.contextFor(c.cwd) else null },
             resolveContext = { c, done ->

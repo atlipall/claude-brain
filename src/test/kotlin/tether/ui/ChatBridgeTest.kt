@@ -32,7 +32,6 @@ class ChatBridgeTest : BasePlatformTestCase() {
     /** What the bridge posted; appended off the EDT too (session events arrive on reader threads). */
     private val posted = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
     private val connections = mutableListOf<FakeConnection>()
-    private var newChatRequests = 0
     private lateinit var chat: Chat
     private lateinit var bridge: ChatBridge
     private val chats get() = Chats.getInstance(project)
@@ -55,7 +54,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         contextService.schedule = { it.run() }
         chats.connector = { FakeConnection().also { connections += it } }
         chat = chats.open(ChatSpec.inProject(root))
-        bridge = ChatBridge(project, chat, { newChatRequests++ }) { posted += parseJsonObject(it)!! }
+        bridge = ChatBridge(project, chat) { posted += parseJsonObject(it)!! }
         bridge.offEdt = { it() }
         bridge.onEdt = { it() }
     }
@@ -193,10 +192,34 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals("initialize", connections[1].sentJson().last().obj("request")!!.str("subtype"))
     }
 
-    fun testNewChatAsksTheTabs() {
-        bridge.handle("""{"type":"newChat"}""")
-        assertEquals(1, newChatRequests)
-        assertTrue(posted.isEmpty())
+    fun testSetModelAndEffortGoToThisChat() {
+        bridge.handle("""{"type":"setModel","model":"sonnet"}""")
+        assertEquals("set_model", connections[0].sentJson().last().obj("request")!!.str("subtype"))
+        bridge.handle("""{"type":"setEffort","effort":"low"}""")
+        assertEquals("apply_flag_settings", connections[0].sentJson().last().obj("request")!!.str("subtype"))
+        bridge.handle("""{"type":"setModel"}""")
+        bridge.handle("""{"type":"setEffort","effort":""}""")
+        assertEquals("a missing or blank value sends nothing", "sonnet" to "low", chat.session.model to chat.session.effort)
+    }
+
+    fun testModelMessage() {
+        val options = listOf(
+            tether.cli.ModelOption("default", "claude-opus-5-5", "Default (recommended)", "Opus 5.5 · Best for everyday", listOf("low", "high")),
+            tether.cli.ModelOption("x", "x", "Odd`name\n" + "y".repeat(100), null, emptyList()),
+        )
+        val msg = parseJsonObject(ChatBridge.modelMessage(tether.cli.ModelChoice(options, "default", "high")))!!
+        assertEquals("model", msg.str("type"))
+        assertEquals("default", msg.str("model"))
+        assertEquals("high", msg.str("effort"))
+        assertEquals(listOf("low", "high"), msg.arr("efforts")!!.map { (it as JsonPrimitive).content })
+        val shown = msg.arr("options")!!.map { it.jsonObject }
+        assertEquals(listOf("default", "x"), shown.map { it.str("value") })
+        assertEquals("Default (recommended)", shown[0].str("name"))
+        assertEquals("Opus 5.5 · Best for everyday", shown[0].str("description"))
+        val cleaned = shown[1].str("name")!!
+        assertTrue(cleaned.length <= 60 && '`' !in cleaned && '\n' !in cleaned)
+        assertFalse(shown[1].containsKey("description"))
+        assertFalse(parseJsonObject(ChatBridge.modelMessage(tether.cli.ModelChoice(options, "x", null)))!!.containsKey("effort"))
     }
 
     fun testResolvePathsReturnsOnlyExistingFiles() {
@@ -214,6 +237,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         bridge.handle("not json")
         bridge.handle("""{"type":"listSessions"}""")
         bridge.handle("""{"type":"resume","sessionId":"abc"}""")
+        bridge.handle("""{"type":"newChat"}""")
         assertTrue(posted.isEmpty())
         assertEquals(1, connections.size)
     }
@@ -222,7 +246,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         val inWorktree = myFixture.addFileToProject(".claude/worktrees/wt1/lib/z.txt", "a").virtualFile
         val wtChat = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
         val wtPosted = mutableListOf<JsonObject>()
-        val wtBridge = ChatBridge(project, wtChat, {}) { wtPosted += parseJsonObject(it)!! }
+        val wtBridge = ChatBridge(project, wtChat) { wtPosted += parseJsonObject(it)!! }
         wtBridge.handle("""{"type":"resolvePaths","reqId":1,"candidates":["lib/z.txt"]}""")
         assertEquals(inWorktree.url, wtPosted.single().obj("paths")!!.obj("lib/z.txt")!!.str("target"))
         bridge.handle("""{"type":"resolvePaths","reqId":2,"candidates":["lib/z.txt"]}""")
@@ -232,7 +256,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
     fun testSentTextIsRememberedAndBroadcastToOtherTabs() {
         val other = chats.open(ChatSpec.inProject(root))
         val otherPosted = mutableListOf<JsonObject>()
-        val otherBridge = ChatBridge(project, other, {}) { otherPosted += parseJsonObject(it)!! }
+        val otherBridge = ChatBridge(project, other) { otherPosted += parseJsonObject(it)!! }
         try {
             otherBridge.handle("""{"type":"ready"}""")
             bridge.handle("""{"type":"send","text":"hello"}""")
@@ -481,7 +505,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         WriteAction.runAndWait<IOException> { file.setBinaryContent(TestImages.bytes(TestImages.BLUE_PNG_BASE64)) }
         val wtChat = chats.open(ChatSpec("wt1", "$root/.claude/worktrees/wt1"))
         val wtPosted = mutableListOf<JsonObject>()
-        val wtBridge = ChatBridge(project, wtChat, {}) { wtPosted += parseJsonObject(it)!! }
+        val wtBridge = ChatBridge(project, wtChat) { wtPosted += parseJsonObject(it)!! }
         wtBridge.offEdt = { it() }
         wtBridge.onEdt = { it() }
         wtBridge.handle("""{"type":"resolveImages","reqId":1,"paths":["img/w.png"]}""")

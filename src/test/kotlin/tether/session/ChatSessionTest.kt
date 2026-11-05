@@ -37,6 +37,8 @@ class ChatSessionTest {
         cwd: String = "/proj",
         worktree: String? = null,
         resumeAnchor: String? = null,
+        model: String? = null,
+        effort: String? = null,
     ) =
         ChatSession(
             connect = { launch ->
@@ -47,7 +49,7 @@ class ChatSessionTest {
             listener = listener,
             cwd = cwd,
             resumeId = resumeId,
-            initialMode = mode,
+            setup = SessionSetup(mode, model, effort),
             worktree = worktree,
             resumeAnchor = resumeAnchor,
         ).also { it.start() }
@@ -1077,6 +1079,133 @@ class ChatSessionTest {
         assertFalse(parses("""{}"""))
         val dup = """{"question":"Q?","header":"H","options":[{"label":"L","description":"d"}],"multiSelect":false}"""
         assertFalse(parses("""{"questions":[$dup,$dup]}"""))
+    }
+
+    // --- model and effort ---
+
+    private fun answerInit() = conn.emit(Fx.initResponseWithModels(conn.lastRequestId("initialize")))
+    private fun answerSettings(model: String = "claude-opus-5-5", effort: String? = "high") =
+        conn.emit(Fx.settingsResponse(conn.lastRequestId("get_settings"), model, effort))
+    private fun lastRequest() = conn.sentJson().last().obj("request")!!
+
+    @Test fun theModelIsToldOnceTheCliSaysWhatRuns() {
+        session()
+        assertEquals(0, conn.requestCount("get_settings"))
+        answerInit()
+        assertEquals(1, conn.requestCount("get_settings"))
+        assertTrue(listener.models.isEmpty())
+        answerSettings("claude-opus-5-5", "high")
+        val choice = listener.models.single()
+        assertEquals("default", choice.model)
+        assertEquals("high", choice.effort)
+        assertEquals(5, choice.options.size)
+    }
+
+    @Test fun choosingAModelSetsItAndThenAsksWhatRuns() {
+        val s = session()
+        answerInit()
+        answerSettings()
+        s.setModel("sonnet")
+        assertEquals("sonnet", s.model)
+        assertEquals("set_model", lastRequest().str("subtype"))
+        assertEquals("sonnet", lastRequest().str("model"))
+        assertEquals("the CLI may answer out of order, so settings wait for the reply", 1, conn.requestCount("get_settings"))
+        conn.emit(Fx.modelResponse(conn.lastRequestId("set_model"), "claude-sonnet-5-5"))
+        assertEquals(2, conn.requestCount("get_settings"))
+        answerSettings("claude-sonnet-5-5", "medium")
+        assertEquals("sonnet", listener.models.last().model)
+        assertEquals("medium", listener.models.last().effort)
+    }
+
+    @Test fun choosingEffortAppliesItAsAFlagSetting() {
+        val s = session()
+        answerInit()
+        answerSettings()
+        s.setEffort("low")
+        assertEquals("low", s.effort)
+        assertEquals("apply_flag_settings", lastRequest().str("subtype"))
+        assertEquals("low", lastRequest().obj("settings")!!.str("effortLevel"))
+        conn.emit(Fx.modeResponse(conn.lastRequestId("apply_flag_settings"), "default"))
+        answerSettings(effort = "low")
+        assertEquals("low", listener.models.last().effort)
+    }
+
+    @Test fun aRejectedChoiceIsForgottenAndTheHeaderShowsWhatRuns() {
+        val s = session(model = "opus", effort = "high")
+        answerInit()
+        answerSettings()
+        s.setModel("nope")
+        conn.emit(Fx.errorResponse(conn.lastRequestId("set_model"), "Unknown model"))
+        assertEquals("opus", s.model)
+        s.setEffort("silly")
+        conn.emit(Fx.errorResponse(conn.lastRequestId("apply_flag_settings"), "Invalid effort"))
+        assertEquals("high", s.effort)
+        assertEquals("both failures ask again, so the pickers go back", 3, conn.requestCount("get_settings"))
+        assertTrue(listener.items.filterIsInstance<ChatItem.Notice>().any { "Unknown model" in it.text })
+    }
+
+    @Test fun theChoicesCarryIntoEveryNewProcess() {
+        val s = session(model = "sonnet", effort = "low")
+        assertEquals("sonnet", launches[0].model)
+        assertEquals("low", launches[0].effort)
+        s.setModel("opus")
+        s.setEffort("max")
+        conn.exit(1, "boom")
+        s.restart()
+        assertEquals("opus", launches.last().model)
+        assertEquals("max", launches.last().effort)
+    }
+
+    @Test fun aNewChatLeavesModelAndEffortToTheCli() {
+        session()
+        assertNull(launches[0].model)
+        assertNull(launches[0].effort)
+    }
+
+    @Test fun anOlderCliWithoutTheseRequestsShowsNoPickers() {
+        session()
+        answerInit()
+        conn.emit(Fx.errorResponse(conn.lastRequestId("get_settings"), "Unsupported control request subtype: get_settings"))
+        assertTrue(listener.models.isEmpty())
+        assertTrue(listener.items.none { it is ChatItem.Notice })
+    }
+
+    @Test fun withoutAModelListNothingIsAskedOrTold() {
+        val s = session()
+        conn.emit(Fx.initResponse(conn.lastRequestId("initialize")))
+        assertEquals(0, conn.requestCount("get_settings"))
+        s.setModel("sonnet")
+        conn.emit(Fx.modelResponse(conn.lastRequestId("set_model"), "claude-sonnet-5-5"))
+        assertEquals(0, conn.requestCount("get_settings"))
+        assertTrue(listener.models.isEmpty())
+    }
+
+    @Test fun aRefusalAnsweredLateDoesNotUndoANewerPick() {
+        val s = session(model = "opus")
+        answerInit()
+        s.setModel("nope")
+        val refused = conn.lastRequestId("set_model")
+        s.setModel("sonnet")
+        conn.emit(Fx.errorResponse(refused, "Unknown model"))
+        assertEquals("sonnet", s.model)
+    }
+
+    @Test fun pickingWhatIsAlreadyChosenSendsNothing() {
+        val s = session(model = "sonnet")
+        answerInit()
+        s.setModel("sonnet")
+        assertEquals(0, conn.requestCount("set_model"))
+    }
+
+    @Test fun onlyTheLatestSettingsReplyCounts() {
+        val s = session()
+        answerInit()
+        val first = conn.lastRequestId("get_settings")
+        s.setEffort("low")
+        conn.emit(Fx.modeResponse(conn.lastRequestId("apply_flag_settings"), "default"))
+        conn.emit(Fx.settingsResponse(conn.lastRequestId("get_settings"), effort = "low"))
+        conn.emit(Fx.settingsResponse(first, effort = "high"))
+        assertEquals(listOf("low"), listener.models.map { it.effort })
     }
 
     // --- context usage ---

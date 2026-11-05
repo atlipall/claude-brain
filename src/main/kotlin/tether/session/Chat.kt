@@ -2,6 +2,7 @@ package tether.session
 
 import tether.cli.CliConnection
 import tether.cli.ContextUsage
+import tether.cli.ModelChoice
 import tether.cli.PermissionMode
 import tether.cli.SessionLaunch
 import tether.context.ContextNotes
@@ -29,6 +30,9 @@ interface SessionView {
 
     /** How full the context window is (the latest report). */
     fun context(usage: ContextUsage) {}
+
+    /** The model and effort in use and the choices (the latest report). */
+    fun model(choice: ModelChoice) {}
 
     /** A predicted next prompt for the empty message box, valid until the next state other than IDLE. */
     fun suggestion(text: String) {}
@@ -67,7 +71,6 @@ class Chat(
     /** The uuid of the resumed transcript's newest assistant message; null for a new chat. */
     resumeAnchor: String? = null,
     connector: (SessionLaunch) -> CliConnection,
-    initialMode: PermissionMode?,
     private val editNote: (Chat) -> String?,
     /**
      * Where the user is looking, as this chat names the file; null for none (or when the setting is off). EDT, cheap:
@@ -130,6 +133,7 @@ class Chat(
     @Volatile var onBusyChanged: (() -> Unit)? = null
 
     @Volatile private var contextUsage: ContextUsage? = null
+    @Volatile private var modelChoice: ModelChoice? = null
     /** The latest prompt suggestion, kept while the session stays idle (replayed on attach). */
     @Volatile private var suggestion: String? = null
     /** The session's queued messages (replayed on attach). */
@@ -163,6 +167,12 @@ class Chat(
             if (usage == contextUsage) return
             contextUsage = usage
             view?.context(usage)
+        }
+
+        override fun onModel(choice: ModelChoice) {
+            if (choice == modelChoice) return
+            modelChoice = choice
+            view?.model(choice)
         }
 
         override fun onSuggestion(text: String) {
@@ -202,7 +212,7 @@ class Chat(
         }
     }
 
-    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, initialMode, spec.worktree, log, ide, background, resumeAnchor, WorkingTrees())
+    val session = ChatSession(connector, listener, spec.cwd, spec.resumeId, spec.setup, spec.worktree, log, ide, background, resumeAnchor, WorkingTrees())
 
     private val predictedCwd: String? = spec.worktree?.let { "${spec.cwd.trimEnd('/')}/.claude/worktrees/$it" }
 
@@ -259,6 +269,7 @@ class Chat(
         synchronized(activityLock) { shownActivity }?.let(view::activity)
         checkoutText.takeIf { it.isNotEmpty() }?.let(view::checkout)
         contextUsage?.let(view::context)
+        modelChoice?.let(view::model)
         suggestion?.let(view::suggestion)
         queued.takeIf { it.isNotEmpty() }?.let(view::queue)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)

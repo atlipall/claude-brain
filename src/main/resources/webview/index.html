@@ -7,13 +7,14 @@
 </head>
 <body>
 <header id="bar">
-  <button id="new-chat" title="Start a new chat">New chat</button>
   <select id="mode" title="Permission mode">
     <option value="default">Ask before edits</option>
     <option value="acceptEdits">Accept edits</option>
     <option value="plan">Plan only</option>
     <option value="auto">Auto</option>
   </select>
+  <select id="model" title="Model" hidden></select>
+  <select id="effort" title="Effort" hidden></select>
   <button id="show-changes" title="Show everything changed in this checkout: since main on a branch, otherwise since this session started">Diff</button>
   <span id="checkout" hidden></span>
   <span id="status"></span>

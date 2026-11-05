@@ -15,7 +15,7 @@ enum class PermissionMode(val cli: String) {
  * What a new CLI process should start as. [cwd] is the process directory; [worktree] asks claude to
  * create `<cwd>/.claude/worktrees/<name>` on branch `worktree-<name>` and run there. [resumeAt] resumes [resumeId]
  * only up to and including that assistant message; [fork] continues under a new session id, leaving [resumeId]'s
- * transcript as it was.
+ * transcript as it was. [model] and [effort] are the chat's own choices, null to leave them to the CLI's settings.
  */
 data class SessionLaunch(
     val resumeId: String?,
@@ -24,6 +24,8 @@ data class SessionLaunch(
     val worktree: String? = null,
     val resumeAt: String? = null,
     val fork: Boolean = false,
+    val model: String? = null,
+    val effort: String? = null,
 )
 
 object ClaudeCommand {
@@ -40,6 +42,9 @@ object ClaudeCommand {
         launch.resumeAt?.let { add("--resume-session-at"); add(it) }
         if (launch.fork) add("--fork-session")
         addAll(extraArgs)
+        // After the extra arguments: the last --model or --effort wins, and the chat's choice is the newer one.
+        launch.model?.let { add("--model"); add(it) }
+        launch.effort?.let { add("--effort"); add(it) }
     }
 }
 

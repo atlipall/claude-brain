@@ -9,10 +9,12 @@ Claude Pro subscription). The plugin never reads, stores or forwards credentials
 ## Features
 
 - **Native chat panel.** A "Tether" tool window with streaming replies, markdown, tool calls,
-  and permission prompts (Allow / Allow for session / Deny with a reason). Stop, restart and
-  permission mode (Ask before edits / Accept edits / Plan / Auto) are in the header.
+  and permission prompts (Allow / Allow for session / Deny with a reason). Stop, restart,
+  permission mode (Ask before edits / Accept edits / Plan / Auto), model and effort are in the
+  header. Model and effort change the running session at once; a reopened chat keeps its mode,
+  model and effort.
 - **Several chats at once.** One tab per chat, each with its own `claude` process. The `+` button
-  (or "New chat") offers: in this project, in a new git worktree (`claude --worktree <name>`), in an
+  in the tool window's title bar offers: in this project, in a new git worktree (`claude --worktree <name>`), in an
   existing worktree, or resume a past session (across the project and its worktrees).
 - **The IDE follows the selected chat.** Selecting a worktree chat switches the Project view to that
   checkout's scope, swaps open editors to the same files in that checkout (caret kept), and defaults

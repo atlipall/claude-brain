@@ -27,6 +27,16 @@ class WebAssetsTest {
         assertFalse(page.contains("listSessions"))
     }
 
+    @Test fun theHeaderHasModelAndEffortPickersAndNoNewChatButton() {
+        val page = WebAssets.page()
+        assertFalse(page.contains("id=\"new-chat\""))
+        assertFalse(page.contains("'newChat'"))
+        assertTrue(page.contains("id=\"model\""))
+        assertTrue(page.contains("id=\"effort\""))
+        assertTrue(page.contains("type: 'setModel'"))
+        assertTrue(page.contains("type: 'setEffort'"))
+    }
+
     @Test fun pageShowsCheckoutAsPlainText() {
         val page = WebAssets.page()
         assertTrue(page.contains("<span id=\"checkout\" hidden></span>"))

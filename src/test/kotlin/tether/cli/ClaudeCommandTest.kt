@@ -18,6 +18,10 @@ class ClaudeCommandTest {
         base + listOf("--permission-mode", "acceptEdits", "--resume", "abc", "--model", "sonnet"),
         ClaudeCommand.build("/bin/claude", SessionLaunch("abc", PermissionMode.ACCEPT_EDITS, "/p"), listOf("--model", "sonnet")))
 
+    @Test fun modelAndEffortComeAfterExtraArgsSoTheChatsChoiceWins() = assertEquals(
+        base + listOf("--resume", "abc", "--model", "opus", "--model", "sonnet", "--effort", "low"),
+        ClaudeCommand.build("/bin/claude", SessionLaunch("abc", null, "/p", model = "sonnet", effort = "low"), listOf("--model", "opus")))
+
     @Test fun newWorktree() = assertEquals(
         base + listOf("--permission-mode", "plan", "--worktree", "wt-1"),
         ClaudeCommand.build("/bin/claude", SessionLaunch(null, PermissionMode.PLAN, "/p", "wt-1"), emptyList()))

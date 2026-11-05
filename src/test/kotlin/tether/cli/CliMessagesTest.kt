@@ -62,6 +62,18 @@ class CliMessagesTest {
         """{"type":"control_request","request_id":"m","request":{"subtype":"set_permission_mode","mode":"plan"}}""",
         CliMessages.setPermissionMode("m", "plan"))
 
+    @Test fun getSettings() = assertEquals(
+        """{"type":"control_request","request_id":"s","request":{"subtype":"get_settings"}}""",
+        CliMessages.getSettings("s"))
+
+    @Test fun setModel() = assertEquals(
+        """{"type":"control_request","request_id":"m","request":{"subtype":"set_model","model":"sonnet"}}""",
+        CliMessages.setModel("m", "sonnet"))
+
+    @Test fun setEffortGoesThroughFlagSettings() = assertEquals(
+        """{"type":"control_request","request_id":"e","request":{"subtype":"apply_flag_settings","settings":{"effortLevel":"low"}}}""",
+        CliMessages.setEffort("e", "low"))
+
     private val red = Image(ImageType.PNG, TestImages.bytes(TestImages.RED_PNG_BASE64), 4, 4)
 
     @Test fun userContentMatchesTheProbedShape() = assertEquals(

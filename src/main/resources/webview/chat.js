@@ -7,6 +7,8 @@
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const modeSel = document.getElementById('mode');
+  const modelSel = document.getElementById('model');
+  const effortSel = document.getElementById('effort');
   const activityEl = document.getElementById('activity');
   const activityDots = document.getElementById('activity-dots');
   const activityLabel = document.getElementById('activity-label');
@@ -94,6 +96,7 @@
         case 'history': history = Array.isArray(msg.entries) ? msg.entries : []; break;
         case 'checkout': setCheckout(msg.text); break;
         case 'usage': setUsage(msg); break;
+        case 'model': setModel(msg); break;
         case 'attachment': setAttachment(msg); break;
         case 'suggestion': setSuggestion(msg.text); break;
         case 'queue': setQueue(msg.items); break;
@@ -643,6 +646,26 @@
     if (!idle) setSuggestion('');
   }
 
+  const option = (value, text, title) => h('option', { value, title: title || null }, text);
+
+  // The model and effort pickers show what the CLI says runs; hidden until it says (and effort for models without it).
+  function setModel(msg) {
+    const options = Array.isArray(msg.options) ? msg.options : [];
+    modelSel.replaceChildren(...options.map((o) => option(String(o.value), String(o.name), o.description ? String(o.description) : '')));
+    modelSel.value = String(msg.model || '');
+    const shown = options.find((o) => String(o.value) === modelSel.value);
+    modelSel.title = shown && shown.description ? 'Model: ' + shown.description : 'Model';
+    modelSel.hidden = !options.length;
+    const efforts = (Array.isArray(msg.efforts) ? msg.efforts : []).map(String);
+    const effort = msg.effort ? String(msg.effort) : '';
+    effortSel.replaceChildren(
+      ...(efforts.includes(effort) ? [] : [option(effort, effort ? effort + ' effort' : 'Effort')]),
+      ...efforts.map((level) => option(level, level + ' effort')),
+    );
+    effortSel.value = effort;
+    effortSel.hidden = !efforts.length;
+  }
+
   // Grows the box to fit its text (capped by max-height in the CSS) so the log above gives way.
   // Its height with no inline height is the resting height the buttons keep.
   // All reads come before any write, so each call lays the page out once.
@@ -901,11 +924,12 @@
   input.addEventListener('input', () => { recall = -1; if (suggestion) setSuggestion(''); fitInput(); });
   fitInput();
   sendBtn.addEventListener('click', submit);
-  document.getElementById('new-chat').addEventListener('click', () => send({ type: 'newChat' }));
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
   modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
+  modelSel.addEventListener('change', () => send({ type: 'setModel', model: modelSel.value }));
+  effortSel.addEventListener('change', () => { if (effortSel.value) send({ type: 'setEffort', effort: effortSel.value }); });
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
   // Pasted image data (Cmd+V of a screenshot) anywhere on the page becomes an attachment; text pastes are untouched.

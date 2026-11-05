@@ -103,6 +103,21 @@ object CliMessages {
         put("mode", mode)
     }
 
+    /** Asks for the settings in force; its `applied` block holds the model and effort the session runs with. */
+    fun getSettings(requestId: String): String = controlRequest(requestId) { put("subtype", "get_settings") }
+
+    /** Switches the running session to [model] (a value from the initialize reply's model list). */
+    fun setModel(requestId: String, model: String): String = controlRequest(requestId) {
+        put("subtype", "set_model")
+        put("model", model)
+    }
+
+    /** Sets the running session's effort level; the CLI has no request of its own for it, so it goes as a flag setting. */
+    fun setEffort(requestId: String, effort: String): String = controlRequest(requestId) {
+        put("subtype", "apply_flag_settings")
+        putJsonObject("settings") { put("effortLevel", effort) }
+    }
+
     /** Refuses a control request the plugin can't serve. */
     fun controlError(requestId: String, error: String): String = buildJsonObject {
         put("type", "control_response")

@@ -1,12 +1,13 @@
 package tether.session
 
+import tether.cli.PermissionMode
 import tether.git.canonicalPath
 import tether.git.currentBranch
 
 /**
  * How a chat starts. [cwd] is the launch directory. For a new worktree it is the project and [worktree]
  * names the worktree claude creates (the chat then moves to the folder system/init reports). [title] is the name the
- * user gave a resumed session, if any.
+ * user gave a resumed session, if any. [setup] is what the chat was left with when it was last open.
  */
 data class ChatSpec(
     val label: String,
@@ -14,6 +15,7 @@ data class ChatSpec(
     val worktree: String? = null,
     val resumeId: String? = null,
     val title: String? = null,
+    val setup: SessionSetup = SessionSetup(),
 ) {
     companion object {
         const val MAIN = "main"
@@ -28,6 +30,9 @@ data class ChatSpec(
             ChatSpec(ChatNames.folderLabel(session.folder, projectDir), session.folder, resumeId = session.id, title = session.customTitle)
     }
 }
+
+/** A chat's permission mode, model and effort as the user left them; null leaves each to the defaults. */
+data class SessionSetup(val mode: PermissionMode? = null, val model: String? = null, val effort: String? = null)
 
 object ChatNames {
     /** A chat's name until the user renames it: [label], or `label 2`, `label 3`… when [taken] has it. */
