@@ -69,6 +69,103 @@
     for (const c of children) if (c !== null && c !== undefined) el.append(c instanceof Node ? c : String(c));
     return el;
   }
+  let openChoice = null;
+  const agentChoice = choiceMenu(agentSel, 'Agent', () => send({ type: 'setAgent', agent: agentSel.value }));
+  const modeChoice = choiceMenu(modeSel, 'Permission mode', () => send({ type: 'setMode', mode: modeSel.value }));
+
+  function closeChoice(restoreFocus = false) {
+    if (!openChoice) return;
+    const { button, menu } = openChoice;
+    openChoice = null;
+    button.setAttribute('aria-expanded', 'false');
+    button.removeAttribute('aria-controls');
+    menu.remove();
+    if (restoreFocus && !button.disabled) button.focus({ preventScroll: true });
+  }
+
+  function choiceMenu(button, label, onChange) {
+    let options = [];
+    function showValue() {
+      const current = options.find((option) => option.id === button.value);
+      button.replaceChildren(h('span', { class: 'choice-label' }, current ? current.label : label),
+        h('span', { class: 'choice-arrow', 'aria-hidden': 'true' }, '⌄'));
+      button.setAttribute('aria-label', label + (current ? ': ' + current.label : ''));
+    }
+    function open() {
+      if (button.disabled || button.hidden || !options.length) return;
+      if (openChoice && openChoice.button === button) { closeChoice(true); return; }
+      closeChoice();
+      const menu = h('div', { id: button.id + '-menu', class: 'choice-menu', role: 'menu', 'aria-label': label },
+        h('div', { class: 'choice-heading', 'aria-hidden': 'true' }, label));
+      const entries = options.map((option) => {
+        const selected = option.id === button.value;
+        const entry = h('button', { class: 'choice-option', role: 'menuitemradio', tabindex: '-1', 'aria-checked': String(selected) },
+          h('span', { class: 'choice-check', 'aria-hidden': 'true' }, selected ? '✓' : ''),
+          h('span', { class: 'choice-label' }, option.label));
+        entry.addEventListener('click', () => {
+          button.value = option.id;
+          showValue();
+          closeChoice(true);
+          onChange();
+        });
+        menu.append(entry);
+        return entry;
+      });
+      menu.addEventListener('keydown', (event) => {
+        const index = entries.indexOf(document.activeElement);
+        let next;
+        if (event.key === 'ArrowDown') next = (index + 1) % entries.length;
+        else if (event.key === 'ArrowUp') next = (index + entries.length - 1) % entries.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = entries.length - 1;
+        else if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          closeChoice(true);
+          return;
+        } else if (event.key === 'Tab') { closeChoice(true); return; }
+        if (next !== undefined) { event.preventDefault(); entries[next].focus(); }
+      });
+      document.body.append(menu);
+      const anchor = button.getBoundingClientRect();
+      const width = Math.min(Math.max(180, anchor.width), innerWidth - 16);
+      menu.style.width = width + 'px';
+      menu.style.maxHeight = Math.min(280, Math.max(0, anchor.top - 12)) + 'px';
+      menu.style.left = Math.max(8, Math.min(anchor.left, innerWidth - width - 8)) + 'px';
+      menu.style.top = Math.max(8, anchor.top - menu.getBoundingClientRect().height - 4) + 'px';
+      openChoice = { button, menu };
+      button.setAttribute('aria-expanded', 'true');
+      button.setAttribute('aria-controls', menu.id);
+      entries[Math.max(0, options.findIndex((option) => option.id === button.value))].focus();
+    }
+    button.addEventListener('click', open);
+    button.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      event.preventDefault();
+      open();
+    });
+    return {
+      set(choices, value = button.value) {
+        if (openChoice && openChoice.button === button) closeChoice();
+        options = choices;
+        button.value = options.some((option) => option.id === value) ? value : (options[0] ? options[0].id : '');
+        showValue();
+      },
+      select(value) {
+        if (value === button.value || !options.some((option) => option.id === value)) return;
+        if (openChoice && openChoice.button === button) closeChoice();
+        button.value = value;
+        showValue();
+      },
+    };
+  }
+
+  document.addEventListener('click', (event) => {
+    if (openChoice && !openChoice.menu.contains(event.target) && !openChoice.button.contains(event.target)) closeChoice();
+  });
+  window.addEventListener('resize', () => closeChoice());
+  window.addEventListener('blur', () => closeChoice());
+
   const clip = (s) => (s && s.length > MAX_PRE ? s.slice(0, MAX_PRE) + '\n…' : s || '');
   const shortPath = (p) => p.split('/').slice(-2).join('/');
   // Images are page-created elements whose src is a data: URL the IDE built from validated bytes; anything else is alt text.
@@ -571,7 +668,7 @@
     if (msg.state === 'DEAD') setActivity({ phase: null });
     restartBtn.hidden = msg.state !== 'DEAD';
     input.disabled = sendBtn.disabled = attachBtn.disabled = msg.state === 'DEAD';
-    if (msg.mode) modeSel.value = msg.mode;
+    if (msg.mode) modeChoice.select(msg.mode);
     idle = msg.state === 'IDLE';
     if (!idle) setSuggestion('');
   }
@@ -579,17 +676,14 @@
   // None hides the selector.
   function setModes(modes) {
     const list = Array.isArray(modes) ? modes : [];
-    modeSel.textContent = '';
-    list.forEach((m) => modeSel.append(h('option', { value: m.id }, m.label)));
+    modeChoice.set(list);
     modeSel.hidden = !list.length;
   }
 
   // A chat that has started keeps its agent; the selector then only names it.
   function setAgent(msg) {
     const agents = Array.isArray(msg.agents) ? msg.agents : [];
-    agentSel.textContent = '';
-    agents.forEach((a) => agentSel.append(h('option', { value: a.id }, a.label)));
-    agentSel.value = msg.selected;
+    agentChoice.set(agents, msg.selected);
     const current = agents.find((a) => a.id === msg.selected);
     agentName = current ? String(current.label) : 'the agent';
     agentSel.disabled = !!msg.locked || agents.length < 2;
@@ -841,8 +935,7 @@
   activityStop.addEventListener('click', () => send({ type: 'interrupt' }));
   restartBtn.addEventListener('click', () => send({ type: 'restart' }));
   document.getElementById('show-changes').addEventListener('click', () => send({ type: 'showChanges' }));
-  modeSel.addEventListener('change', () => send({ type: 'setMode', mode: modeSel.value }));
-  agentSel.addEventListener('change', () => send({ type: 'setAgent', agent: agentSel.value }));
+
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
   // Pasted image data (Cmd+V of a screenshot) anywhere on the page becomes an attachment; text pastes are untouched.

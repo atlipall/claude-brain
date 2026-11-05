@@ -21,8 +21,8 @@
 <footer id="composer">
   <textarea id="input" rows="3" placeholder="Message (Enter to send, Shift+Enter for a new line)"></textarea>
   <div id="controls">
-    <select id="agent" title="Agent for this chat"></select>
-    <select id="mode" title="Permission mode" hidden></select>
+    <button id="agent" class="chooser" title="Agent for this chat" aria-haspopup="menu" aria-expanded="false"></button>
+    <button id="mode" class="chooser" title="Permission mode" aria-haspopup="menu" aria-expanded="false" hidden></button>
     <span class="grow"></span>
     <button id="attach" title="Attach images">📎</button>
     <button id="send">Send</button>

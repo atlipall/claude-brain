@@ -18,7 +18,16 @@ body { display: flex; flex-direction: column; background: var(--bg); color: var(
 #composer { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
 #controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 #controls .grow { flex: 1; }
-#controls select { min-width: 0; max-width: 14em; }
+#controls .chooser { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 14em; }
+#controls .chooser[hidden] { display: none; }
+.choice-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.choice-arrow { flex: none; color: var(--muted); }
+.choice-menu { position: fixed; z-index: 100; overflow-y: auto; overscroll-behavior: contain; padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px #0005, 0 12px 32px #0004; }
+.choice-heading { padding: 4px 8px; color: var(--muted); font-size: .85em; }
+.choice-option { display: flex; align-items: center; gap: 6px; width: 100%; border-color: transparent; background: transparent; padding: 6px 8px; text-align: left; }
+.choice-option:hover, .choice-option:focus-visible { background: var(--code-bg); }
+.choice-option:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.choice-check { flex: none; width: 1em; }
 #input { resize: vertical; min-height: 3em; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px; font: inherit; }
 button, select { background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer; }
 button:disabled, textarea:disabled, select:disabled { opacity: .5; cursor: default; }
