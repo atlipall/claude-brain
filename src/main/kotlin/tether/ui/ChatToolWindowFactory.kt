@@ -27,7 +27,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
             toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(label, null, false))
             return
         }
-        toolWindow.setTitleActions(listOf(NewChatAction(), WorkspaceChatAction()))
+        toolWindow.setTitleActions(listOf(NewChatAction(), WorkspaceChatAction(), OpenSettingsAction()))
         val tabs = ChatTabs(project, toolWindow)
         followSelectedTab(project, toolWindow)
         var restoring = true
