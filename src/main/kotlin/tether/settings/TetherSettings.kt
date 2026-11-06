@@ -19,7 +19,7 @@ class TetherSettings : SimplePersistentStateComponent<TetherSettings.State>(Stat
         var extraArgs by string("")
         /** The IDE window follows the selected chat's checkout (Project view scope, open editors, Find scope). */
         var followCheckout by property(true)
-        /** Messages tell Claude which file, line, selection and function the editor shows (location only). */
+        /** Messages tell the agent which file, line, selection and function the editor shows (location only). */
         var attachEditorContext by property(true)
         /**
          * Claude can call the IDE's tools: diagnostics and find usages, plus quick fixes, rename and move, which ask for
@@ -28,9 +28,9 @@ class TetherSettings : SimplePersistentStateComponent<TetherSettings.State>(Stat
         var ideTools by property(true)
         /** After each of Claude's edits, the IDE checks the file and tells Claude about errors in it. */
         var checkEdits by property(true)
-        /** Command line of the ACP agent the message box offers besides Claude; empty offers none. */
+        /** Command line of the ACP agent new chats offer besides Claude; empty offers none. */
         var acpCommand by string("hermes acp")
-        /** The agent last selected in a new chat's message box (`claude` or `acp`); the next new chat starts with it. */
+        /** The agent last selected in a new chat (`claude` or `acp`); the next new chat starts with it. */
         var lastAgent by string("")
         /** Whether [savedFindScope] holds the user's own Find in Files default while a plugin scope replaces it. */
         var findScopeSaved by property(false)

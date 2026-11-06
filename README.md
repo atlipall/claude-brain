@@ -1,10 +1,11 @@
-# Tether for Claude Code
+# Tether for coding agents
 
-A personal JetBrains plugin (built for WebStorm 2026.2) that gives the
-[Claude Code](https://docs.claude.com/en/docs/claude-code) CLI a native chat panel inside the IDE.
+A personal JetBrains plugin (built for WebStorm 2026.2) that gives coding agents a native chat panel
+inside the IDE: the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI, and
+[Agent Client Protocol](#other-agents-acp) agents such as Hermes.
 
-It runs your locally installed `claude` binary, so it uses whatever login that CLI has (e.g. your
-Claude Pro subscription). The plugin never reads, stores or forwards credentials.
+It runs your locally installed `claude` binary (and ACP agent), so it uses whatever login that agent
+already has (e.g. your Claude Pro subscription). The plugin never reads, stores or forwards credentials.
 
 ## Features
 
@@ -102,22 +103,25 @@ Project view / Find scope are left alone.
 
 ## Settings
 
-Settings → Tools → **Tether**:
+Settings → Tools → **Tether**, or the gear in the Tether title bar:
 
 | Setting | Default |
 |---|---|
+| **All agents** | |
+| IDE follows the selected chat's checkout | on |
+| Attach editor context to messages | on |
+| **Claude** | |
 | Claude binary | auto-detect |
 | Default permission mode | the CLI's own setting |
 | Extra CLI arguments (e.g. `--model sonnet`) | none |
-| ACP agent command | `hermes acp` |
-| IDE follows the selected chat's checkout | on |
-| Attach editor context to messages | on |
 | Let Claude use IDE tools | on (new or restarted chats) |
 | Check Claude's edits for errors | on (new or restarted chats) |
+| **ACP agent** | |
+| Command | `hermes acp` |
 
 ### Other agents (ACP)
 
-Set **ACP agent command** to the command for an Agent Client Protocol agent, such as `hermes acp`, and choose it beside the permission control in a new draft. Selection is remembered and keeps the draft text and attachments. A chat keeps its agent after starting; create another chat to use a different agent.
+Set **Command** under **ACP Agent** to the command for an Agent Client Protocol agent, such as `hermes acp`, and choose it with the agent picker in a new draft's header, before the model. Selection is remembered and keeps the draft text and attachments. A chat keeps its agent after starting; create another chat to use a different agent.
 
 ACP agents keep their own authentication, model configuration and approval rules. Their advertised permission modes and approval choices are shown directly. Open ACP tabs can be restored through the agent's `session/load`; the past-session browser, archive, conversation rewind, Claude model/effort picker, IDE tools and new-worktree creation remain Claude-only. Images require the agent to advertise image support.
 

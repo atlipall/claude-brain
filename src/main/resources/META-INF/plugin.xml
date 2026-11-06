@@ -1,11 +1,11 @@
 <idea-plugin>
     <id>local.tether</id>
-    <name>Tether for Claude Code</name>
+    <name>Tether for coding agents</name>
     <vendor url="https://github.com/atlipall/tether">Atli Páll Hafsteinsson</vendor>
     <description><![CDATA[
-    Native chat panel for the Claude Code CLI. Runs the locally installed <code>claude</code>
-    binary with your existing login, links files Claude touches, shows diffs of its edits,
-    and tells Claude about files you edited between turns.
+    Native chat panel for coding agents: the Claude Code CLI and Agent Client Protocol agents
+    such as Hermes. Runs the locally installed agents with their existing logins, links files
+    the agent touches, shows diffs of its edits, and tells it about files you edited between turns.
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.jcef</depends>
