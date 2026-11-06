@@ -163,7 +163,17 @@ class WebAssetsTest {
         assertTrue(page.contains("DATA_IMG.test(src) ? h('img', { src, alt })"))
         assertTrue("model markup still may not contain images", page.contains("'base', 'img', 'picture'"))
         assertTrue(page.contains("img-src data:;"))
-        assertTrue(page.contains("if (item.text) el.append(document.createTextNode(item.text));"))
+        assertTrue(page.contains("if (item.text) el.append(withLinks(item.text));"))
+    }
+
+    @Test fun plainTextWebAddressesBecomeTrustedLinksTheIdeOpens() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("""const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;"""))
+        assertTrue("addresses are page-made links in text, never markup", page.contains("out.append(str.slice(at, match.index), h('a', { class: 'url', href: url, title: url }, url));"))
+        assertTrue(page.contains("el.append(withLinks(item.text)); break;"))
+        assertTrue(page.contains("line.append(withLinks(r.text || 'This turn failed.'));"))
+        assertTrue(page.contains("h('pre', {}, withLinks(clip(t.resultPreview)))"))
+        assertTrue(page.contains("send({ type: 'openUrl', url: a.href })"))
     }
 
     @Test fun pageShowsToolResultImagesAndBatchedHistory() {

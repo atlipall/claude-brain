@@ -97,6 +97,39 @@
     return el;
   }
   const clip = (s) => (s && s.length > MAX_PRE ? s.slice(0, MAX_PRE) + '\n…' : s || '');
+
+  /** A web address in plain text: http or https up to whitespace or a character that can't be part of one. */
+  const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
+
+  /**
+   * [url] without punctuation that ends the sentence around it rather than the address: trailing stops, commas and
+   * quotes, and a closing bracket that has no opening one inside the address, as in "(see https://example.com)".
+   */
+  function trimUrl(url) {
+    let end = url.replace(/[.,;:!?'"]+$/, '');
+    for (const [open, close] of [['(', ')'], ['[', ']'], ['{', '}']]) {
+      while (end.endsWith(close) && end.split(close).length > end.split(open).length) end = end.slice(0, -1).replace(/[.,;:!?'"]+$/, '');
+    }
+    return end;
+  }
+
+  /**
+   * Plain [text] with each web address in it as a trusted link, which the click handler opens in the system browser;
+   * the rest stays text, never markup.
+   */
+  function withLinks(text) {
+    const out = document.createDocumentFragment();
+    const str = String(text || '');
+    let at = 0;
+    for (const match of str.matchAll(URL_RE)) {
+      const url = trimUrl(match[0]);
+      if (!url.replace(/^https?:\/\//i, '')) continue;
+      out.append(str.slice(at, match.index), h('a', { class: 'url', href: url, title: url }, url));
+      at = match.index + url.length;
+    }
+    out.append(str.slice(at));
+    return out;
+  }
   const shortPath = (p) => p.split('/').slice(-2).join('/');
   /** A page-created image whose src is a data: URL the IDE built from validated bytes; anything else becomes alt text. */
   const imageOrAlt = (src, alt) => (typeof src === 'string' && DATA_IMG.test(src) ? h('img', { src, alt }) : h('span', { class: 'img-alt' }, alt));
@@ -253,7 +286,7 @@
       case 'assistant': renderAssistant(el, item); break;
       case 'tool': if (isAgentCall(item)) renderAgent(el, item); else renderTool(el, item); break;
       case 'result': renderResult(el, item); break;
-      case 'notice': el.className = 'msg notice' + (item.isError ? ' error' : ''); el.textContent = item.text; break;
+      case 'notice': el.className = 'msg notice' + (item.isError ? ' error' : ''); el.append(withLinks(item.text)); break;
     }
     ownDetails(el).forEach((d, i) => { if (open[i] !== undefined) d.open = open[i]; });
     const startedWaiting = item.kind === 'tool' && item.status === 'awaiting_permission' && !wasWaiting;
@@ -279,7 +312,7 @@
     if (onReply) onReply(value);
   }
 
-  /** A user message: its text is plain, never markup. */
+  /** A user message: its text is plain, never markup, with its web addresses as links. */
   function renderUser(el, item) {
     el.className = 'msg user';
     if (item.revertable) {
@@ -288,7 +321,7 @@
     }
     const images = Array.isArray(item.images) ? item.images : [];
     if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src, index) => zoomableImage(src, '[image]', { item: item.id, index }))));
-    if (item.text) el.append(document.createTextNode(item.text));
+    if (item.text) el.append(withLinks(item.text));
   }
 
   /**
@@ -501,7 +534,7 @@
     if (hasDetails) {
       const detail = h('div', { class: 'tool-detail', hidden: true });
       if (body) detail.append(h('div', { class: 'tool-label' }, body[0]), ...body[1]);
-      if (t.resultPreview) detail.append(h('div', { class: 'tool-label' }, 'Result'), h('pre', {}, clip(t.resultPreview)));
+      if (t.resultPreview) detail.append(h('div', { class: 'tool-label' }, 'Result'), h('pre', {}, withLinks(clip(t.resultPreview))));
       el.append(detail);
       setRowExpanded(row, expandedTools.has(t.id));
     }
@@ -613,7 +646,7 @@
     const details = inputDetails(t);
     if (details) el.append(details);
     if (t.status === 'awaiting_permission' && t.permissionRequestId) el.append(permissionCard(t));
-    if (t.resultPreview) el.append(h('details', {}, h('summary', {}, 'Result'), h('pre', {}, clip(t.resultPreview))));
+    if (t.resultPreview) el.append(h('details', {}, h('summary', {}, 'Result'), h('pre', {}, withLinks(clip(t.resultPreview)))));
   }
 
   /** running | done | failed: from the task events, else (an older CLI) from the call's own status. */
@@ -665,7 +698,7 @@
     if (a && typeof a.report === 'string' && a.report) {
       body.append(h('div', { class: 'agent-report' }, h('div', { class: 'tool-label' }, 'Report'), reportNode(t.id, a.report)));
     } else if (!a && t.resultPreview) {
-      body.append(h('details', {}, h('summary', {}, 'Result'), h('pre', {}, clip(t.resultPreview))));
+      body.append(h('details', {}, h('summary', {}, 'Result'), h('pre', {}, withLinks(clip(t.resultPreview)))));
     }
     el.append(head, body);
     setRowExpanded(head, expandedTools.has(t.id));
@@ -692,7 +725,7 @@
     el.className = 'msg result' + (r.isError ? ' error' : '');
     const files = Array.isArray(r.files) ? r.files : [];
     const line = h('div', { class: 'result-line' });
-    if (r.isError) line.textContent = r.text || 'This turn failed.';
+    if (r.isError) line.append(withLinks(r.text || 'This turn failed.'));
     else {
       const parts = [];
       if (r.durationMs != null) parts.push((r.durationMs / 1000).toFixed(1) + 's');
