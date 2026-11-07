@@ -251,4 +251,10 @@ class WebAssetsTest {
         assertFalse(page.contains("Message Claude"))
         assertFalse(page.contains("Stop Claude"))
     }
+
+    @Test fun pageOutlinesTheMessageBoxWhileTheIdeReportsAFileDrag() {
+        val page = WebAssets.page()
+        assertTrue(page.contains("case 'dropTarget': showDropTarget(msg.active === true); break;"))
+        assertTrue(page.contains("#input-box.drop-target {"))
+    }
 }

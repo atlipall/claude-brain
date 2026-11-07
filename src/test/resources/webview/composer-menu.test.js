@@ -225,5 +225,13 @@ window.runComposerMenuTests = function () {
     key(document.activeElement, 'Escape');
     receive({ type: 'agent', agents, selected: 'claude', locked: false });
   });
+  test('files dragged over the panel outline the message box until the drag leaves', () => {
+    const box = trigger('input-box');
+    receive({ type: 'dropTarget', active: true });
+    assert(box.classList.contains('drop-target'), 'A file drag the IDE will take must mark the message box');
+    assert(getComputedStyle(box).outlineStyle === 'dashed', 'The drop target must be outlined');
+    receive({ type: 'dropTarget', active: false });
+    assert(!box.classList.contains('drop-target'), 'The outline must go when the drag leaves or drops');
+  });
   return results;
 };
