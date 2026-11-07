@@ -332,35 +332,30 @@ class ChatSessionTest {
         assertEquals(listOf(emptyList(), listOf(TestImages.RED_PNG_BASE64)), conn.userImages())
     }
 
-    @Test fun aSentMessageKeepsItsImagesPreviewsForTheViewer() {
+    @Test fun aSentMessageKeepsItsImageFiles() {
         val s = session()
-        s.send("look", images = listOf(red, red), thumbs = listOf("data:image/png;base64,T", ""), previews = listOf("data:image/png;base64,P", ""))
+        s.send("look", images = listOf(red, red), thumbs = listOf("data:image/png;base64,T", ""), files = listOf("/tmp/a.png", ""))
         val id = listener.latest<ChatItem.UserText>().id
-        assertEquals("data:image/png;base64,P", s.imagePreview(id, 0))
-        assertNull(s.imagePreview(id, 1))
-        assertNull(s.imagePreview(id, 2))
-        assertNull(s.imagePreview("user-unknown", 0))
+        assertEquals("/tmp/a.png", s.imageFile(id, 0))
+        assertNull(s.imageFile(id, 1))
+        assertNull(s.imageFile(id, 2))
+        assertNull(s.imageFile("user-unknown", 0))
     }
 
-    @Test fun aQueuedMessageKeepsItsPreviewsUnderTheItemItBecomes() {
+    @Test fun aQueuedMessageKeepsItsFilesUnderTheItemItBecomes() {
         val s = session()
         s.send("first")
-        s.send("second", images = listOf(red), thumbs = listOf("data:image/png;base64,T"), previews = listOf("data:image/png;base64,P"))
+        s.send("second", images = listOf(red), thumbs = listOf("data:image/png;base64,T"), files = listOf("/tmp/b.png"))
         conn.emit(Fx.result())
-        assertEquals("data:image/png;base64,P", s.imagePreview(listener.latest<ChatItem.UserText>().id, 0))
+        assertEquals("/tmp/b.png", s.imageFile(listener.latest<ChatItem.UserText>().id, 0))
     }
 
-    @Test fun theOldestPreviewsGoWhenTheyAddUpToTooMuch() {
+    @Test fun aToolCallIsFoundByItsId() {
         val s = session()
-        val big = "data:image/png;base64," + "A".repeat(6_000_000)
-        val ids = (1..3).map { n ->
-            s.send("m$n", images = listOf(red), thumbs = listOf(""), previews = listOf(big))
-            conn.emit(Fx.result())
-            listener.current().filterIsInstance<ChatItem.UserText>().last().id
-        }
-        assertNull(s.imagePreview(ids[0], 0))
-        assertEquals(big, s.imagePreview(ids[1], 0))
-        assertEquals(big, s.imagePreview(ids[2], 0))
+        s.send("read it")
+        conn.emit(Fx.toolUse("m1", "t1", "Read", """{"file_path":"/proj/blue.png"}"""))
+        assertEquals("/proj/blue.png", s.toolCall("t1")!!.filePath)
+        assertNull(s.toolCall("t-unknown"))
     }
 
     private fun userTexts() = listener.current().filterIsInstance<ChatItem.UserText>().map { it.text }

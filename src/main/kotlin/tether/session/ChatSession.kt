@@ -124,9 +124,6 @@ private const val SETTINGS_PREFIX = "settings"
 
 /** Most images of one tool result converted to display copies; further ones show as "[image]". */
 private const val MAX_TOOL_IMAGES = 6
-/** The display copies of user messages' images one chat keeps, in characters of `data:` URL (about 12 MB of images). */
-private const val MAX_PREVIEW_CHARS = 16_000_000L
-
 /** Longest agent prompt or report kept; longer ones are cut and end with "…". */
 internal const val MAX_AGENT_TEXT = 100_000
 
@@ -205,10 +202,10 @@ class ChatSession(
     private var seq = 0
     private var interruptRequested = false
     /**
-     * A queued message, its line for the CLI's stdin (image bytes live only here until sent) and its images' display
-     * copies, kept for [imagePreview] once it goes out.
+     * A queued message, its line for the CLI's stdin (image bytes live only here until sent) and its images' files,
+     * kept for [imageFile] once it goes out.
      */
-    private class Queued(val shown: QueuedMessage, val line: String, val previews: List<String>)
+    private class Queued(val shown: QueuedMessage, val line: String, val files: List<String>)
     /** Messages waiting for the running turn to end, oldest first. */
     private val queue = ArrayDeque<Queued>()
     private val toolCalls = HashMap<String, ChatItem.ToolCall>()
@@ -228,13 +225,7 @@ class ChatSession(
     private val deniedToolUses = HashSet<String>()
     private val sessionAllowedTools = HashSet<String>()
     private val diffs = HashMap<String, FileDiff>()
-    /**
-     * Display copies ([tether.image.Images.preview], as `data:` URLs) of user messages' images, by item id, for the page's
-     * image viewer; the items themselves carry only thumbnails. Oldest first: the oldest go once they add up to more
-     * than [MAX_PREVIEW_CHARS], and those images then open at thumbnail size.
-     */
-    private val imagePreviews = LinkedHashMap<String, List<String>>()
-    private var imagePreviewChars = 0L
+    private val imageFiles = SentImageFiles()
     /** The running turn's edits; summed up on its [ChatItem.TurnResult]. */
     private val turnEdits = TurnEdits()
     /** The checkout before each running Bash call, by its tool use id. */
@@ -313,7 +304,7 @@ class ChatSession(
 
     /**
      * Shows [text] (with [thumbs] of its images above it) in the chat; sends "[prefix]\n\n[text]" and [images] to
-     * Claude. [previews] are the images' display copies, kept for [imagePreview]. While a turn is running the message
+     * Claude. [files] are the images' paths on disk, kept for [imageFile]. While a turn is running the message
      * is queued instead (see [ChatListener.onQueue]) and enters the chat when it goes out.
      */
     override fun send(
@@ -321,7 +312,7 @@ class ChatSession(
         prefix: String?,
         images: List<Image>,
         thumbs: List<String>,
-        previews: List<String>,
+        files: List<String>,
     ) {
         synchronized(lock) {
             if (state == SessionState.DEAD) return
@@ -329,14 +320,14 @@ class ChatSession(
             val line = CliMessages.userContent(payload, images)
             if (state == SessionState.IDLE) {
                 val item = ChatItem.UserText(nextId("user"), text, thumbs)
-                keepPreviews(item.id, previews)
+                imageFiles.keep(item.id, files)
                 anchors[item.id] = lastAnswer
                 emit(item)
                 connection?.send(line)
                 beginRunning(Activity.Starting)
                 reportActivity()
             } else {
-                queue.addLast(Queued(QueuedMessage(nextId("queued"), text, thumbs), line, previews))
+                queue.addLast(Queued(QueuedMessage(nextId("queued"), text, thumbs), line, files))
                 notifyQueue()
             }
         }
@@ -545,7 +536,7 @@ class ChatSession(
         val keys = anchors.keys.toList()
         keys.subList(keys.indexOf(itemId), keys.size).forEach { id ->
             anchors.remove(id)
-            dropPreviews(id)
+            imageFiles.drop(id)
         }
         generation++
         connection?.stop()
@@ -569,23 +560,11 @@ class ChatSession(
 
     override fun diffFor(toolUseId: String): FileDiff? = synchronized(lock) { diffs[toolUseId] }
 
-    /** The display copy of image [index] of user message [itemId], or null when none is kept (see [imagePreviews]). */
-    override fun imagePreview(itemId: String, index: Int): String? = synchronized(lock) {
-        imagePreviews[itemId]?.getOrNull(index)?.takeIf { it.isNotEmpty() }
+    override fun imageFile(itemId: String, index: Int): String? = synchronized(lock) {
+        imageFiles.get(itemId, index)
     }
 
-    /** Keeps [previews] for user message [itemId], dropping the oldest kept ones past [MAX_PREVIEW_CHARS]. Under the lock. */
-    private fun keepPreviews(itemId: String, previews: List<String>) {
-        if (previews.none { it.isNotEmpty() }) return
-        imagePreviews[itemId] = previews
-        imagePreviewChars += previews.sumOf { it.length.toLong() }
-        while (imagePreviewChars > MAX_PREVIEW_CHARS) dropPreviews(imagePreviews.keys.first())
-    }
-
-    /** Forgets the display copies kept for user message [itemId]. Under the lock. */
-    private fun dropPreviews(itemId: String) {
-        imagePreviews.remove(itemId)?.let { previews -> imagePreviewChars -= previews.sumOf { it.length.toLong() } }
-    }
+    override fun toolCall(id: String): ChatItem.ToolCall? = synchronized(lock) { toolCalls[id] }
 
     /** The diffs of the files the turn ended by result item [resultId] edited, in its list's order; empty when unknown. */
     override fun turnDiffs(resultId: String): List<FileDiff> = synchronized(lock) { turnDiffs[resultId].orEmpty() }
@@ -891,7 +870,7 @@ class ChatSession(
         if (next != null) {
             notifyQueue()
             val item = ChatItem.UserText(nextId("user"), next.shown.text, next.shown.images)
-            keepPreviews(item.id, next.previews)
+            imageFiles.keep(item.id, next.files)
             anchors[item.id] = lastAnswer
             emit(item)
             connection?.send(next.line)

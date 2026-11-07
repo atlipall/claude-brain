@@ -1024,7 +1024,16 @@ class ChatsTest : BasePlatformTestCase() {
     }
 
     private fun attachment(id: String) =
-        Attachment(id, "$id.png", Image(ImageType.PNG, TestImages.bytes(TestImages.BLUE_PNG_BASE64), 4, 4), "data:image/png;base64,T$id", "data:image/png;base64,P$id")
+        Attachment(id, "$id.png", Image(ImageType.PNG, TestImages.bytes(TestImages.BLUE_PNG_BASE64), 4, 4), "data:image/png;base64,T$id")
+
+    fun testClosingAChatDeletesItsImageFiles() {
+        settings.attachEditorContext = false
+        val chat = chats.open(ChatSpec.inProject(root))
+        val written = chat.imageFiles.write("a.png", ImageType.PNG, TestImages.bytes(TestImages.BLUE_PNG_BASE64))!!.toFile()
+        assertTrue(written.isFile)
+        chats.close(chat)
+        assertFalse(written.exists())
+    }
 
     fun testSendCarriesAttachmentsAfterTheNotes() {
         settings.attachEditorContext = false

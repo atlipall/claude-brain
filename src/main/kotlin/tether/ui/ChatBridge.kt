@@ -10,6 +10,7 @@ import tether.ide.CheckoutDiff
 import tether.ide.FileLinker
 import tether.ide.ResolvedPath
 import tether.image.Attachment
+import tether.image.Image
 import tether.image.Images
 import tether.image.Prepared
 import tether.image.Uploads
@@ -37,6 +38,9 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import java.nio.file.Path
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -74,6 +78,9 @@ class ChatBridge(
 
     /** Brings results back to the EDT. Tests make it synchronous. */
     internal var onEdt: (() -> Unit) -> Unit = { task -> ApplicationManager.getApplication().invokeLater({ task() }, project.disposed) }
+
+    /** Opens a file in the editor, as a file link does. Tests replace it. */
+    internal var openInEditor: (VirtualFile) -> Unit = { OpenFileDescriptor(project, it).navigate(true) }
 
     /** Opens the checkout's changes (see [CheckoutDiff]). Tests replace it. */
     internal var showChanges: (Chat) -> Unit = { CheckoutDiff.show(project, it) }
@@ -181,15 +188,49 @@ class ChatBridge(
             "openTurnChanges" -> turnDiffs(msg)?.let(showTurnChanges)
             "openUrl" -> msg.str("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let(BrowserUtil::browse)
             "resolvePaths" -> resolvePaths(msg.long("reqId") ?: 0, msg.arr("candidates").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.distinct().take(MAX_PATH_CANDIDATES))
-            "viewImage" -> viewImage(msg.long("reqId") ?: 0, msg.str("id"), msg.long("index")?.toInt() ?: -1)
+            "openImage" -> openImage(msg)
             "resolveImages" -> resolveImages(msg.long("reqId") ?: 0, strings(msg["paths"]).distinct().take(MAX_IMAGE_PATHS))
         }
     }
 
-    /** Answers the image viewer with the display copy of image [index] of user message [itemId], or null. */
-    private fun viewImage(reqId: Long, itemId: String?, index: Int) {
-        post(imagePreviewMessage(reqId, itemId?.let { session.imagePreview(it, index) }))
+    /**
+     * Opens the image the page's `openImage` names in the editor: image `index` of user message `item` (the file
+     * written when it was attached), image `index` of tool call `tool` (see [toolImageFile]), or the markdown image at
+     * `path` (found as [FileLinker.imageFileAt] finds it). Files are found, written and refreshed off the EDT; nothing
+     * opens when the image has no file or its path is refused.
+     */
+    private fun openImage(msg: JsonObject) {
+        val index = msg.long("index")?.toInt() ?: 0
+        val cwd = chat.cwd
+        val item = msg.str("item")
+        val tool = msg.str("tool")
+        val path = msg.str("path")
+        val find: () -> VirtualFile? = when {
+            item != null -> session.imageFile(item, index)?.let { file -> { localFile(Path.of(file)) } } ?: return
+            tool != null -> session.toolCall(tool)?.let { call -> { toolImageFile(call, index, cwd) } } ?: return
+            path != null -> { { linker.imageFileAt(path, cwd) } }
+            else -> return
+        }
+        pathsOffEdt {
+            val file = find()
+            if (file != null) onEdt { openInEditor(file) }
+        }
     }
+
+    /**
+     * Image [index] of tool call [call] as a file: the file the tool read when its path passes [FileLinker.imageFileAt]
+     * (the path comes from the agent, so it is held to the same rules as a reply's image), else a copy of the image
+     * written once to the chat's [Chat.imageFiles]. Off the EDT.
+     */
+    private fun toolImageFile(call: ChatItem.ToolCall, index: Int, cwd: String?): VirtualFile? {
+        val src = call.images.getOrNull(index) ?: return null
+        call.filePath?.let { linker.imageFileAt(it, cwd) }?.let { return it }
+        val image = Image.fromDataUrl(src) ?: return null
+        return chat.imageFiles.write("image", image.type, image.bytes, key = "tool:${call.id}:$index")?.let(::localFile)
+    }
+
+    /** The local file at [path], refreshed into the VFS. Off the EDT. */
+    private fun localFile(path: Path): VirtualFile? = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)
 
     /** Forgets every attachment, started upload and preparation: a (re)loaded page shows none. */
     private fun forgetAttachments() {
@@ -245,15 +286,16 @@ class ChatBridge(
     }
 
     /**
-     * Validates and (if needed) downscales the bytes off the EDT and makes its preview and, from that, its thumbnail;
-     * then adds the attachment and shows its thumbnail, or refuses it with a notice. [read] runs off the EDT; null
+     * Validates and (if needed) downscales the bytes off the EDT, makes its thumbnail (from a display copy) and writes
+     * the image to the chat's [Chat.imageFiles]; then adds the attachment and shows its thumbnail, or refuses it with a
+     * notice. [read] runs off the EDT; null
      * means the file is larger than 20 MB.
      */
     private fun prepare(id: String, name: String, read: () -> ByteArray?) {
         preparing += id
         offEdt {
             var thumb = ""
-            var preview = ""
+            var file = ""
             val outcome = try {
                 val bytes = read()
                 if (bytes == null) {
@@ -262,8 +304,8 @@ class ChatBridge(
                     val prepared = preparer(bytes)
                     if (prepared is Prepared.Ok) {
                         val display = Images.preview(prepared.image.bytes)
-                        preview = display?.dataUrl().orEmpty()
                         thumb = Images.preview((display ?: prepared.image).bytes, Images.THUMB_EDGE, Images.THUMB_BYTES)?.dataUrl().orEmpty()
+                        file = chat.imageFiles.write(name, prepared.image.type, prepared.image.bytes)?.toString().orEmpty()
                     }
                     prepared
                 }
@@ -279,7 +321,7 @@ class ChatBridge(
                 when (outcome) {
                     is Prepared.Rejected -> refuse(id, "Couldn't attach $name: ${outcome.reason}.")
                     is Prepared.Ok ->
-                        if (chat.attachments.add(Attachment(id, name, outcome.image, thumb, preview))) post(attachmentMessage(id, name, thumb))
+                        if (chat.attachments.add(Attachment(id, name, outcome.image, thumb, file))) post(attachmentMessage(id, name, thumb))
                         else refuse(id, "Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
                 }
             }
@@ -400,13 +442,6 @@ class ChatBridge(
         put("type", "images")
         put("reqId", reqId)
         putJsonObject("images") { for ((path, url) in found) put(path, url) }
-    }.toString()
-
-    /** `{type:"imagePreview", reqId, src}`: the display copy the viewer asked for; src is null when none is kept. */
-    private fun imagePreviewMessage(reqId: Long, src: String?) = buildJsonObject {
-        put("type", "imagePreview")
-        put("reqId", reqId)
-        put("src", src)
     }.toString()
 
     private fun historyMessage(entries: List<String>) = buildJsonObject {

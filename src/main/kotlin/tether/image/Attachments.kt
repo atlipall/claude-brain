@@ -1,11 +1,11 @@
 package tether.image
 
 /**
- * An image waiting above the message box: validated bytes for Claude, a small [thumb] for the tray and the sent
- * message, and a [preview] ([Images.preview]'s display copy) the image viewer opens. Both are `data:` URLs, or ""
- * when none could be made.
+ * An image waiting above the message box: validated bytes for Claude, the [name] it came with, a small [thumb] for
+ * the tray and the sent message, as a `data:` URL ("" when none could be made), and the [file] holding those bytes
+ * on disk, which opens in the editor once the message is sent ("" when it couldn't be written).
  */
-class Attachment(val id: String, val name: String, val image: Image, val thumb: String, val preview: String)
+class Attachment(val id: String, val name: String, val image: Image, val thumb: String, val file: String = "")
 
 /** One chat's attachments for its next message, in the order they were added. Not thread-safe: EDT only. */
 class PendingAttachments(private val max: Int = Images.MAX_PER_MESSAGE) {

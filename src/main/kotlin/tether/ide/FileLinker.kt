@@ -55,14 +55,22 @@ class FileLinker(private val project: Project) {
      * its magic bytes. The page gets a display copy (at most 800 px and 512 KB). Reads the file: never call it on the EDT.
      */
     fun localImage(candidate: String, cwd: String?): String? {
-        val raw = candidate.trim()
-        if (raw.isEmpty() || raw.length > MAX_IMAGE_PATH || SCHEME.containsMatchIn(raw) || raw.split('/', '\\').any { it == ".." }) return null
-        val file = findFile(raw, cwd) ?: return null
-        if (!resolvesInside(file, cwd)) return null
+        val file = imageFileAt(candidate, cwd) ?: return null
         if (file.length > Images.MAX_BYTES) return null
         val bytes = try { VfsUtilCore.loadBytes(file) } catch (e: IOException) { return null }
         if (bytes.size > Images.MAX_BYTES) return null
         return Images.preview(bytes)?.dataUrl()
+    }
+
+    /**
+     * The file a markdown image's path names, found and limited as [localImage] describes, apart from its size and
+     * type; null when there is none or the path is refused. Never call it on the EDT.
+     */
+    fun imageFileAt(candidate: String, cwd: String?): VirtualFile? {
+        val raw = candidate.trim()
+        if (raw.isEmpty() || raw.length > MAX_IMAGE_PATH || SCHEME.containsMatchIn(raw) || raw.split('/', '\\').any { it == ".." }) return null
+        val file = findFile(raw, cwd) ?: return null
+        return file.takeIf { resolvesInside(it, cwd) && !it.isDirectory }
     }
 
     /** Whether the file, with symbolic links resolved, lies under a (canonical) content root or the chat folder. */

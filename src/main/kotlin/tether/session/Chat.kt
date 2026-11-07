@@ -9,6 +9,7 @@ import tether.context.ContextNotes
 import tether.context.EditorContext
 import tether.git.WorkingTrees
 import tether.image.Attachment
+import tether.image.ImageFiles
 import tether.image.PendingAttachments
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
@@ -435,6 +436,9 @@ class Chat(
     /** Images waiting above this chat's message box; [send] takes them out. EDT only. */
     val attachments = PendingAttachments()
 
+    /** This chat's images on disk, for opening in the editor: attachments are written as they are prepared. Deleted when the chat is disposed. */
+    val imageFiles = ImageFiles()
+
     private class Outgoing(val text: String, val edits: String?, val images: List<Attachment>) {
         /** Whether [git] was looked up; the git note comes before the editor context. */
         var gitResolved = false
@@ -450,7 +454,8 @@ class Chat(
      * EDT only (the edit note saves documents, the context reads the editor). Ignored while the session is dead.
      * The first message starts the agent; if that fails at once, [text] goes back into the message box.
      * Claude gets the edit note, then the git note, then the editor-context note, then [text], then the [images]; the
-     * chat shows [text] under the images' thumbnails. Image bytes are dropped once the line is written to the CLI.
+     * chat shows [text] under the images' thumbnails. Image bytes are dropped once the line is written to the CLI;
+     * each image's [Attachment.file] stays for opening it in the editor.
      * The edit note is taken now. The git note is read in the background, and when the symbol at the caret is not cached
      * it is looked up there too: the message goes out (and its bubble appears) once both are back, behind any earlier
      * message still waiting.
@@ -555,7 +560,7 @@ class Chat(
             listOfNotNull(message.edits, message.git, context).joinToString("\n\n").ifEmpty { null },
             message.images.map { it.image },
             message.images.map { it.thumb },
-            message.images.map { it.preview },
+            message.images.map { it.file },
         )
     }
 
@@ -616,6 +621,7 @@ class Chat(
         sendPending = false
         attachments.clear()
         session.dispose()
+        imageFiles.delete()
     }
     private companion object {
         val CLAUDE_MODES = PermissionMode.entries.map { Choice(it.cli, it.label) }

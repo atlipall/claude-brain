@@ -97,11 +97,15 @@ class WebAssetsTest {
         assertFalse("CLI category names stay plain text", page.contains("usageEl.innerHTML"))
     }
 
-    @Test fun pageImagesOpenInAViewerDialog() {
+    @Test fun pageImagesOpenInTheEditorNotAViewer() {
         val page = WebAssets.page()
-        assertTrue(page.contains("<dialog id=\"image-viewer\""))
-        assertTrue("only page-made images open", page.contains("classList.contains('zoomable') && trusted.has(el)"))
-        assertFalse("the tray's thumbnails stay plain", page.contains("p.el.firstChild.replaceWith(zoomableImage"))
+        assertFalse(page.contains("image-viewer"))
+        assertFalse(page.contains("'viewImage'"))
+        assertTrue("only page-made images open", page.contains("classList.contains('openable') && trusted.has(el)"))
+        assertTrue(page.contains("send({ type: 'openImage', item: d.item, index: Number(d.index) })"))
+        assertTrue(page.contains("send({ type: 'openImage', tool: d.tool, index: Number(d.index) })"))
+        assertTrue(page.contains("send({ type: 'openImage', path: d.path })"))
+        assertFalse("the tray's thumbnails stay plain", page.contains("p.el.firstChild.replaceWith(openableImage"))
     }
 
     @Test fun onlyADialogsOwnFormMaySubmit() {
@@ -179,7 +183,7 @@ class WebAssetsTest {
     @Test fun pageShowsToolResultImagesAndBatchedHistory() {
         val page = WebAssets.page()
         assertTrue(page.contains("case 'items': msg.items.forEach(upsert); break;"))
-        assertTrue(page.contains("h('div', { class: 'tool-images' }, ...images.map((src) => zoomableImage(src, '[image]')))"))
+        assertTrue(page.contains("h('div', { class: 'tool-images' }, ...images.map((src, index) => openableImage(src, '[image]', { tool: t.id, index })))"))
         assertTrue(page.contains(".tool-images img { display: block; max-width: 100%; max-height: 400px;"))
     }
 

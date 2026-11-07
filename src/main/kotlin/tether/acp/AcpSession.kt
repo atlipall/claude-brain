@@ -6,6 +6,7 @@ import tether.image.Image
 import tether.session.Activity
 import tether.session.AgentSession
 import tether.session.ChatItem
+import tether.session.SentImageFiles
 import tether.session.ChatListener
 import tether.session.Choice
 import tether.session.FileDiff
@@ -64,7 +65,9 @@ class AcpSession(
     private var turnStarted = 0L
     private var interruptRequested = false
 
-    private class Queued(val shown: QueuedMessage, val text: String, val images: List<Image>)
+    /** A message waiting to go out, with its images' bytes and their [files] on disk, kept for [imageFile] once it goes out. */
+    private class Queued(val shown: QueuedMessage, val text: String, val images: List<Image>, val files: List<String>)
+    private val imageFiles = SentImageFiles()
     private val queue = ArrayDeque<Queued>()
     /** [live]: the card's tool call was already running when the agent asked. */
     private class Pending(val request: PermissionRequest, val toolId: String, val live: Boolean)
@@ -183,11 +186,11 @@ class AcpSession(
         }
     }
 
-    override fun send(text: String, prefix: String?, images: List<Image>, thumbs: List<String>, previews: List<String>) {
+    override fun send(text: String, prefix: String?, images: List<Image>, thumbs: List<String>, files: List<String>) {
         synchronized(lock) {
             if (state == SessionState.DEAD) return
             val payload = listOfNotNull(prefix?.takeIf { it.isNotBlank() }, text.takeIf { it.isNotEmpty() }).joinToString("\n\n")
-            val message = Queued(QueuedMessage(nextId("queued"), text, thumbs), payload, images)
+            val message = Queued(QueuedMessage(nextId("queued"), text, thumbs), payload, images, files)
             if (ready && state == SessionState.IDLE) {
                 prompt(message)
             } else {
@@ -197,10 +200,18 @@ class AcpSession(
         }
     }
 
+    override fun imageFile(itemId: String, index: Int): String? = synchronized(lock) {
+        imageFiles.get(itemId, index)
+    }
+
+    override fun toolCall(id: String): ChatItem.ToolCall? = synchronized(lock) { toolCalls[id] }
+
     private fun prompt(message: Queued) {
         val c = client ?: return
         val id = sessionId ?: return
-        emit(ChatItem.UserText(nextId("user"), message.shown.text, message.shown.images))
+        val item = ChatItem.UserText(nextId("user"), message.shown.text, message.shown.images)
+        imageFiles.keep(item.id, message.files)
+        emit(item)
         val images = message.images.takeIf { agent?.images == true }.orEmpty()
         val dropped = message.images.size - images.size
         if (dropped > 0) {

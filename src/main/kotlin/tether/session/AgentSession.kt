@@ -21,7 +21,7 @@ interface AgentSession {
 
     /**
      * Shows [text] (with [thumbs] of its images above it) in the chat; sends "[prefix]\n\n[text]" and [images] to the
-     * agent. [previews] are the images' display copies, which a session may keep for [imagePreview]. While a turn is
+     * agent. [files] are the images' paths on disk ("" for one that has none), kept for [imageFile]. While a turn is
      * running the message is queued instead (see [ChatListener.onQueue]) and enters the chat when it goes out.
      */
     fun send(
@@ -29,14 +29,14 @@ interface AgentSession {
         prefix: String? = null,
         images: List<Image> = emptyList(),
         thumbs: List<String> = emptyList(),
-        previews: List<String> = emptyList(),
+        files: List<String> = emptyList(),
     )
 
-    /**
-     * The display copy of image [index] of user message [itemId], or null when none is kept; the image viewer then
-     * shows the thumbnail.
-     */
-    fun imagePreview(itemId: String, index: Int): String? = null
+    /** The path on disk of image [index] of user message [itemId], or null when it has none. */
+    fun imageFile(itemId: String, index: Int): String?
+
+    /** Tool call [id] as last shown, or null when this session has none by that id. */
+    fun toolCall(id: String): ChatItem.ToolCall?
 
     /** Takes queued message [id] out of the queue without sending it; null when it is not queued (any more). */
     fun unqueue(id: String): QueuedMessage?

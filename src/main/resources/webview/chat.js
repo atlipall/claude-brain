@@ -136,17 +136,18 @@
   const imageOrAlt = (src, alt) => (typeof src === 'string' && DATA_IMG.test(src) ? h('img', { src, alt }) : h('span', { class: 'img-alt' }, alt));
 
   /**
-   * [imageOrAlt], with the image made a button that opens it large in the viewer (see [openViewer]). [preview], when
-   * given, is { item, index }: the image is that one of a user message, whose larger copy the viewer asks the IDE for.
+   * [imageOrAlt], with the image made a button that opens it in the IDE's editor (see [openImage]). [source] says which
+   * image it is: { item, index } for one sent with user message [item], { tool, index } for one in tool call [tool]'s
+   * result, or { path } for a local image a reply shows.
    */
-  function zoomableImage(src, alt, preview) {
+  function openableImage(src, alt, source) {
     const el = imageOrAlt(src, alt);
     if (el.tagName !== 'IMG') return el;
-    el.classList.add('zoomable');
+    el.classList.add('openable');
     el.setAttribute('role', 'button');
     el.tabIndex = 0;
-    el.setAttribute('aria-label', alt && alt !== '[image]' ? 'Open image: ' + alt : 'Open image');
-    if (preview) { el.dataset.item = preview.item; el.dataset.index = String(preview.index); }
+    el.setAttribute('aria-label', alt && alt !== '[image]' ? 'Open image in editor: ' + alt : 'Open image in editor');
+    for (const [key, value] of Object.entries(source)) el.dataset[key] = String(value);
     return el;
   }
 
@@ -171,7 +172,6 @@
         case 'agent': setAgent(msg); break;
         case 'activity': setActivity(msg); break;
         case 'resolved': answer(msg.reqId, msg.paths); break;
-        case 'imagePreview': answer(msg.reqId, msg.src); break;
         case 'images': answer(msg.reqId, msg.images || {}); break;
         case 'insert': insertText(msg.text); break;
         case 'theme': applyTheme(msg); break;
@@ -334,7 +334,7 @@
         title: 'Go back to before this message: files, conversation or both (asks first)' }, 'Revert to here'));
     }
     const images = Array.isArray(item.images) ? item.images : [];
-    if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src, index) => zoomableImage(src, '[image]', { item: item.id, index }))));
+    if (images.length) el.append(h('div', { class: 'thumbs' }, ...images.map((src, index) => openableImage(src, '[image]', { item: item.id, index }))));
     if (item.text) el.append(withLinks(item.text));
   }
 
@@ -419,7 +419,7 @@
       for (const x of wanted) {
         const src = Object.prototype.hasOwnProperty.call(found, imageKey(x.href)) ? found[imageKey(x.href)] : null;
         if (!x.span.isConnected) continue;
-        const img = x.span.closest('a') ? imageOrAlt(src, x.alt) : zoomableImage(src, x.alt);
+        const img = x.span.closest('a') ? imageOrAlt(src, x.alt) : openableImage(src, x.alt, { path: imageKey(x.href) });
         if (img.tagName !== 'IMG') continue;
         img.classList.add('md-img');
         x.span.replaceWith(img);
@@ -553,7 +553,7 @@
       setRowExpanded(row, expandedTools.has(t.id));
     }
     const images = Array.isArray(t.images) ? t.images : [];
-    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => zoomableImage(src, '[image]'))));
+    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src, index) => openableImage(src, '[image]', { tool: t.id, index }))));
   }
 
   /** Page-created permission actions: agent-advertised choices or Claude's existing allow and deny controls. */
@@ -650,7 +650,7 @@
     if (t.hasDiff) head.append(h('button', { class: 'link', 'data-action': 'diff', 'data-id': t.id }, 'View diff'));
     el.append(head);
     const images = Array.isArray(t.images) ? t.images : [];
-    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src) => zoomableImage(src, '[image]'))));
+    if (images.length) el.append(h('div', { class: 'tool-images' }, ...images.map((src, index) => openableImage(src, '[image]', { tool: t.id, index }))));
     if (t.question && t.question.questions) {
       if (t.status === 'awaiting_permission' && t.permissionRequestId) el.append(questionCard(t));
       else if (t.question.answers) el.append(answerSummary(t.question));
@@ -985,37 +985,16 @@
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
   }
 
-  const viewer = document.getElementById('image-viewer');
-  const viewerImg = document.getElementById('image-viewer-img');
-  /** The image the viewer was opened from: focus goes back to it when the viewer closes. */
-  let viewerFrom = null;
-
   /**
-   * Shows [img] large in a modal viewer, scaled to fit the panel but never past its own size; Escape, Close or a click
-   * outside the viewer closes it. Only page-created images (see [zoomableImage]) open here. A user message's thumbnail
-   * shows at once and is replaced by its larger copy when the IDE sends it (see [zoomableImage]).
+   * Asks the IDE to open [img] in its editor, as a click on a file link does. Only page-created images (see
+   * [openableImage]) are asked for, by what they are: a sent image, a tool's image or a reply's local image path.
    */
-  function openViewer(img) {
-    viewerImg.src = img.src;
-    viewerImg.alt = img.alt;
-    viewerFrom = img;
-    viewer.showModal();
-    if (img.dataset.item) askForPreview(img);
+  function openImage(img) {
+    const d = img.dataset;
+    if (d.item) send({ type: 'openImage', item: d.item, index: Number(d.index) });
+    else if (d.tool) send({ type: 'openImage', tool: d.tool, index: Number(d.index) });
+    else if (d.path) send({ type: 'openImage', path: d.path });
   }
-
-  /** Asks the IDE for [img]'s larger copy and shows it if the viewer is still open on [img] when it comes. */
-  function askForPreview(img) {
-    const reqId = expectReply((src) => {
-      if (viewer.open && viewerFrom === img && typeof src === 'string' && DATA_IMG.test(src)) viewerImg.src = src;
-    });
-    send({ type: 'viewImage', reqId, id: img.dataset.item, index: Number(img.dataset.index) });
-  }
-
-  viewer.addEventListener('close', () => {
-    viewerImg.removeAttribute('src');
-    if (viewerFrom && viewerFrom.isConnected) viewerFrom.focus();
-    viewerFrom = null;
-  });
 
   /** Discards Claude-only capabilities on an identity change and returns a removed dialog's focus to the composer. */
   function clearModel() {
@@ -1501,7 +1480,6 @@
   }
   modelBtn.addEventListener('click', openModelDialog);
   modelDialog.addEventListener('click', closeOnBackdropClick);
-  viewer.addEventListener('click', closeOnBackdropClick);
   attachBtn.addEventListener('click', () => send({ type: 'pickImages' }));
 
   /**
@@ -1561,7 +1539,7 @@
       } else if (/^https?:/i.test(a.getAttribute('href') || '')) send({ type: 'openUrl', url: a.href });
       return;
     }
-    if (isZoomable(e.target)) { if (!selecting()) openViewer(e.target); return; }
+    if (isOpenable(e.target)) { if (!selecting()) openImage(e.target); return; }
     const fileRow = e.target.closest('.turn-files .tool-row');
     if (fileRow) { if (trusted.has(fileRow)) openTurnDiff(fileRow); return; }
     const stubRow = e.target.closest('.agent-stub .tool-row');
@@ -1598,14 +1576,14 @@
     }
   });
 
-  /** Whether [el] is an image the page made openable in the viewer; never one from model markup. */
-  const isZoomable = (el) => el instanceof HTMLImageElement && el.classList.contains('zoomable') && trusted.has(el);
+  /** Whether [el] is an image the page made openable in the editor; never one from model markup. */
+  const isOpenable = (el) => el instanceof HTMLImageElement && el.classList.contains('openable') && trusted.has(el);
   /** Whether the user has text selected, so a click ends a selection rather than acting. */
   const selecting = () => !!(window.getSelection && window.getSelection().toString());
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
-    if (isZoomable(e.target)) { e.preventDefault(); openViewer(e.target); return; }
+    if (isOpenable(e.target)) { e.preventDefault(); openImage(e.target); return; }
     const fileRow = e.target.closest && e.target.closest('.turn-files .tool-row');
     if (fileRow && e.target === fileRow && trusted.has(fileRow)) { e.preventDefault(); openTurnDiff(fileRow); return; }
     const stubRow = e.target.closest && e.target.closest('.agent-stub .tool-row');

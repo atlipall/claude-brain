@@ -19,7 +19,12 @@ import tether.settings.TetherSettings
 import tether.testutil.FakeConnection
 import tether.testutil.TestImages
 import com.intellij.openapi.application.WriteAction
+import java.io.File
 import java.io.IOException
+import kotlin.io.path.createTempDirectory
+import tether.image.ImageFiles
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import java.util.Base64
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.ProjectRootManager
@@ -71,6 +76,7 @@ class ChatBridgeTest : BasePlatformTestCase() {
         bridge.offEdt = { it() }
         bridge.pathsOffEdt = { it() }
         bridge.onEdt = { it() }
+        bridge.openInEditor = { opened += it }
     }
 
     override fun tearDown() {
@@ -88,6 +94,8 @@ class ChatBridgeTest : BasePlatformTestCase() {
             super.tearDown()
         }
     }
+
+    private val opened = mutableListOf<VirtualFile>()
 
     private fun types() = posted.map { it.str("type") }
 
@@ -478,22 +486,76 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals(listOf("what color?"), PromptHistory.getInstance(project).entries())
     }
 
-    fun testTheViewerGetsTheLargerCopyOfASentImage() {
+    private fun openImage(fields: String) = bridge.handle("""{"type":"openImage",$fields}""")
+
+    private fun allowImageFiles() = VfsRootAccess.allowRootAccess(testRootDisposable, ImageFiles.DEFAULT_PARENT.toString())
+
+    private fun binaryInProject(path: String, bytes: ByteArray): VirtualFile =
+        myFixture.addFileToProject(path, "").virtualFile.also { file -> WriteAction.runAndWait<IOException> { file.setBinaryContent(bytes) } }
+
+    fun testClickingASentImageOpensTheBytesClaudeGot() {
+        allowImageFiles()
+        chat.start()
         bridge.handle("""{"type":"ready"}""")
-        upload("p1", Base64.getEncoder().encodeToString(TestImages.solid(1200, 600)))
+        upload("p1", Base64.getEncoder().encodeToString(TestImages.solid(1200, 600)), name = "Screenshot.png")
         bridge.handle("""{"type":"send","text":"look","attachments":["p1"]}""")
         val bubble = posted.last { it.str("type") == "item" && it.obj("item")!!.str("kind") == "user" }.obj("item")!!
-        assertEquals(160, widthOf((bubble.arr("images")!!.single() as JsonPrimitive).content))
-        bridge.handle("""{"type":"viewImage","reqId":7,"id":${Fx.q(bubble.str("id")!!)},"index":0}""")
-        bridge.handle("""{"type":"viewImage","reqId":8,"id":${Fx.q(bubble.str("id")!!)},"index":1}""")
-        val replies = posted.filter { it.str("type") == "imagePreview" }
-        assertEquals(listOf(7L, 8L), replies.map { it.long("reqId") })
-        assertEquals(800, widthOf(replies[0].str("src")!!))
-        assertNull(replies[1].str("src"))
+        openImage(""""item":${Fx.q(bubble.str("id")!!)},"index":0""")
+        openImage(""""item":${Fx.q(bubble.str("id")!!)},"index":1""")
+        val file = opened.single()
+        assertEquals("Screenshot.png", file.name)
+        assertEquals(connections[0].userImages().single().single(), Base64.getEncoder().encodeToString(file.contentsToByteArray()))
     }
 
-    private fun widthOf(dataUrl: String): Int =
-        javax.imageio.ImageIO.read(Base64.getDecoder().decode(dataUrl.substringAfter("base64,")).inputStream()).width
+    fun testClickingAReplyImageOpensTheFileInTheProject() {
+        val file = binaryInProject("docs/blue.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+        openImage(""""path":"docs/blue.png"""")
+        assertEquals(listOf(file), opened)
+    }
+
+    fun testReplyImagePathsThatLeaveTheProjectOpenNothing() {
+        binaryInProject("docs/blue.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+        openImage(""""path":"docs/../docs/blue.png"""")
+        openImage(""""path":"https://example.com/blue.png"""")
+        openImage(""""path":"docs/missing.png"""")
+        assertTrue(opened.isEmpty())
+    }
+
+    fun testClickingAToolImageOpensTheFileTheToolRead() {
+        val file = binaryInProject("docs/blue.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+        chat.start()
+        bridge.handle("""{"type":"send","text":"read it"}""")
+        connections[0].emit(Fx.toolUse("m1", "t1", "Read", """{"file_path":"docs/blue.png"}"""), Fx.readImageResult("t1", TestImages.BLUE_PNG_BASE64))
+        openImage(""""tool":"t1","index":0""")
+        assertEquals(listOf(file), opened)
+    }
+
+    fun testAToolImageFromOutsideTheProjectOpensACopyNotTheFile() {
+        allowImageFiles()
+        val dir = createTempDirectory("tool-read").toFile().canonicalFile
+        VfsRootAccess.allowRootAccess(testRootDisposable, dir.path)
+        val png = File(dir, "secret.png").apply { writeBytes(TestImages.bytes(TestImages.BLUE_PNG_BASE64)) }
+        chat.start()
+        bridge.handle("""{"type":"send","text":"read it"}""")
+        connections[0].emit(Fx.toolUse("m1", "t1", "Read", """{"file_path":${Fx.q(png.path)}}"""), Fx.readImageResult("t1", TestImages.BLUE_PNG_BASE64))
+        openImage(""""tool":"t1","index":0""")
+        val shown = opened.single()
+        assertFalse(shown.path == png.path)
+        assertEquals("image.png", shown.name)
+    }
+
+    fun testAToolImageWithoutAFileOpensACopyOnceWrittenOnce() {
+        allowImageFiles()
+        chat.start()
+        bridge.handle("""{"type":"send","text":"take a screenshot"}""")
+        connections[0].emit(Fx.toolUse("m1", "t1", "mcp__shot__take", "{}"), Fx.readImageResult("t1", TestImages.BLUE_PNG_BASE64))
+        openImage(""""tool":"t1","index":0""")
+        openImage(""""tool":"t1","index":0""")
+        openImage(""""tool":"t1","index":1""")
+        assertEquals(2, opened.size)
+        assertEquals(opened[0], opened[1])
+        assertEquals(TestImages.BLUE_PNG_BASE64, Base64.getEncoder().encodeToString(opened[0].contentsToByteArray()))
+    }
 
     fun testImageOnlyMessageIsSentButNotRemembered() {
         bridge.handle("""{"type":"ready"}""")

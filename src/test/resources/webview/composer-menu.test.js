@@ -225,5 +225,19 @@ window.runComposerMenuTests = function () {
     key(document.activeElement, 'Escape');
     receive({ type: 'agent', agents, selected: 'claude', locked: false });
   });
+  test('clicking a chat image asks the IDE to open it in the editor, with no viewer in the page', () => {
+    const tiny = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    receive({ type: 'item', item: { kind: 'user', id: 'u-img', text: 'look', images: [tiny] } });
+    const img = document.querySelector('[data-id="u-img"] img.openable') || [...document.querySelectorAll('img.openable')].at(-1);
+    assert(img, 'A sent image must be openable');
+    window.__sent.length = 0;
+    img.click();
+    const asked = sent('openImage');
+    assert(asked.length === 1 && asked[0].item === 'u-img' && asked[0].index === 0, 'A click must ask for that image of that message');
+    assert(!document.querySelector('dialog[open]') && !document.getElementById('image-viewer'), 'No in-page viewer may open');
+    window.__sent.length = 0;
+    img.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    assert(sent('openImage').length === 1, 'Enter must open it too');
+  });
   return results;
 };

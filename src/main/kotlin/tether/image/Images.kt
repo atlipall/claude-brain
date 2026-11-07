@@ -5,6 +5,7 @@ import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import com.intellij.util.io.URLUtil
 import java.util.Base64
 import javax.imageio.IIOImage
 import javax.imageio.ImageIO
@@ -15,11 +16,11 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /** The image formats the chat accepts. Always decided by the bytes, never by a file name or a reported MIME type. */
-enum class ImageType(val mime: String) {
-    PNG("image/png"),
-    JPEG("image/jpeg"),
-    GIF("image/gif"),
-    WEBP("image/webp");
+enum class ImageType(val mime: String, val extension: String) {
+    PNG("image/png", "png"),
+    JPEG("image/jpeg", "jpg"),
+    GIF("image/gif", "gif"),
+    WEBP("image/webp", "webp");
 
     companion object {
         fun sniff(b: ByteArray): ImageType? = when {
@@ -36,6 +37,19 @@ enum class ImageType(val mime: String) {
 class Image(val type: ImageType, val bytes: ByteArray, val width: Int, val height: Int) {
     fun base64(): String = Base64.getEncoder().encodeToString(bytes)
     fun dataUrl(): String = "data:${type.mime};base64,${base64()}"
+
+    companion object {
+        /**
+         * The type and bytes of a `data:` URL this plugin built ([dataUrl]), or null when it is not one or its bytes
+         * are not a supported image. Width and height are not read (0).
+         */
+        fun fromDataUrl(url: String): Image? {
+            if (!url.startsWith("data:image/")) return null
+            val bytes = URLUtil.getBytesFromDataUri(url) ?: return null
+            val type = ImageType.sniff(bytes) ?: return null
+            return Image(type, bytes, 0, 0)
+        }
+    }
 }
 
 sealed interface Prepared {
