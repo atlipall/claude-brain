@@ -18,7 +18,11 @@ class RepoStatesTest {
     private lateinit var work: File
     private lateinit var other: File
 
-    /** A bare remote, a clone [work] on `main` with one pushed commit, and a second clone [other] of it. */
+    /**
+     * A bare remote, a clone [work] on `main` with one pushed commit, and a second clone [other] of it.
+     * [work] gets its own committer identity so git commands the code under test runs there, such as a merge,
+     * work on machines without a global git identity, like CI runners.
+     */
     @Before fun setUp() {
         assumeTrue(gitAvailable())
         val top = Files.createTempDirectory("repo-states").toFile()
@@ -27,6 +31,8 @@ class RepoStatesTest {
         other = File(top, "other")
         git(top, "init", "-q", "--bare", "-b", "main", remote.path)
         git(top, "clone", "-q", remote.path, work.path)
+        git(work, "config", "user.name", "t")
+        git(work, "config", "user.email", "t@t")
         commit(work, "one")
         git(work, "push", "-q", "-u", "origin", "main")
         git(top, "clone", "-q", remote.path, other.path)
