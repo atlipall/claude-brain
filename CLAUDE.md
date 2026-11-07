@@ -23,3 +23,10 @@ Use the Apple HIG skills (`apple-hig-skills:hig-*`) when designing or changing a
 - `hig-inputs` for keyboard shortcuts and pointer interaction.
 
 Tether runs inside JetBrains IDEs, so where the HIG and the IntelliJ Platform UI guidelines disagree, follow the IDE's conventions so Tether feels native to the host.
+
+## Branches
+
+Don't commit directly to `main`. Every push to `main` that changes code publishes a new plugin version to everyone who installs Tether from the GitHub Pages plugin repository (`.github/workflows/release.yml`), so merging to `main` is a deliberate step.
+
+- Start a branch for new work.
+- A small change doesn't need its own branch when work is already under way on one; commit it there.
