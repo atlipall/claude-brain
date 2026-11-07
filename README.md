@@ -75,6 +75,18 @@ already has (e.g. your Claude Pro subscription). The plugin never reads, stores 
 
 ## Install
 
+Every push to `main` builds a new version and publishes it to a plugin repository on GitHub Pages.
+To install from there and get update notifications in the IDE:
+
+1. Settings → Plugins → ⚙️ → **Manage Plugin Repositories…** → add
+   `https://atlipall.github.io/tether/updatePlugins.xml`.
+2. Search the **Marketplace** tab for **Tether** and install it.
+
+The IDE then offers each new version through its usual plugin update notifications. Every version's
+zip is also attached to the [GitHub releases](https://github.com/atlipall/tether/releases).
+
+### From source
+
 Quit the IDE, then from the project root:
 
 ```sh

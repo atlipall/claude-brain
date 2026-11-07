@@ -6,7 +6,13 @@ plugins {
 }
 
 group = "local.tether"
-version = "0.1.0"
+version = providers.gradleProperty("pluginVersion").getOrElse("0.1.0")
+
+/**
+ * The WebStorm build to compile and test against. Without `-PideVersion`, the installed
+ * `/Applications/WebStorm.app` is used; CI passes a version so Gradle downloads that release instead.
+ */
+val ideVersion: String? = providers.gradleProperty("ideVersion").orNull
 
 kotlin {
     jvmToolchain(25)
@@ -21,7 +27,7 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        local("/Applications/WebStorm.app")
+        if (ideVersion != null) webstorm(ideVersion) else local("/Applications/WebStorm.app")
         bundledPlugin("com.intellij.modules.jcef")
         bundledPlugin("JavaScript")
         bundledPlugin("intellij.testRunner.plugin")

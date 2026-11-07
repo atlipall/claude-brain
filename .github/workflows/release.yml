@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  IDE_VERSION: 2026.2.3
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Pick the version
+        id: version
+        run: echo "version=0.1.$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Test and build
+        run: ./gradlew test buildPlugin -PideVersion="$IDE_VERSION" -PpluginVersion="${{ steps.version.outputs.version }}"
+
+      - name: Collect change notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          previous=$(git describe --tags --abbrev=0 --match 'v*' --exclude "v$VERSION" 2>/dev/null || true)
+          if [ -n "$previous" ]; then range=("$previous..HEAD"); else range=(-n 20); fi
+          git log --no-merges --format='%s' "${range[@]}" > change-notes.txt
+          cat change-notes.txt
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          zip="build/distributions/tether-$VERSION.zip"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            gh release upload "v$VERSION" "$zip" --clobber
+          else
+            sed 's/^/- /' change-notes.txt > release-notes.md
+            gh release create "v$VERSION" "$zip" --target "$GITHUB_SHA" --title "Tether $VERSION" --notes-file release-notes.md
+          fi
+
+      - name: Build the plugin repository site
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir site
+          python3 .github/scripts/plugin_repository.py \
+            --zip "build/distributions/tether-$VERSION.zip" \
+            --url "${{ github.server_url }}/${{ github.repository }}/releases/download/v$VERSION/tether-$VERSION.zip" \
+            --notes change-notes.txt > site/updatePlugins.xml
+          cat site/updatePlugins.xml
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
