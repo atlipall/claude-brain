@@ -177,10 +177,23 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals("tool", parseJsonObject(ChatBridge.activityMessage(tether.session.Activity.Running("  ")))!!.str("tool"))
     }
 
-    fun testAgentsActivityMessage() {
+    fun testBackgroundWorkAloneHidesTheStrip() {
         val msg = parseJsonObject(ChatBridge.activityMessage(tether.session.Activity.Agents(2)))!!
-        assertEquals("agents", msg.str("phase"))
-        assertEquals("2", msg["count"].toString())
+        assertEquals("null", msg["phase"].toString())
+    }
+
+    fun testProcessesMessageCleansItsText() {
+        val msg = parseJsonObject(ChatBridge.processesMessage(listOf(
+            tether.session.BackgroundProcess("b1", "Bash", "npm run dev`\n" + "x".repeat(300), 1234),
+        )))!!
+        assertEquals("processes", msg.str("type"))
+        val p = msg.arr("processes")!!.single() as kotlinx.serialization.json.JsonObject
+        assertEquals("b1", p.str("id"))
+        assertEquals("Bash", p.str("kind"))
+        assertEquals("1234", p["startedAt"].toString())
+        val description = p.str("description")!!
+        assertTrue(description.length <= 200)
+        assertFalse(description.contains('`'))
     }
 
     fun testUsageMessage() {

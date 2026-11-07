@@ -79,6 +79,8 @@ class RecordingListener(private val currentMode: (() -> String?)? = null) : Chat
     override fun onQueue(messages: List<tether.session.QueuedMessage>) { queues += messages }
     val dropped = mutableListOf<List<tether.session.QueuedMessage>>()
     override fun onDropped(messages: List<tether.session.QueuedMessage>) { dropped += messages }
+    val processes = mutableListOf<List<tether.session.BackgroundProcess>>()
+    override fun onProcesses(processes: List<tether.session.BackgroundProcess>) { this.processes += processes }
     fun queuedTexts(): List<String> = queues.lastOrNull().orEmpty().map { it.text }
 
     /** Latest version of every item, in first-seen order. */

@@ -52,7 +52,7 @@ class CliParserTest {
     }
 
     @Test fun taskEventsAreParsed() {
-        assertEquals(CliEvent.TaskStarted("t1", "general-purpose", true, "Count"), one(Fx.taskStarted("t1", true, "Count")))
+        assertEquals(CliEvent.TaskStarted("t1", "general-purpose", true, "Count", "a1", "local_agent"), one(Fx.taskStarted("t1", true, "Count")))
         assertEquals(CliEvent.TaskProgress("t1", 7, 42000, "Bash"), one(Fx.taskProgress("t1", 7, 42000, "Bash")))
         assertEquals(CliEvent.TaskDone("t1", "completed", 3, 4063, "DONE"), one(Fx.taskNotification("t1")))
         assertEquals(CliEvent.TaskDone("t1", "failed", 3, 4063, null), one(Fx.taskNotification("t1", "failed", null)))
@@ -64,8 +64,11 @@ class CliParserTest {
     }
 
     @Test fun backgroundTasksAreCounted() {
-        assertEquals(CliEvent.BackgroundTasks(2), one(Fx.backgroundTasks("Count", "Search")))
-        assertEquals(CliEvent.BackgroundTasks(0), one(Fx.backgroundTasks()))
+        assertEquals(
+            CliEvent.BackgroundTasks(listOf(BackgroundTask("a0", "local_agent", "Count"), BackgroundTask("a1", "local_agent", "Search"))),
+            one(Fx.backgroundTasks("Count", "Search")),
+        )
+        assertEquals(CliEvent.BackgroundTasks(emptyList()), one(Fx.backgroundTasks()))
     }
 
     @Test fun thinkingStartIsParsedAndItsDeltasAreIgnored() {

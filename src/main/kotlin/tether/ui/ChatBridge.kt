@@ -15,6 +15,7 @@ import tether.image.Prepared
 import tether.image.Uploads
 import tether.context.ContextNotes
 import tether.session.Activity
+import tether.session.BackgroundProcess
 import tether.session.Agent
 import tether.session.Chat
 import tether.session.ChatItem
@@ -164,6 +165,7 @@ class ChatBridge(
             "setModel" -> msg.str("model")?.takeIf { it.isNotBlank() }?.let(session::setModel)
             "setEffort" -> msg.str("effort")?.takeIf { it.isNotBlank() }?.let(session::setEffort)
             "interrupt" -> chat.interrupt()
+            "stopTask" -> msg.str("id")?.takeIf(TASK_ID::matches)?.let(session::stopTask)
             "queueSendNow" -> msg.str("id")?.let(session::sendNow)
             "queueEdit" -> msg.str("id")?.let(chat::editQueued)
             "queueRemove" -> msg.str("id")?.let(session::unqueue)
@@ -358,6 +360,8 @@ class ChatBridge(
         put("text", text)
     }.toString())
 
+    override fun processes(processes: List<BackgroundProcess>) = post(processesMessage(processes))
+
     override fun queue(messages: List<QueuedMessage>) = post(buildJsonObject {
         put("type", "queue")
         put("items", JsonArray(messages.map { ChatItem.UserText(it.id, it.text, it.images).toJson() }))
@@ -446,20 +450,40 @@ class ChatBridge(
 
         const val TURN_TOO_OLD = "That turn is too old: its changes are no longer kept."
 
-        /** `{type:"activity", phase, tool?, count?}`; a null phase hides the strip. The tool name is cleaned like the editor-context names. */
+        /**
+         * `{type:"activity", phase, tool?}`; a null phase hides the strip. Background work alone shows no strip: it has
+         * rows of its own above it. The tool name is cleaned like the editor-context names.
+         */
         fun activityMessage(activity: Activity?): String = buildJsonObject {
             put("type", "activity")
             put("phase", when (activity) {
-                null -> null
+                null, is Activity.Agents -> null
                 Activity.Starting -> "starting"
                 Activity.Thinking -> "thinking"
                 is Activity.Running -> "running"
                 Activity.Writing -> "writing"
                 Activity.Waiting -> "waiting"
-                is Activity.Agents -> "agents"
             })
-            if (activity is Activity.Agents) put("count", activity.count)
             if (activity is Activity.Running) put("tool", ContextNotes.clean(activity.tool, MAX_TOOL_NAME).ifEmpty { "tool" })
+        }.toString()
+
+        /** Longest background process description sent to the page. */
+        const val MAX_PROCESS_TEXT = 200
+
+        /** A task id the page may ask to stop: the CLI's ids are short and plain. */
+        private val TASK_ID = Regex("[A-Za-z0-9_.-]{1,64}")
+
+        /** `{type:"processes", processes:[{id, kind, description, startedAt}]}`: the rows above the activity strip. */
+        fun processesMessage(processes: List<BackgroundProcess>): String = buildJsonObject {
+            put("type", "processes")
+            putJsonArray("processes") {
+                for (p in processes) addJsonObject {
+                    put("id", p.id)
+                    put("kind", ContextNotes.clean(p.kind, MAX_TOOL_NAME).ifEmpty { "Task" })
+                    put("description", ContextNotes.clean(p.description, MAX_PROCESS_TEXT))
+                    put("startedAt", p.startedAt)
+                }
+            }
         }.toString()
 
         /** Longest category name shown in the context tooltip. */

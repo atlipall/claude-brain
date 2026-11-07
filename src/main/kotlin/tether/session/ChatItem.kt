@@ -22,7 +22,16 @@ data class AgentInfo(
     /** The tool the subagent used last, while it runs. */
     val lastTool: String? = null,
     val report: String? = null,
+    /** The CLI's id for the subagent's task, which a stop request names; null until its task_started event. */
+    val taskId: String? = null,
 )
+
+/**
+ * Work the agent runs in the background apart from subagents (which show as their Agent call): a shell command, a
+ * monitor or a workflow. [id] is the CLI's task id; [kind] is what the row is labelled, e.g. "Bash"; [startedAt] is
+ * when Tether first heard of it, in epoch milliseconds.
+ */
+data class BackgroundProcess(val id: String, val kind: String, val description: String, val startedAt: Long)
 
 /** An option an agent offers: a permission answer or a mode. */
 data class Choice(val id: String, val label: String)
@@ -105,6 +114,7 @@ fun ChatItem.toJson(): JsonObject = buildJsonObject {
                     put("durationMs", a.durationMs)
                     put("lastTool", a.lastTool)
                     put("report", a.report)
+                    put("taskId", a.taskId)
                 })
             }
             if (item.choices.isNotEmpty()) put("choices", JsonArray(item.choices.map { it.toJson() }))

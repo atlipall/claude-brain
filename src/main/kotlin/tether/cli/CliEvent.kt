@@ -8,18 +8,34 @@ import kotlinx.serialization.json.JsonPrimitive
 /** A base64 image content block as the CLI sent it: [mediaType] is what the CLI claims, [data] is not yet checked. */
 data class ImageBlock(val mediaType: String?, val data: String)
 
+/**
+ * A task the CLI runs in the background. [type] is `local_agent` for a subagent, `local_bash` for a shell command,
+ * `monitor`, `local_workflow` and so on; [ambient] marks housekeeping work the CLI started by itself.
+ */
+data class BackgroundTask(val taskId: String, val type: String, val description: String, val ambient: Boolean = false)
+
 sealed interface CliEvent {
     data class SystemInit(val sessionId: String, val permissionMode: String?, val cwd: String?) : CliEvent
     data class TextDelta(val messageId: String, val index: Int, val text: String) : CliEvent
     /** A top-level assistant message began streaming (a subagent's messages are not reported). */
     data class MessageStart(val messageId: String) : CliEvent
-    /** A subagent began; [toolUseId] is the Agent call that started it. */
-    data class TaskStarted(val toolUseId: String, val subagentType: String?, val background: Boolean, val prompt: String?) : CliEvent
+    /**
+     * A task began; [toolUseId] is the call that started it. [taskId] names it in a stop request; [taskType] is
+     * `local_agent` for a subagent, `local_bash` for a shell command and so on, null from a CLI that predates it.
+     */
+    data class TaskStarted(
+        val toolUseId: String,
+        val subagentType: String?,
+        val background: Boolean,
+        val prompt: String?,
+        val taskId: String? = null,
+        val taskType: String? = null,
+    ) : CliEvent
     data class TaskProgress(val toolUseId: String, val toolUses: Int?, val durationMs: Long?, val lastTool: String?) : CliEvent
     /** A subagent ended; [status] is "completed" on success. [report] is what it handed back. */
     data class TaskDone(val toolUseId: String, val status: String, val toolUses: Int?, val durationMs: Long?, val report: String?) : CliEvent
-    /** How many background tasks (e.g. agents started with run_in_background) the CLI is running now. */
-    data class BackgroundTasks(val count: Int) : CliEvent
+    /** Every background task (e.g. agents and shell commands started with run_in_background) the CLI is running now. */
+    data class BackgroundTasks(val tasks: List<BackgroundTask>) : CliEvent
     /** A thinking content block began (its text is never shown). */
     data class ThinkingStart(val messageId: String, val index: Int) : CliEvent
     data class BlockStop(val messageId: String, val index: Int) : CliEvent
@@ -70,7 +86,7 @@ object CliParser {
             "system" ->
                 when (obj.str("subtype")) {
                     "init" -> listOf(CliEvent.SystemInit(obj.str("session_id") ?: "", obj.str("permissionMode"), obj.str("cwd")))
-                    "background_tasks_changed" -> listOf(CliEvent.BackgroundTasks(obj.arr("tasks")?.size ?: 0))
+                    "background_tasks_changed" -> listOf(CliEvent.BackgroundTasks(backgroundTasks(obj)))
                     "task_started", "task_progress", "task_notification" -> listOf(task(obj))
                     else -> listOf(CliEvent.Ignored("system/${obj.str("subtype")}"))
                 }
@@ -85,6 +101,14 @@ object CliParser {
         }
     }
 
+    /** The entries of a background_tasks_changed event; one without an id or type can't be shown or stopped, so it is skipped. */
+    private fun backgroundTasks(obj: JsonObject): List<BackgroundTask> = obj.arr("tasks").orEmpty().mapNotNull { entry ->
+        val task = entry as? JsonObject ?: return@mapNotNull null
+        val id = task.str("task_id")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        val type = task.str("task_type")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        BackgroundTask(id, type, task.str("description").orEmpty(), task.bool("ambient") == true)
+    }
+
     /** A task event; without the Agent call's id it can't be tied to a card, so it is ignored. */
     private fun task(obj: JsonObject): CliEvent {
         val subtype = obj.str("subtype")
@@ -93,7 +117,10 @@ object CliParser {
         val toolUses = usage?.long("tool_uses")?.toInt()
         val durationMs = usage?.long("duration_ms")
         return when (subtype) {
-            "task_started" -> CliEvent.TaskStarted(id, obj.str("subagent_type"), obj.bool("is_backgrounded") == true, obj.str("prompt"))
+            "task_started" -> CliEvent.TaskStarted(
+                id, obj.str("subagent_type"), obj.bool("is_backgrounded") == true, obj.str("prompt"),
+                obj.str("task_id")?.takeIf { it.isNotEmpty() }, obj.str("task_type")?.takeIf { it.isNotEmpty() },
+            )
             "task_progress" -> CliEvent.TaskProgress(id, toolUses, durationMs, obj.str("last_tool_name"))
             else -> CliEvent.TaskDone(id, obj.str("status") ?: "", toolUses, durationMs, obj.obj("handback_report")?.str("text"))
         }

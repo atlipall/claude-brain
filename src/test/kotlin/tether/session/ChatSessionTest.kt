@@ -41,6 +41,7 @@ class ChatSessionTest {
         effort: String? = null,
     ) =
         ChatSession(
+            clock = { now },
             connect = { launch ->
                 if (failConnect) throw IllegalStateException("claude not found")
                 launches += launch
@@ -53,6 +54,8 @@ class ChatSessionTest {
             worktree = worktree,
             resumeAnchor = resumeAnchor,
         ).also { it.start() }
+
+    private var now = 1000L
 
     private val writeInput = """{"file_path":"/p/a.txt","content":"hi"}"""
 
@@ -110,6 +113,38 @@ class ChatSessionTest {
         assertNull(listener.activities.last())
     }
 
+    @Test fun backgroundProcessesAreReportedApartFromAgents() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.backgroundTaskList(Triple("a1", "local_agent", "Review"), Triple("b1", "local_bash", "npm run dev")))
+        assertEquals(listOf(BackgroundProcess("b1", "Bash", "npm run dev", 1000)), listener.processes.last())
+        now = 5000
+        conn.emit(Fx.backgroundTaskList(Triple("b1", "local_bash", "npm run dev"), Triple("m1", "monitor", "Watch logs")))
+        assertEquals(
+            "a process keeps the time it was first seen",
+            listOf(BackgroundProcess("b1", "Bash", "npm run dev", 1000), BackgroundProcess("m1", "Monitor", "Watch logs", 5000)),
+            listener.processes.last(),
+        )
+        conn.emit(Fx.backgroundTaskList())
+        assertEquals(emptyList<BackgroundProcess>(), listener.processes.last())
+    }
+
+    @Test fun aBackgroundShellCommandIsNotAnAgent() {
+        val s = session()
+        s.send("go")
+        conn.emit(Fx.toolUse("m1", "t1", "Bash", """{"command":"npm run dev","run_in_background":true}"""), Fx.shellTaskStarted("t1", "b1"))
+        conn.emit(Fx.taskNotification("t1"))
+        assertNull(listener.latest<ChatItem.ToolCall>().agent)
+    }
+
+    @Test fun stopTaskAsksTheCliToStopIt() {
+        val s = session()
+        s.send("go")
+        s.stopTask("b1")
+        val stop = conn.sentJson().single { it.str("type") == "control_request" && it.obj("request")?.str("subtype") == "stop_task" }
+        assertEquals("b1", stop.obj("request")!!.str("task_id"))
+    }
+
     /** For example, a background agent finished and Claude reads its report. */
     @Test fun aTurnTheCliStartsByItselfShowsAsRunning() {
         val s = session()
@@ -142,7 +177,7 @@ class ChatSessionTest {
         val s = session()
         startAgent(s, background = true)
         conn.emit(Fx.taskProgress("t1", 2, 900, "Bash"))
-        assertEquals(AgentInfo("general-purpose", true, "Do it", AgentState.RUNNING, 2, 900, "Bash"), listener.latest<ChatItem.ToolCall>().agent)
+        assertEquals(AgentInfo("general-purpose", true, "Do it", AgentState.RUNNING, 2, 900, "Bash", taskId = "a1"), listener.latest<ChatItem.ToolCall>().agent)
         conn.emit(Fx.taskNotification("t1", report = "All done"))
         val done = listener.latest<ChatItem.ToolCall>().agent!!
         assertEquals(AgentState.DONE, done.state)

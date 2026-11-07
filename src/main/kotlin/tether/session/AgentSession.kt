@@ -61,6 +61,9 @@ interface AgentSession {
     /** Stops the running turn; queued messages are dropped (see [ChatListener.onDropped]). */
     fun interrupt()
 
+    /** Stops one subagent or background process by its task id, leaving the turn running; ignored by agents without tasks. */
+    fun stopTask(taskId: String) {}
+
     /** Starts a dead session again, continuing the same conversation where the agent can. */
     fun restart()
 

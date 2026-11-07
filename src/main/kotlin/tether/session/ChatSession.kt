@@ -1,5 +1,6 @@
 package tether.session
 
+import tether.cli.BackgroundTask
 import tether.cli.CliConnection
 import tether.cli.CliEvent
 import tether.cli.CliMessages
@@ -34,7 +35,10 @@ sealed interface Activity {
     data object Writing : Activity
     /** A permission request or question is open. */
     data object Waiting : Activity
-    /** No turn is running, but [count] background agents are still working. */
+    /**
+     * No turn is running, but [count] background tasks (subagents, shell commands, monitors) still are. The chat stays
+     * busy; the page shows them as task rows rather than in the activity strip.
+     */
     data class Agents(val count: Int) : Activity
 }
 
@@ -64,6 +68,9 @@ interface ChatListener {
 
     /** The messages waiting for the running turn to end, oldest first (every change). */
     fun onQueue(messages: List<QueuedMessage>) {}
+
+    /** The background processes running now, oldest first (every change). */
+    fun onProcesses(processes: List<BackgroundProcess>) {}
 
     /** Queued messages that will not be sent (the turn was stopped or the process died), oldest first. */
     fun onDropped(messages: List<QueuedMessage>) {}
@@ -123,6 +130,17 @@ private const val MAX_PREVIEW_CHARS = 16_000_000L
 /** Longest agent prompt or report kept; longer ones are cut and end with "…". */
 internal const val MAX_AGENT_TEXT = 100_000
 
+/** The task type of a subagent; every other type is a [BackgroundProcess]. */
+private const val AGENT_TASK = "local_agent"
+
+/** The label of a background task's row: its tool's name where there is one, else the CLI's type. */
+private fun processKind(type: String): String = when (type) {
+    "local_bash" -> "Bash"
+    "monitor" -> "Monitor"
+    "local_workflow" -> "Workflow"
+    else -> type
+}
+
 /** The call a subagent ends with; its input is the report, which the card shows from the task events instead. */
 private const val HANDBACK = "SubagentHandback"
 
@@ -149,6 +167,8 @@ class ChatSession(
     resumeAnchor: String? = null,
     /** Snapshots the checkout around Bash calls so the files they change show in the turn's list; null skips that. */
     private val trees: WorkingTrees? = null,
+    /** The time in epoch milliseconds, for when a background process started. */
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : AgentSession {
     private val lock = Any()
 
@@ -231,7 +251,11 @@ class ChatSession(
     private var phase: Activity? = null
     private var reported: Activity? = null
     /** Background tasks the CLI reports running; they outlive the turn that started them. */
-    private var backgroundTasks = 0
+    private var backgroundTasks: List<BackgroundTask> = emptyList()
+    /** The background processes last told to the listener. */
+    private var processes: List<BackgroundProcess> = emptyList()
+    /** Calls whose task is not a subagent (a backgrounded Bash call), so their task events don't make them agent cards. */
+    private val otherTasks = HashSet<String>()
     /** Serves [IdeHost.tools] to the current process; null when it was started without them. */
     private var mcpServer: McpServer? = null
     /** Full names (`mcp__tether__<name>`) of the current process's read-only IDE tools, allowed without asking. */
@@ -452,6 +476,14 @@ class ChatSession(
         }
     }
 
+    /** Sends the CLI a stop_task request; the task's own events then report how it ended. */
+    override fun stopTask(taskId: String) {
+        synchronized(lock) {
+            val conn = connection ?: return
+            conn.send(CliMessages.stopTask(nextId("stop"), taskId))
+        }
+    }
+
     /** Stops the running turn; queued messages are dropped (see [ChatListener.onDropped]). */
     override fun interrupt() {
         synchronized(lock) {
@@ -619,19 +651,25 @@ class ChatSession(
                 reportActivity()
             }
             is CliEvent.MessageStart -> onMessageStart()
-            is CliEvent.BackgroundTasks -> { backgroundTasks = event.count; reportActivity() }
+            is CliEvent.BackgroundTasks -> {
+                backgroundTasks = event.tasks
+                reportProcesses()
+                reportActivity()
+            }
             is CliEvent.ThinkingStart -> { phase = Activity.Thinking; reportActivity() }
             is CliEvent.BlockStop -> streamed.remove("${event.messageId}:${event.index}")?.let { emit(it.copy(streaming = false)) }
             is CliEvent.AssistantText -> onAssistantText(event)
             is CliEvent.AssistantMessage -> lastAnswer = event.uuid
             is CliEvent.ToolUse -> onToolUse(event)
-            is CliEvent.TaskStarted -> updateAgent(event.toolUseId) {
-                it.copy(subagentType = event.subagentType, background = event.background, prompt = capped(event.prompt))
-            }
+            is CliEvent.TaskStarted ->
+                if (event.taskType != null && event.taskType != AGENT_TASK) otherTasks += event.toolUseId
+                else updateAgent(event.toolUseId) {
+                    it.copy(subagentType = event.subagentType, background = event.background, prompt = capped(event.prompt), taskId = event.taskId)
+                }
             is CliEvent.TaskProgress -> updateAgent(event.toolUseId) {
                 it.copy(toolUses = event.toolUses ?: it.toolUses, durationMs = event.durationMs ?: it.durationMs, lastTool = event.lastTool)
             }
-            is CliEvent.TaskDone -> updateAgent(event.toolUseId) {
+            is CliEvent.TaskDone -> if (otherTasks.remove(event.toolUseId)) Unit else updateAgent(event.toolUseId) {
                 it.copy(
                     state = if (event.status == "completed") AgentState.DONE else AgentState.FAILED,
                     toolUses = event.toolUses ?: it.toolUses, durationMs = event.durationMs ?: it.durationMs,
@@ -894,6 +932,7 @@ class ChatSession(
         interruptRequested = false
         streamed.values.forEach { emit(it.copy(streaming = false)) }
         streamed.clear()
+        otherTasks.clear()
         mcpServer = null
         readOnlyTools = emptySet()
         initRequestId = null
@@ -905,7 +944,8 @@ class ChatSession(
         runningTools.clear()
         turnEdits.clear()
         snapshotsBeforeBash.clear()
-        backgroundTasks = 0
+        backgroundTasks = emptyList()
+        reportProcesses()
         endAgents { true }
         phase = null
     }
@@ -919,6 +959,7 @@ class ChatSession(
     }
 
     private fun updateAgent(toolUseId: String, change: (AgentInfo) -> AgentInfo) {
+        if (toolUseId in otherTasks) return
         val old = agents[toolUseId] ?: AgentInfo(null, false, null, AgentState.RUNNING)
         val info = change(old)
         if (info == old && toolUseId in agents) return
@@ -963,11 +1004,25 @@ class ChatSession(
     private fun setState(newState: SessionState) { state = newState; notifyState() }
     /** Enters RUNNING with [phase] set first: a running session always has an activity (Chat.busy relies on it). */
     private fun beginRunning(phase: Activity) { this.phase = phase; setState(SessionState.RUNNING) }
+    /**
+     * Tells the listener the background tasks that aren't subagents, if they changed. A task keeps the start time it was
+     * first seen with, so its clock doesn't restart when another task comes or goes.
+     */
+    private fun reportProcesses() {
+        val known = processes.associateBy { it.id }
+        val now = backgroundTasks.filter { it.type != AGENT_TASK && !it.ambient }.map { task ->
+            BackgroundProcess(task.taskId, processKind(task.type), task.description, known[task.taskId]?.startedAt ?: clock())
+        }
+        if (now == processes) return
+        processes = now
+        listener.onProcesses(now)
+    }
+
     /** Tells the listener the current activity if it differs from the last one told. */
     private fun reportActivity() {
         val now = if (turnOpen) {
             if (pendingPermissions.isNotEmpty()) Activity.Waiting else phase
-        } else if (state == SessionState.IDLE && backgroundTasks > 0) Activity.Agents(backgroundTasks) else null
+        } else if (state == SessionState.IDLE && backgroundTasks.isNotEmpty()) Activity.Agents(backgroundTasks.size) else null
         if (now == reported) return
         reported = now
         listener.onActivity(now)

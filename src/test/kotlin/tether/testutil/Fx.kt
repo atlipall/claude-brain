@@ -57,6 +57,14 @@ object Fx {
     fun backgroundTasks(vararg descriptions: String) =
         """{"type":"system","subtype":"background_tasks_changed","tasks":[${descriptions.mapIndexed { i, d -> """{"task_id":"a$i","run_id":"r$i","task_type":"local_agent","subagent_type":"general-purpose","description":${q(d)}}""" }.joinToString(",")}],"uuid":"u13","session_id":"sess-1"}"""
 
+    /** A background_tasks_changed listing [tasks] as (task id, task type, description). */
+    fun backgroundTaskList(vararg tasks: Triple<String, String, String>) =
+        """{"type":"system","subtype":"background_tasks_changed","tasks":[${tasks.joinToString(",") { (id, type, d) -> """{"task_id":"$id","task_type":"$type","description":${q(d)}}""" }}],"uuid":"u13","session_id":"sess-1"}"""
+
+    /** A shell command Bash call [toolUseId] started in the background, as task [taskId]. */
+    fun shellTaskStarted(toolUseId: String, taskId: String) =
+        """{"type":"system","subtype":"task_started","task_id":"$taskId","tool_use_id":"$toolUseId","description":"npm run dev","is_backgrounded":true,"task_type":"local_bash","uuid":"u28","session_id":"sess-1"}"""
+
     fun subagentToolUse(parent: String, toolUseId: String, name: String, inputJson: String) =
         """{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"sm-$toolUseId","type":"message","role":"assistant","content":[{"type":"tool_use","id":"$toolUseId","name":"$name","input":$inputJson}],"stop_reason":null},"parent_tool_use_id":"$parent","session_id":"sess-1","uuid":"u20"}"""
 

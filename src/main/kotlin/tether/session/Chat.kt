@@ -46,6 +46,9 @@ interface SessionView {
 
     /** The messages waiting for the running turn to end, oldest first; empty hides them. */
     fun queue(messages: List<QueuedMessage>) {}
+
+    /** The background processes running now, oldest first; empty shows none. */
+    fun processes(processes: List<BackgroundProcess>) {}
 }
 
 /** What "Revert to here" takes back to before a message, as the user chose it. */
@@ -182,6 +185,8 @@ class Chat(
     @Volatile private var suggestion: String? = null
     /** The session's queued messages (replayed on attach). */
     @Volatile private var queued: List<QueuedMessage> = emptyList()
+    /** The session's background processes, shown again to a view that attaches. */
+    @Volatile private var processes: List<BackgroundProcess> = emptyList()
     @Volatile private var modes: List<Choice> = emptyList()
     private val draftNotices = AtomicInteger()
 
@@ -234,6 +239,11 @@ class Chat(
         override fun onQueue(messages: List<QueuedMessage>) {
             queued = messages
             view?.queue(messages)
+        }
+
+        override fun onProcesses(processes: List<BackgroundProcess>) {
+            this@Chat.processes = processes
+            view?.processes(processes)
         }
 
         /** Their text goes back into the message box, so a stopped turn loses nothing the user typed (images aside). */
@@ -394,6 +404,7 @@ class Chat(
         modelChoice?.let(view::model)
         suggestion?.let(view::suggestion)
         queued.takeIf { it.isNotEmpty() }?.let(view::queue)
+        processes.takeIf { it.isNotEmpty() }?.let(view::processes)
         synchronized(lock) { pendingInsert.also { pendingInsert = null } }?.let(view::insert)
     }
 

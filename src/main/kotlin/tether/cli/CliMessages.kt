@@ -95,6 +95,12 @@ object CliMessages {
 
     fun interrupt(requestId: String): String = controlRequest(requestId) { put("subtype", "interrupt") }
 
+    /** Stops background or foreground task [taskId] (a subagent, shell command, monitor or workflow); the turn goes on. */
+    fun stopTask(requestId: String, taskId: String): String = controlRequest(requestId) {
+        put("subtype", "stop_task")
+        put("task_id", taskId)
+    }
+
     /** Asks how full the context window is; answered without calling the model. */
     fun getContextUsage(requestId: String): String = controlRequest(requestId) { put("subtype", "get_context_usage") }
 

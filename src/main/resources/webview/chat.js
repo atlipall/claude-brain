@@ -33,6 +33,7 @@
   const usageRing = document.getElementById('usage-ring');
   const usagePct = document.getElementById('usage-pct');
   const queueEl = document.getElementById('queue');
+  const tasksEl = document.getElementById('tasks');
   const attachEl = document.getElementById('attachments');
   const attachBtn = document.getElementById('attach');
   /** The tiles in the attachment tray, by attachment id: { el, ready }. */
@@ -154,9 +155,14 @@
       switch (msg.type) {
         case 'reset':
           items.clear(); childBoxes.clear(); waitingFor.clear(); waitingOn.clear(); parentOf.clear(); reports.clear();
+          stubs.clear(); dismissed.clear(); stopping.clear();
           logContent.textContent = '';
+          tasksEl.querySelectorAll(':scope > .agent').forEach((el) => el.remove());
+          setProcesses([]);
           follow();
-          msg.items.forEach(upsert);
+          replaying = true;
+          try { msg.items.forEach(upsert); } finally { replaying = false; }
+          showTasks();
           break;
         case 'items': msg.items.forEach(upsert); break;
         case 'item': upsert(msg.item); break;
@@ -176,6 +182,7 @@
         case 'attachment': setAttachment(msg); break;
         case 'suggestion': setSuggestion(msg.text); break;
         case 'queue': setQueue(msg.items); break;
+        case 'processes': setProcesses(msg.processes); break;
       }
     }
   };
@@ -249,15 +256,18 @@
     return box;
   }
 
-  /** Puts [el] in its card's container ([logContent] without a parent), or has it wait until the card is shown. */
-  function place(el, parentId) {
+  /**
+   * Puts [el] in its card's container ([logContent] without a parent, or [tasksEl] for a [pinned] card), or has it wait
+   * until the card is shown.
+   */
+  function place(el, parentId, pinned) {
     const waited = waitingOn.get(el);
     if (waited !== undefined && waited !== parentId) {
       waitingOn.delete(el);
       const list = (waitingFor.get(waited) || []).filter((x) => x !== el);
       if (list.length) waitingFor.set(waited, list); else waitingFor.delete(waited);
     }
-    const box = parentId ? childBoxes.get(parentId) : logContent;
+    const box = parentId ? childBoxes.get(parentId) : pinned ? tasksEl : logContent;
     if (!box) {
       el.remove();
       if (waitingOn.get(el) !== parentId) {
@@ -277,18 +287,22 @@
     if (!el) { el = document.createElement('div'); items.set(item.id, el); }
     const parentId = typeof item.parentId === 'string' && item.parentId ? item.parentId : null;
     if (parentId) parentOf.set(item.id, parentId); else parentOf.delete(item.id);
-    place(el, parentId);
+    const pinned = !parentId && isAgentCall(item);
+    if (item.kind === 'user' && !el.isConnected) dismissFinished();
+    if (pinned) placeStub(item);
+    place(el, parentId, pinned);
     const wasWaiting = el.classList.contains('status-awaiting_permission');
     const open = [...ownDetails(el)].map((d) => d.open);
     el.textContent = '';
     switch (item.kind) {
       case 'user': renderUser(el, item); break;
       case 'assistant': renderAssistant(el, item); break;
-      case 'tool': if (isAgentCall(item)) renderAgent(el, item); else renderTool(el, item); break;
+      case 'tool': if (isAgentCall(item)) renderAgent(el, item, pinned); else renderTool(el, item); break;
       case 'result': renderResult(el, item); break;
       case 'notice': el.className = 'msg notice' + (item.isError ? ' error' : ''); el.append(withLinks(item.text)); break;
     }
     ownDetails(el).forEach((d, i) => { if (open[i] !== undefined) d.open = open[i]; });
+    if (pinned) { el.hidden = dismissed.has(item.id) && agentState(item) !== 'running'; showTasks(); }
     const startedWaiting = item.kind === 'tool' && item.status === 'awaiting_permission' && !wasWaiting;
     if (startedWaiting) expandAgentsFrom(parentId);
   }
@@ -662,7 +676,7 @@
     const parts = [];
     if (state === 'running' && typeof a.lastTool === 'string' && a.lastTool) parts.push(a.lastTool.slice(0, 40));
     if (Number.isInteger(a.toolUses)) parts.push(a.toolUses + (a.toolUses === 1 ? ' tool' : ' tools'));
-    if (Number.isFinite(a.durationMs)) parts.push(Math.round(a.durationMs / 1000) + 's');
+    if (Number.isFinite(a.durationMs)) parts.push(elapsed(a.durationMs));
     return parts.join(' \u00b7 ');
   }
 
@@ -675,22 +689,43 @@
     return node;
   }
 
+  /** The subagent's type (e.g. "general-purpose"), or '' when the CLI hasn't said. */
+  const agentType = (a) => (a && typeof a.subagentType === 'string' ? a.subagentType.slice(0, 40) : '');
+  /** The agent type a card is labelled with in the task rows, else the call's own name. */
+  const agentLabel = (t) => agentType(t.agent) || t.name;
+  /** The status icon of an agent in [state]: a failed one shows as an error. */
+  const agentIcon = (state) => statusIcon(state === 'failed' ? 'error' : state);
+
+  /** The Stop button of a running task row; [stopping] keeps it disabled across re-renders once pressed. */
+  function stopButton(taskId, what) {
+    const busy = stopping.has(taskId);
+    return h('button', { class: 'link task-stop', 'data-action': 'stopTask', 'data-task': taskId, disabled: busy || null, title: 'Stop ' + what }, busy ? 'Stopping…' : 'Stop');
+  }
+
   /**
    * A subagent card: a head row like a tool row, and a body with the prompt, the container of the subagent's items and
-   * its report. An older CLI sends no report; then the call's result is the best there is.
+   * its report. An older CLI sends no report; then the call's result is the best there is. A [pinned] card sits in the
+   * task rows above the message box rather than in the log: it is labelled with its agent type, a running one can be
+   * stopped and a finished one dismissed.
    */
-  function renderAgent(el, t) {
+  function renderAgent(el, t, pinned) {
     const a = t.agent && typeof t.agent === 'object' ? t.agent : null;
     const state = agentState(t);
     el.className = 'msg agent agent-' + state;
     const desc = toolDescription(t);
+    const name = pinned ? agentLabel(t) : t.name;
+    if (state !== 'running' && a && typeof a.taskId === 'string') stopping.delete(a.taskId);
+    const side = h('span', { class: 'tool-side' }, agentSide(a, state), ' ');
+    if (pinned && state === 'running' && a && typeof a.taskId === 'string' && a.taskId) side.append(stopButton(a.taskId, 'this agent'), ' ');
+    if (pinned && state !== 'running') side.append(h('button', { class: 'link task-dismiss', 'data-action': 'dismissTask', 'data-id': t.id, 'aria-label': 'Dismiss', title: 'Dismiss' }, '\u2715'), ' ');
+    side.append(rowToggle(name));
     const head = h('div', { class: 'tool-row agent-head expandable', 'data-id': t.id },
-      statusIcon(state === 'failed' ? 'error' : state),
-      h('span', { class: 'tool-name' }, t.name),
+      agentIcon(state),
+      h('span', { class: 'tool-name' }, name),
       h('span', { class: 'tool-desc', title: desc || null }, desc),
-      a && typeof a.subagentType === 'string' && a.subagentType ? h('span', { class: 'agent-tag' }, a.subagentType.slice(0, 40)) : null,
-      a && a.background === true ? h('span', { class: 'agent-tag' }, 'background') : null,
-      h('span', { class: 'tool-side' }, agentSide(a, state), ' ', rowToggle(t.name)));
+      !pinned && agentType(a) ? h('span', { class: 'agent-tag' }, agentType(a)) : null,
+      !pinned && a && a.background === true ? h('span', { class: 'agent-tag' }, 'background') : null,
+      side);
     const body = h('div', { class: 'agent-body' });
     if (a && typeof a.prompt === 'string' && a.prompt) body.append(h('details', {}, h('summary', {}, 'Prompt'), h('pre', {}, clip(a.prompt))));
     const box = childBox(t.id);
@@ -709,6 +744,116 @@
       waiting.forEach((c) => { waitingOn.delete(c); box.appendChild(c); });
     }
   }
+
+  /** The log's line for each pinned card, by card id: it marks where the agent started and brings the card back into view. */
+  const stubs = new Map();
+  /** Pinned cards the user dismissed (or that finished before a later message), by id; a running card always shows. */
+  const dismissed = new Set();
+  /** Task ids the user asked to stop, so their Stop stays disabled until the task goes. */
+  const stopping = new Set();
+
+  /** Puts or updates [t]'s line in the log, where the card would have been. */
+  function placeStub(t) {
+    let stub = stubs.get(t.id);
+    if (!stub) { stub = h('div'); stubs.set(t.id, stub); }
+    if (!stub.isConnected) logContent.appendChild(stub);
+    const state = agentState(t);
+    const desc = toolDescription(t);
+    const shown = [state, agentLabel(t), desc].join('\n');
+    if (stub.dataset.shown === shown) return;
+    stub.dataset.shown = shown;
+    stub.className = 'msg tool compact agent-stub status-' + (state === 'failed' ? 'error' : state);
+    stub.textContent = '';
+    stub.append(h('div', { class: 'tool-row', role: 'button', tabindex: '0', 'data-id': t.id, title: 'Show this agent above the message box' },
+      agentIcon(state),
+      h('span', { class: 'tool-name' }, agentLabel(t)),
+      h('span', { class: 'tool-desc' }, desc),
+      h('span', { class: 'tool-side', 'aria-hidden': 'true' }, '\u2193')));
+  }
+
+  /** Brings pinned card [id] back if dismissed, opens it and scrolls the task rows to it. */
+  function revealAgent(id) {
+    const el = items.get(id);
+    if (!el || el.parentNode !== tasksEl) return;
+    dismissed.delete(id);
+    el.hidden = false;
+    expandAgent(id);
+    showTasks();
+    el.scrollIntoView({ block: 'nearest' });
+    const toggle = el.querySelector(':scope > .agent-head .tool-toggle');
+    if (toggle) toggle.focus();
+  }
+
+  /** Hides pinned card [id] if it has finished. */
+  function dismissAgent(id) {
+    const el = items.get(id);
+    if (!el || el.classList.contains('agent-running')) return;
+    dismissed.add(id);
+    el.hidden = true;
+    showTasks();
+  }
+
+  /** A new message clears away the agents that finished before it. */
+  function dismissFinished() {
+    for (const el of tasksEl.querySelectorAll(':scope > .agent:not(.agent-running):not([hidden])')) {
+      const head = el.querySelector(':scope > .agent-head');
+      if (head) dismissed.add(head.dataset.id);
+      el.hidden = true;
+    }
+    showTasks();
+  }
+
+  /** True while a reset replays the chat: the task rows are shown once at its end rather than after every item. */
+  let replaying = false;
+
+  /** The task rows show while any row is visible. */
+  function showTasks() {
+    if (replaying) return;
+    tasksEl.hidden = ![...tasksEl.children].some((c) => !c.hidden);
+  }
+
+  /** "45s", "12m 5s" or "2h 3m": how long a background process has run. */
+  function elapsed(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    return m < 60 ? m + 'm ' + (s % 60) + 's' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+  }
+
+  let processTimer = null;
+  function tickProcesses() {
+    for (const el of tasksEl.querySelectorAll('.process .process-time')) el.textContent = elapsed(Date.now() - Number(el.dataset.started));
+  }
+
+  /**
+   * The background processes (shell commands, monitors, workflows) as rows above the subagents, each with its running
+   * time and a Stop. The IDE sends the whole list on every change. Its text is plain, never markup.
+   */
+  function setProcesses(list) {
+    const processes = (Array.isArray(list) ? list : []).filter((p) => p && typeof p.id === 'string');
+    tasksEl.querySelectorAll(':scope > .process').forEach((el) => el.remove());
+    const ids = new Set(processes.map((p) => p.id));
+    for (const id of [...stopping]) if (!ids.has(id) && !agentTaskRunning(id)) stopping.delete(id);
+    const rows = processes.map((p) => {
+      const kind = typeof p.kind === 'string' && p.kind ? p.kind : 'Task';
+      const desc = typeof p.description === 'string' ? p.description : '';
+      const started = Number.isFinite(p.startedAt) ? p.startedAt : Date.now();
+      return h('div', { class: 'msg process' },
+        h('div', { class: 'tool-row' },
+          statusIcon('running'),
+          h('span', { class: 'tool-name' }, kind),
+          h('span', { class: 'tool-desc', title: desc || null }, desc),
+          h('span', { class: 'tool-side' }, h('span', { class: 'process-time', 'data-started': String(started) }), ' ', stopButton(p.id, 'this process'))));
+    });
+    tasksEl.prepend(...rows);
+    tickProcesses();
+    if (rows.length && processTimer === null) processTimer = setInterval(tickProcesses, 1000);
+    if (!rows.length && processTimer !== null) { clearInterval(processTimer); processTimer = null; }
+    showTasks();
+  }
+
+  /** Whether a running pinned card is the subagent of task [taskId]. */
+  const agentTaskRunning = (taskId) => !!tasksEl.querySelector(':scope > .agent-running [data-task="' + CSS.escape(taskId) + '"]');
 
   function expandAgent(id) {
     expandedTools.add(id);
@@ -1023,10 +1168,6 @@
     running: (msg) => 'Running ' + (typeof msg.tool === 'string' ? msg.tool.slice(0, 40) : 'tool') + '…',
     writing: () => 'Writing…',
     waiting: () => 'Waiting for your answer',
-    agents: (msg) => {
-      const n = Number.isInteger(msg.count) && msg.count > 0 ? msg.count : 1;
-      return n === 1 ? '1 background agent working…' : n + ' background agents working…';
-    },
   };
   let activityPhase = null;
   let activityLabelText = null;
@@ -1042,9 +1183,8 @@
   }
 
   /**
-   * Shows the phase from the IDE, or hides the strip without one. A changed label restarts the clock, except when one
-   * of several background agents finishes: only the count changes and the clock keeps going. Stop is hidden while only
-   * background agents work, as there is no turn to interrupt.
+   * Shows the phase from the IDE, or hides the strip without one; a changed label restarts the clock. Background work
+   * alone has no phase: it shows in the task rows above the strip (see [setProcesses] and [renderAgent]).
    */
   function setActivity(msg) {
     const phase = typeof msg.phase === 'string' && Object.prototype.hasOwnProperty.call(PHASE_LABEL, msg.phase) ? msg.phase : null;
@@ -1056,16 +1196,13 @@
     }
     const label = PHASE_LABEL[phase](msg);
     if (phase === activityPhase && label === activityLabelText) return;
-    const keepTimer = phase === 'agents' && activityPhase === 'agents';
     activityPhase = phase;
     activityLabelText = label;
     activityLabel.textContent = label;
-    activityStop.hidden = phase === 'agents';
     const waiting = phase === 'waiting';
     activityDots.hidden = waiting;
     activitySecs.hidden = waiting;
     activityEl.hidden = false;
-    if (keepTimer) return;
     stopActivityTimer();
     if (!waiting) {
       activityStart = Date.now();
@@ -1427,6 +1564,8 @@
     if (isZoomable(e.target)) { if (!selecting()) openViewer(e.target); return; }
     const fileRow = e.target.closest('.turn-files .tool-row');
     if (fileRow) { if (trusted.has(fileRow)) openTurnDiff(fileRow); return; }
+    const stubRow = e.target.closest('.agent-stub .tool-row');
+    if (stubRow) { if (trusted.has(stubRow) && !selecting()) revealAgent(stubRow.dataset.id); return; }
     const b = e.target.closest('button[data-action]');
     if (!b) {
       const row = e.target.closest('.tool-row');
@@ -1446,6 +1585,13 @@
     else if (action === 'pickModel' && agent === 'claude') send({ type: 'setModel', model: b.dataset.value });
     else if (action === 'pickEffort' && agent === 'claude') send({ type: 'setEffort', effort: b.dataset.value });
     else if (action === 'skipQuestion') send({ type: 'skipQuestion', requestId: b.dataset.req });
+    else if (action === 'stopTask') {
+      stopping.add(b.dataset.task);
+      b.disabled = true;
+      b.textContent = 'Stopping…';
+      send({ type: 'stopTask', id: b.dataset.task });
+    }
+    else if (action === 'dismissTask') dismissAgent(b.dataset.id);
     else if (action === 'deny') {
       const reason = b.parentElement.querySelector('.deny-reason').value.trim();
       send({ type: 'permission', requestId: b.dataset.req, decision: 'deny', message: reason || 'The user denied this action.' });
@@ -1462,6 +1608,8 @@
     if (isZoomable(e.target)) { e.preventDefault(); openViewer(e.target); return; }
     const fileRow = e.target.closest && e.target.closest('.turn-files .tool-row');
     if (fileRow && e.target === fileRow && trusted.has(fileRow)) { e.preventDefault(); openTurnDiff(fileRow); return; }
+    const stubRow = e.target.closest && e.target.closest('.agent-stub .tool-row');
+    if (stubRow && e.target === stubRow && trusted.has(stubRow)) { e.preventDefault(); revealAgent(stubRow.dataset.id); return; }
     const toggle = e.target.classList && e.target.classList.contains('tool-toggle') && trusted.has(e.target) ? e.target : null;
     const row = toggle && toggle.closest('.tool-row.expandable');
     if (row && trusted.has(row)) { e.preventDefault(); toggleRow(row); }

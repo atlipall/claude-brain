@@ -44,9 +44,9 @@ class ChatItemTest {
 
     @Test fun agentCall() = assertEquals(
         """{"id":"t1","kind":"tool","name":"Agent","input":{},"filePath":null,"status":"done","permissionRequestId":null,"resultPreview":null,"hasDiff":false,""" +
-            """"agent":{"subagentType":"general-purpose","background":true,"prompt":"p","state":"running","toolUses":2,"durationMs":900,"lastTool":"Bash","report":null}}""",
+            """"agent":{"subagentType":"general-purpose","background":true,"prompt":"p","state":"running","toolUses":2,"durationMs":900,"lastTool":"Bash","report":null,"taskId":"a1"}}""",
         ChatItem.ToolCall("t1", "Agent", buildJsonObject {}, null, ToolStatus.DONE, null, null, false,
-            agent = AgentInfo("general-purpose", true, "p", AgentState.RUNNING, 2, 900, "Bash")).toJson().toString())
+            agent = AgentInfo("general-purpose", true, "p", AgentState.RUNNING, 2, 900, "Bash", taskId = "a1")).toJson().toString())
 
     @Test fun subagentToolHasItsParent() = assertEquals(
         """{"id":"t2","kind":"tool","name":"Bash","input":{},"filePath":null,"status":"running","permissionRequestId":null,"resultPreview":null,"hasDiff":false,"parentId":"t1"}""",
