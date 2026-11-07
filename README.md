@@ -85,6 +85,10 @@ To install from there and get update notifications in the IDE:
 The IDE then offers each new version through its usual plugin update notifications. Every version's
 zip is also attached to the [GitHub releases](https://github.com/atlipall/tether/releases).
 
+Versions are `<major.minor>.<patch>`: `version.txt` holds the major and minor, and the patch counts the
+commits since `version.txt` last changed. To start a new minor version, edit `version.txt`; the commit
+that changes it releases as `.0`.
+
 ### From source
 
 Quit the IDE, then from the project root:
@@ -99,10 +103,10 @@ Quit the IDE, then from the project root:
 
 Or manually, after `./gw buildPlugin`, either:
 
-- Settings → Plugins → ⚙️ → **Install Plugin from Disk…** → `build/distributions/tether-0.1.0.zip`, and restart; or
+- Settings → Plugins → ⚙️ → **Install Plugin from Disk…** → `build/distributions/tether-0.2.0.zip`, and restart; or
 - with WebStorm closed, unzip it into the plugins folder:
   ```sh
-  unzip -o build/distributions/tether-0.1.0.zip \
+  unzip -o build/distributions/tether-0.2.0.zip \
     -d "$HOME/Library/Application Support/JetBrains/WebStorm2026.2/plugins"
   ```
 
@@ -144,7 +148,7 @@ There is no system Java needed: `./gw` runs Gradle with WebStorm's bundled JBR
 
 ```sh
 ./gw test          # unit + platform tests
-./gw buildPlugin   # build/distributions/tether-0.1.0.zip
+./gw buildPlugin   # build/distributions/tether-0.2.0.zip
 ./gw runIde        # sandbox WebStorm with the plugin loaded
 ```
 

@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "local.tether"
-version = providers.gradleProperty("pluginVersion").getOrElse("0.1.0")
+version = providers.gradleProperty("pluginVersion").getOrElse("${file("version.txt").readText().trim()}.0")
 
 /**
  * The WebStorm build to compile and test against. Without `-PideVersion`, the installed

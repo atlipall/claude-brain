@@ -35,7 +35,10 @@ jobs:
 
       - name: Pick the version
         id: version
-        run: echo "version=0.1.$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          minor=$(tr -d '[:space:]' < version.txt)
+          since=$(git log -1 --format=%H -- version.txt)
+          echo "version=$minor.$(git rev-list --count "$since..HEAD")" >> "$GITHUB_OUTPUT"
 
       - name: Test and build
         run: ./gradlew test buildPlugin -PideVersion="$IDE_VERSION" -PpluginVersion="${{ steps.version.outputs.version }}"
