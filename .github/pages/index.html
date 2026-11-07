@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Tether for coding agents</title>
+  <meta name="description" content="A JetBrains IDE plugin that gives Claude Code and Agent Client Protocol agents a native chat panel.">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --text: light-dark(#1d1d1f, #f5f5f7);
+      --secondary: light-dark(#5e5e63, #a1a1a6);
+      --background: light-dark(#ffffff, #1c1c1e);
+      --surface: light-dark(#f5f5f7, #2c2c2e);
+      --separator: light-dark(#d2d2d7, #3a3a3c);
+      --accent: light-dark(#0066cc, #4da3ff);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background: var(--background);
+    }
+    main { max-width: 42rem; margin: 0 auto; padding: 4rem 1.5rem 3rem; }
+    header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+    header svg { width: 3.5rem; height: 3.5rem; flex: none; color: var(--secondary); }
+    h1 { font-size: 2.25rem; line-height: 1.15; margin: 0; letter-spacing: -0.02em; }
+    h2 { font-size: 1.375rem; margin: 2.75rem 0 0.75rem; }
+    p, li { color: var(--text); }
+    .lead { font-size: 1.25rem; color: var(--secondary); margin: 0 0 1.5rem; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+    .links { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; margin: 0; padding: 0; list-style: none; }
+    .version { color: var(--secondary); font-size: 0.9375rem; }
+    ol, ul { padding-left: 1.4rem; }
+    li { margin: 0.4rem 0; }
+    code {
+      font: 0.875em ui-monospace, "SF Mono", Menlo, monospace;
+      background: var(--surface);
+      border-radius: 5px;
+      padding: 0.1em 0.35em;
+      overflow-wrap: anywhere;
+    }
+    .repository-url {
+      display: block;
+      margin: 0.5rem 0;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--separator);
+      border-radius: 8px;
+      user-select: all;
+    }
+    footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--separator); color: var(--secondary); font-size: 0.9375rem; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M3.5 1.5 H8.5 A2 2 0 0 1 10.5 3.5 V6.5 A2 2 0 0 1 8.5 8.5 H5 L2.5 10.5 V8.4 A2 2 0 0 1 1.5 6.5 V3.5 A2 2 0 0 1 3.5 1.5 Z" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linejoin="round"/>
+      <path d="M12 6.5 H12.5 A2 2 0 0 1 14.5 8.5 V11 A2 2 0 0 1 13.5 12.9 V14.5 L11.5 13 H8 A2 2 0 0 1 6 11 V10.5" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>
+    <h1>Tether for coding agents</h1>
+  </header>
+  <p class="lead">A native chat panel for coding agents inside JetBrains IDEs.</p>
+  <ul class="links">
+    <li><a href="https://github.com/atlipall/tether">Source on GitHub</a></li>
+    <li><a href="https://github.com/atlipall/tether/releases">Releases</a></li>
+    <li><a href="https://github.com/atlipall/tether#readme">Documentation</a></li>
+  </ul>
+
+  <h2>What it is</h2>
+  <p>
+    Tether runs the <a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a> CLI, and
+    Agent Client Protocol agents such as Hermes, in a tool window in the IDE. It uses the agents you
+    already have installed and their existing logins, and never reads, stores or forwards credentials.
+  </p>
+  <ul>
+    <li>Several chats at once, each in its own tab, including chats in separate git worktrees.</li>
+    <li>Files the agent reads or edits are links, and every edit has a diff.</li>
+    <li>The agent sees your current file, selection and caret, and which files you edited or what you did in git between messages.</li>
+    <li>The agent can use the IDE's diagnostics, find usages, quick fixes and rename and move refactorings.</li>
+    <li>Errors in the agent's edits are reported back to it in the same turn.</li>
+    <li>Revert files, the conversation or both to how they were before any message.</li>
+  </ul>
+
+  <h2>Install</h2>
+  <p>Tether needs a 2026.2 JetBrains IDE (build 262 or later) and <a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a> installed and logged in.</p>
+  <ol>
+    <li>In the IDE, open <strong>Settings → Plugins</strong>, click <strong>⚙︎</strong> and choose <strong>Manage Plugin Repositories…</strong></li>
+    <li>Add this URL:
+      <code class="repository-url">https://atlipall.github.io/tether/updatePlugins.xml</code>
+    </li>
+    <li>Search the <strong>Marketplace</strong> tab for <strong>Tether</strong>, install it and restart the IDE.</li>
+  </ol>
+  <p>New versions then appear as regular plugin updates in the IDE.</p>
+  <p class="version">Latest version: {{VERSION}}</p>
+
+  <footer>
+    By Atli Páll Hafsteinsson · <a href="https://github.com/atlipall/tether">github.com/atlipall/tether</a>
+  </footer>
+</main>
+</body>
+</html>

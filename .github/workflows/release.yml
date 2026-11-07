@@ -72,6 +72,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir site
+          sed "s/{{VERSION}}/$VERSION/" .github/pages/index.html > site/index.html
           python3 .github/scripts/plugin_repository.py \
             --zip "build/distributions/tether-$VERSION.zip" \
             --url "${{ github.server_url }}/${{ github.repository }}/releases/download/v$VERSION/tether-$VERSION.zip" \
