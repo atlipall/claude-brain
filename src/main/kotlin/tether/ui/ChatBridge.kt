@@ -40,6 +40,7 @@ import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import java.io.File
 import java.nio.file.Path
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -269,9 +270,44 @@ class ChatBridge(
 
     private fun slotsUsed() = chat.attachments.size + uploads.count + preparing.size
 
-    private fun attachFile(file: VirtualFile) {
+    private fun attachFile(file: VirtualFile) =
+        attachLocal(file.name) { if (file.length > Images.MAX_INPUT_BYTES) null else VfsUtilCore.loadBytes(file) }
+
+    /** Whether files dropped on the panel are taken: not once the chat is dead, as the page's message box is then disabled. */
+    fun acceptsDrops(): Boolean = session.state != SessionState.DEAD
+
+    /**
+     * Attaches files dropped on the panel from outside the page (Finder, the Project view), as the 📎 picker does. A
+     * folder or other non-file is refused with a notice and no tile. Ignored when [acceptsDrops] is false. EDT only.
+     */
+    fun attachDropped(files: List<File>) {
+        if (!acceptsDrops()) return
+        for (file in files) {
+            if (file.isFile) attachLocal(file.name) { readCapped(file) }
+            else chat.notice("Couldn't attach ${displayName(file.name)}: ${Images.NOT_AN_IMAGE}.")
+        }
+    }
+
+    /** Tells the page whether files are being dragged over the panel, so it can show where they will land. */
+    fun dropHover(active: Boolean) = post(buildJsonObject {
+        put("type", "dropTarget")
+        put("active", active)
+    }.toString())
+
+    /**
+     * The file's bytes, or null when it holds more than [Images.MAX_INPUT_BYTES]. Reads at most one byte past the cap,
+     * so a file that grows after it was dropped can't be read in full.
+     */
+    private fun readCapped(file: File): ByteArray? =
+        file.inputStream().use { it.readNBytes(Images.MAX_INPUT_BYTES + 1) }.takeIf { it.size <= Images.MAX_INPUT_BYTES }
+
+    /**
+     * Shows a loading tile for a local file and prepares its bytes ([read], off the EDT; null when over 20 MB), or
+     * refuses it with a notice when the message already has its fill of images.
+     */
+    private fun attachLocal(fileName: String, read: () -> ByteArray?) {
         val id = "k${++pickSeq}"
-        val name = displayName(file.name)
+        val name = displayName(fileName)
         if (slotsUsed() >= Images.MAX_PER_MESSAGE) {
             chat.notice("Couldn't attach $name: at most ${Images.MAX_PER_MESSAGE} images per message.")
             return
@@ -282,7 +318,7 @@ class ChatBridge(
             put("name", name)
             put("loading", true)
         }.toString())
-        prepare(id, name) { if (file.length > Images.MAX_INPUT_BYTES) null else VfsUtilCore.loadBytes(file) }
+        prepare(id, name, read)
     }
 
     /**

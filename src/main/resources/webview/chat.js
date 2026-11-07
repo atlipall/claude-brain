@@ -180,6 +180,7 @@
         case 'usage': setUsage(msg); break;
         case 'model': setModel(msg); break;
         case 'attachment': setAttachment(msg); break;
+        case 'dropTarget': showDropTarget(msg.active === true); break;
         case 'suggestion': setSuggestion(msg.text); break;
         case 'queue': setQueue(msg.items); break;
         case 'processes': setProcesses(msg.processes); break;
@@ -1314,6 +1315,14 @@
     p.el.remove();
     pending.delete(id);
     attachEl.hidden = pending.size === 0;
+  }
+
+  /**
+   * Outlines the message box while the IDE reports files dragged over the panel: the off-screen browser gets no drag
+   * events of its own for them, so the IDE is the one that knows a drop will land here as attachments.
+   */
+  function showDropTarget(active) {
+    document.getElementById('input-box').classList.toggle('drop-target', active);
   }
 
   /**

@@ -26,6 +26,7 @@ import tether.image.ImageFiles
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import java.util.Base64
+import kotlin.io.path.createTempDirectory
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.testFramework.PlatformTestUtil
@@ -648,6 +649,51 @@ class ChatBridgeTest : BasePlatformTestCase() {
         assertEquals("blue.png", shown.str("name"))
         assertEquals("data:image/png;base64,${TestImages.BLUE_PNG_BASE64}", shown.str("thumb"))
         assertEquals(1, chat.attachments.size)
+    }
+
+    private fun droppedFile(name: String, bytes: ByteArray): File =
+        File(createTempDirectory().toFile(), name).apply { writeBytes(bytes) }
+
+    fun testDroppedFilesBecomeAttachments() {
+        val file = droppedFile("blue.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))
+        bridge.handle("""{"type":"ready"}""")
+        bridge.attachDropped(listOf(file))
+        val attachments = posted.filter { it.str("type") == "attachment" }
+        assertEquals(true, attachments.first().bool("loading"))
+        val shown = attachments.last()
+        assertEquals("k1", shown.str("id"))
+        assertEquals("blue.png", shown.str("name"))
+        assertEquals("data:image/png;base64,${TestImages.BLUE_PNG_BASE64}", shown.str("thumb"))
+        assertEquals(1, chat.attachments.size)
+    }
+
+    fun testDroppedNonImagesAndFoldersAreRefusedWithANotice() {
+        val text = droppedFile("notes.txt", "hello".toByteArray())
+        val folder = createTempDirectory().toFile()
+        bridge.handle("""{"type":"ready"}""")
+        bridge.attachDropped(listOf(text, folder))
+        assertEquals(0, chat.attachments.size)
+        assertEquals(1, posted.count { it.str("type") == "attachment" && it.bool("failed") == true })
+        assertTrue("a folder gets no tile", posted.none { it.str("type") == "attachment" && it.str("name") == folder.name })
+        assertEquals(listOf("notes.txt", folder.name), notices().map { it!!.substringAfter("Couldn't attach ").substringBefore(":") })
+    }
+
+    fun testDropsOnADeadChatAreIgnored() {
+        chat.start()
+        connections[0].exit(1, "boom")
+        bridge.handle("""{"type":"ready"}""")
+        posted.clear()
+        bridge.attachDropped(listOf(droppedFile("blue.png", TestImages.bytes(TestImages.BLUE_PNG_BASE64))))
+        assertFalse(bridge.acceptsDrops())
+        assertTrue(posted.none { it.str("type") == "attachment" })
+        assertEquals(0, chat.attachments.size)
+    }
+
+    fun testDragHoverTellsThePageWhereFilesWillLand() {
+        bridge.dropHover(true)
+        bridge.dropHover(false)
+        val hovers = posted.filter { it.str("type") == "dropTarget" }
+        assertEquals(listOf(true, false), hovers.map { it.bool("active") })
     }
 
     fun testPickedFileShowsALoadingTileBeforeItsThumbnail() {

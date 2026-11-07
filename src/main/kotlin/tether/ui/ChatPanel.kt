@@ -21,7 +21,8 @@ import org.cef.network.CefRequest
 /**
  * JCEF browser hosting one chat's page, wired to a [ChatBridge] bound to that chat. The page follows IDE theme and
  * editor colour scheme changes, and is reloaded (a few times at most) when its renderer process dies; a reload of the
- * page itself is the only main-frame navigation allowed once it has loaded.
+ * page itself is the only main-frame navigation allowed once it has loaded. Files dropped on the panel become
+ * attachments through a Swing [FileDrop], as the off-screen browser passes no native drops to the page.
  */
 class ChatPanel(private val project: Project, private val chat: Chat, parent: Disposable) : Disposable {
     val browser = JBCefBrowser()
@@ -35,6 +36,7 @@ class ChatPanel(private val project: Project, private val chat: Chat, parent: Di
     init {
         Disposer.register(parent, this)
         followTheme()
+        FileDrop.install(browser.component, FileDrop(bridge::acceptsDrops, bridge::dropHover, bridge::attachDropped))
 
         query.addHandler { json ->
             ApplicationManager.getApplication().invokeLater({ if (!disposed) bridge.handle(json) }, project.disposed)
@@ -85,6 +87,7 @@ class ChatPanel(private val project: Project, private val chat: Chat, parent: Di
 
     override fun dispose() {
         disposed = true
+        browser.component.dropTarget = null
         bridge.dispose()
         chat.detach(bridge)
         Disposer.dispose(query)
