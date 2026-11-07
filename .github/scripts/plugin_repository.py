@@ -4,7 +4,7 @@ The plugin's id, name, vendor, description and compatible builds are read from t
 built zip, so the repository entry always matches the published build.
 
 Usage: plugin_repository.py --zip build/distributions/tether-0.1.5.zip --url <download url>
-                            [--notes <file with one change per line>] > updatePlugins.xml
+                            [--notes <file with one change per line, plain or as a Markdown list>] > updatePlugins.xml
 """
 
 import argparse
@@ -27,11 +27,14 @@ def read_plugin_xml(plugin_zip: str) -> ET.Element:
 
 
 def change_notes_html(notes_file: str | None) -> str:
-    """Turns a file with one change per line into an HTML list, or returns "" without a file."""
+    """Turns a file with one change per line, optionally as Markdown "- " list items, into an HTML list.
+
+    Returns "" without a file or when it lists no changes.
+    """
     if notes_file is None:
         return ""
     with open(notes_file, encoding="utf-8") as notes:
-        changes = [line.strip() for line in notes if line.strip()]
+        changes = [line.strip().removeprefix("- ").strip() for line in notes if line.strip()]
     if not changes:
         return ""
     return "<ul>" + "".join(f"<li>{escape(change)}</li>" for change in changes) + "</ul>"
@@ -74,7 +77,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--zip", required=True, help="the built plugin distribution zip")
     parser.add_argument("--url", required=True, help="where IDEs download that zip from")
-    parser.add_argument("--notes", help="a file with one change per line, shown in the IDE's update dialog")
+    parser.add_argument("--notes", help="a file with one change per line, plain or as a Markdown list, shown in the IDE's update dialog")
     args = parser.parse_args()
     sys.stdout.write(repository_xml(read_plugin_xml(args.zip), args.url, change_notes_html(args.notes)))
 

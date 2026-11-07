@@ -1,0 +1,52 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/pages/**', '.github/scripts/plugin_repository.py', '.github/workflows/pages.yml']
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view --json tagName,body,assets > release.json
+          jq -r .body release.json | tr -d '\r' > change-notes.txt
+          gh release download "$(jq -r .tagName release.json)" --pattern '*.zip' --dir release
+
+      - name: Build the site
+        run: |
+          mkdir site
+          version=$(jq -r '.tagName | ltrimstr("v")' release.json)
+          sed "s/{{VERSION}}/$version/" .github/pages/index.html > site/index.html
+          python3 .github/scripts/plugin_repository.py \
+            --zip "release/$(jq -r '.assets[] | select(.name | endswith(".zip")) | .name' release.json)" \
+            --url "$(jq -r '.assets[] | select(.name | endswith(".zip")) | .url' release.json)" \
+            --notes change-notes.txt > site/updatePlugins.xml
+          cat site/updatePlugins.xml
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

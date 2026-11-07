@@ -3,13 +3,11 @@ name: Release
 on:
   push:
     branches: [main]
-    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', '.github/pages/**', '.github/workflows/pages.yml', '.github/scripts/plugin_repository.py']
   workflow_dispatch:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: release
@@ -22,9 +20,6 @@ jobs:
   release:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -67,21 +62,10 @@ jobs:
             gh release create "v$VERSION" "$zip" --target "$GITHUB_SHA" --title "Tether $VERSION" --notes-file release-notes.md
           fi
 
-      - name: Build the plugin repository site
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          mkdir site
-          sed "s/{{VERSION}}/$VERSION/" .github/pages/index.html > site/index.html
-          python3 .github/scripts/plugin_repository.py \
-            --zip "build/distributions/tether-$VERSION.zip" \
-            --url "${{ github.server_url }}/${{ github.repository }}/releases/download/v$VERSION/tether-$VERSION.zip" \
-            --notes change-notes.txt > site/updatePlugins.xml
-          cat site/updatePlugins.xml
-
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: site
-
-      - id: deploy
-        uses: actions/deploy-pages@v4
+  pages:
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
