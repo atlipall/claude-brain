@@ -930,13 +930,13 @@
   }
 
   /**
-   * The model a choice runs, short enough for the header: the CLI's descriptions lead with it ("Opus 5.5 · Most
+   * The model a choice runs, short enough for the composer's model chip: the CLI's descriptions lead with it ("Opus 5.5 · Most
    * capable…"), which says more than a name like "Default (recommended)"; the name when there is no description.
    */
   const shortModelName = (o) => (o.description ? o.description.split(' · ')[0].trim() : '') || o.name;
 
   /**
-   * The header's model chip and the picker dialog show what the CLI says runs; the chip stays hidden until it says,
+   * The composer's model chip and the picker dialog show what the CLI says runs; the chip stays hidden until it says,
    * and the effort row shows only for a model that takes an effort. Every string is CLI text and goes in as text.
    * Claude metadata arriving after an agent change is discarded rather than reopening stale controls.
    */
@@ -1375,7 +1375,7 @@
     input.focus();
   }
 
-  /** "High" for "high": how an effort level reads in the header and the picker. */
+  /** "High" for "high": how an effort level reads on the composer's model chip and in the picker. */
   const capitalize = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 
   /**

@@ -27,7 +27,7 @@ class WebAssetsTest {
         assertFalse(page.contains("listSessions"))
     }
 
-    @Test fun theHeaderHasAModelChipThatOpensAPickerAndNoNewChatButton() {
+    @Test fun theComposerHasAModelChipThatOpensAPickerAndTheHeaderHasNoNewChatButton() {
         val page = WebAssets.page()
         assertFalse(page.contains("id=\"new-chat\""))
         assertFalse(page.contains("'newChat'"))
@@ -236,16 +236,14 @@ class WebAssetsTest {
         assertFalse(body.contains("marked"))
     }
 
-    @Test fun agentSelectorLeadsTheHeaderAndModeSelectorSitsInTheComposer() {
+    @Test fun modeSelectorLeadsTheComposerToolsAndAgentAndModelSelectorsTrailIt() {
         val page = WebAssets.page()
         val header = page.substring(page.indexOf("<header id=\"bar\">"), page.indexOf("</header>"))
         val composer = page.substring(page.indexOf("<footer id=\"composer\">"), page.indexOf("</footer>"))
-        val headerOrder = listOf("id=\"agent\"", "id=\"model\"").map(header::indexOf)
-        assertTrue(headerOrder.all { it >= 0 } && headerOrder == headerOrder.sorted())
-        val composerOrder = listOf("id=\"input\"", "id=\"send\"", "id=\"composer-tools\"", "id=\"mode\"", "id=\"attach\"").map(composer::indexOf)
+        val composerOrder = listOf("id=\"input\"", "id=\"send\"", "id=\"composer-tools\"", "id=\"mode\"", "id=\"attach\"", "id=\"composer-choices\"", "id=\"agent\"", "id=\"model\"").map(composer::indexOf)
         assertTrue(composerOrder.all { it >= 0 } && composerOrder == composerOrder.sorted())
-        assertFalse(header.contains("id=\"mode\""))
-        assertFalse(composer.contains("id=\"agent\""))
+        listOf("id=\"mode\"", "id=\"agent\"", "id=\"model\"").forEach { assertFalse(header.contains(it)) }
+        assertTrue(page.contains("#composer-choices { display: flex; align-items: center; gap: 2px; min-width: 0; margin-left: auto; }"))
         assertTrue(page.contains("case 'agent': setAgent(msg); break;"))
         assertTrue(page.contains("send({ type: 'setAgent', agent: value })"))
     }

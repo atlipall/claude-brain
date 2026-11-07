@@ -17,13 +17,13 @@ body { display: flex; flex-direction: column; background: var(--bg); color: var(
 #checkout { color: var(--muted); font-size: .9em; overflow-wrap: anywhere; }
 #bar button.icon { display: inline-flex; align-items: center; justify-content: center; padding: 3px 6px; }
 #bar button.icon svg { width: 15px; height: 15px; }
-#bar .chip { display: inline-flex; align-items: center; gap: 6px; background: transparent; border-color: transparent; }
-#bar .chip:hover:not(:disabled), #bar .chip[aria-expanded="true"] { background: var(--code-bg); border-color: var(--border); }
-#bar .chip[hidden] { display: none; }
-#bar .chip::after { content: ""; width: 5px; height: 5px; flex: none; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); }
-#bar .chip:disabled { opacity: 1; cursor: default; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; font-size: .9em; padding: 0 6px; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--muted); }
+.chip:hover:not(:disabled), .chip[aria-expanded="true"] { background: var(--code-bg); border-color: var(--border); color: var(--fg); }
+.chip[hidden] { display: none; }
+.chip::after { content: ""; width: 5px; height: 5px; flex: none; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); }
+.chip:disabled { opacity: 1; cursor: default; }
 #agent { max-width: min(14em, calc(100vw - 24px)); }
-#bar .chip:disabled::after { display: none; }
+.chip:disabled::after { display: none; }
 #effort-label { color: var(--muted); }
 #effort-label::before { content: "·"; margin-right: 6px; }
 #model-dialog { max-height: calc(100vh - 32px); background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
@@ -58,6 +58,7 @@ img.openable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
 #composer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 4px; }
 #composer-tools .composer-tool { position: relative; display: inline-flex; align-items: center; gap: 4px; max-width: min(14em, calc(100vw - 24px)); height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
 #composer-tools [hidden] { display: none; }
+#composer-choices { display: flex; align-items: center; gap: 2px; min-width: 0; margin-left: auto; }
 #composer-tools .composer-tool:hover { background: var(--code-bg); color: var(--fg); }
 #composer-tools svg { width: 16px; height: 16px; flex: none; }
 #agent-label, #mode-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

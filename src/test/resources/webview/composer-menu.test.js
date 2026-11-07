@@ -28,13 +28,13 @@ window.runComposerMenuTests = function () {
   ] });
   receive({ type: 'state', state: 'IDLE', sessionId: null, mode: 'default' });
 
-  test('agent choices open visibly below the header control', () => {
+  test('agent choices open visibly above the composer control', () => {
     const trigger = document.getElementById('agent');
     trigger.click();
     const menu = document.querySelector('[role="menu"]:not([hidden])');
     assert(menu && menu.getBoundingClientRect().height > 0, 'Agent menu must be visible');
     const bounds = menu.getBoundingClientRect();
-    assert(bounds.top >= trigger.getBoundingClientRect().bottom, 'Menu must open below its trigger');
+    assert(bounds.bottom <= trigger.getBoundingClientRect().top, 'Menu must open above its trigger');
     assert(bounds.top >= 0 && bounds.left >= 0 && bounds.right <= innerWidth, 'Menu must stay inside the webview');
     assert(menu.querySelectorAll('[role="menuitemradio"]').length === 2, 'Both agents must be available');
   });
@@ -140,7 +140,7 @@ window.runComposerMenuTests = function () {
       { value: 'default', name: 'Default', description: 'Opus · Recommended' },
       { value: 'sonnet', name: 'Sonnet', description: 'Sonnet · Fast' },
     ], efforts: ['low', 'high'] });
-    assert(!trigger('model').hidden && trigger('model-label').textContent === 'Opus' && trigger('effort-label').textContent === 'High', 'The header must show the reported model and effort');
+    assert(!trigger('model').hidden && trigger('model-label').textContent === 'Opus' && trigger('effort-label').textContent === 'High', 'The composer must show the reported model and effort');
     trigger('model').click();
     const dialog = trigger('model-dialog');
     assert(dialog.open && dialog.matches(':modal'), 'The native modal picker must remain available');
@@ -219,7 +219,7 @@ window.runComposerMenuTests = function () {
     const bounds = menu().getBoundingClientRect();
     const focused = document.activeElement.getBoundingClientRect();
     assert(document.activeElement === entries()[39] && entries()[39].getAttribute('aria-checked') === 'true', 'Opening must focus the current agent, not the first option');
-    assert(bounds.top >= 0 && bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= trigger('agent').getBoundingClientRect().bottom && bounds.bottom <= innerHeight, 'Long agent menus must remain below the trigger inside the webview');
+    assert(bounds.top >= 0 && bounds.left >= 0 && bounds.right <= innerWidth && bounds.bottom <= trigger('agent').getBoundingClientRect().top, 'Long agent menus must remain above the trigger inside the webview');
     assert(menu().scrollHeight > menu().clientHeight && focused.top >= bounds.top && focused.bottom <= bounds.bottom, 'The selected last agent must be visible in the scrolling list');
     assert(!trigger('agent').querySelector('b') && !menu().querySelector('b') && document.documentElement.scrollWidth <= innerWidth, 'Long labels must remain text and cannot widen the webview');
     key(document.activeElement, 'Escape');
